@@ -20,7 +20,7 @@ CSV_PATH = os.environ.get("CSV") or "/Users/ettoreandrosoni/Downloads/opportunit
 BASE = URL + "/rest/v1"
 
 # password iniziali (da cambiare al primo accesso)
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "nocode.ector@gmail.com")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "ufficio.esteticapremium@gmail.com")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Estetika!2026")
 GIOV_EMAIL = os.environ.get("GIOV_EMAIL", "estetika017@gmail.com")
 GIOV_PASS = os.environ.get("GIOV_PASS", "Estetika!2026")
