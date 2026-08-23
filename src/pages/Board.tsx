@@ -203,7 +203,9 @@ export default function Board({
   const pipeValue = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
   const weightedValue = leads.reduce((s, l) => {
     const st = stages.find((x) => x.id === l.stage_id);
-    const p = st ? (STAGE_PROBABILITY[st.name] ?? 0) : 0;
+    const p = st
+      ? (st.probability ?? STAGE_PROBABILITY[st.name] ?? 0)
+      : 0;
     return s + ((Number(l.value) || 0) * p) / 100;
   }, 0);
   const eur = (n: number) =>

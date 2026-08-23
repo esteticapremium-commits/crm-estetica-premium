@@ -37,6 +37,7 @@ export interface Stage {
   color: string | null;
   is_entry: boolean;
   ghl_stage_id: string | null;
+  probability: number | null;
 }
 
 export interface Lead {

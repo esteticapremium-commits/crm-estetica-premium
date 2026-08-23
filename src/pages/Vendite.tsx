@@ -121,7 +121,8 @@ export default function Vendite({
   const pipeValue = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
   const weightedValue = leads.reduce((s, l) => {
     const st = stageById[l.stage_id];
-    return s + ((Number(l.value) || 0) * (st ? STAGE_PROBABILITY[st.name] ?? 0 : 0)) / 100;
+    const p = st ? (st.probability ?? STAGE_PROBABILITY[st.name] ?? 0) : 0;
+    return s + ((Number(l.value) || 0) * p) / 100;
   }, 0);
   const closedId = stages.find((s) => s.name === "CLOSED")?.id ?? "";
   const closedLeads = byStage[closedId] ?? [];

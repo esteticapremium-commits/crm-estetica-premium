@@ -44,7 +44,7 @@ export default function Admin({
   );
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selPipeline, setSelPipeline] = useState<string | null>(null);
-  const [sub, setSub] = useState<"stato" | "attivita" | "clienti" | "accessi" | "fasi">("stato");
+  const [sub, setSub] = useState<"attivita" | "clienti" | "accessi" | "fasi">("fasi");
 
   useEffect(() => {
     if (!selClient && clients[0]) setSelClient(clients[0].id);
@@ -81,7 +81,7 @@ export default function Admin({
     <div className="page">
       <h1>Amministrazione</h1>
       <p className="sub">
-        Gestisci clienti, pipeline, fasi e accessi — una cosa alla volta.
+        Gestisci fasi, probabilità di chiusura, accessi e log attività.
       </p>
 
       <div className="subnav">
@@ -329,7 +329,7 @@ function PipelinesPanel({
         <input
           className="field"
           style={{ flex: 1, padding: 9 }}
-          placeholder="Nome nuova pipeline (es. Orto-K)"
+          placeholder="Nome nuova pipeline (es. Servizi mensili)"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
         />
@@ -436,6 +436,12 @@ function StagesPanel({ client, pipeline }: { client: Client; pipeline: Pipeline 
     load();
   }
 
+  async function setProbability(s: Stage, value: string) {
+    const n = Math.max(0, Math.min(100, Number(value) || 0));
+    await supabase.from("stages").update({ probability: n }).eq("id", s.id);
+    load();
+  }
+
   async function move(s: Stage, dir: -1 | 1) {
     const idx = stages.findIndex((x) => x.id === s.id);
     const other = stages[idx + dir];
@@ -486,6 +492,7 @@ function StagesPanel({ client, pipeline }: { client: Client; pipeline: Pipeline 
             <th style={{ width: 40 }}>#</th>
             <th>Fase</th>
             <th style={{ width: 70 }}>Colore</th>
+            <th style={{ width: 90 }}>Prob. chiusura</th>
             <th style={{ width: 110 }}>Ingresso</th>
             <th style={{ width: 220 }}></th>
           </tr>
@@ -514,13 +521,24 @@ function StagesPanel({ client, pipeline }: { client: Client; pipeline: Pipeline 
                 />
               </td>
               <td>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={s.probability ?? 0}
+                  onChange={(e) => setProbability(s, e.target.value)}
+                  style={{ width: 62, padding: 6, borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--ink)" }}
+                />
+                %
+              </td>
+              <td>
                 {s.is_entry ? (
                   <span className="tag src">● ingresso</span>
                 ) : (
                   <button
                     className="btn small"
                     onClick={() => setEntry(s)}
-                    title="I nuovi lead da n8n entrano qui"
+                    title="I nuovi lead entrano in questa fase"
                   >
                     imposta
                   </button>
@@ -573,109 +591,6 @@ function StagesPanel({ client, pipeline }: { client: Client; pipeline: Pipeline 
       </div>
     </div>
   );
-}
-
-/* ---------------- Stato integrazione ---------------- */
-function IntegrationPanel({ clients }: { clients: Client[] }) {
-  const [stats, setStats] = useState<Record<string, IntStat>>({});
-  const [tokens, setTokens] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      const out: Record<string, IntStat> = {};
-      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-      const [tok] = await Promise.all([
-        supabase.from("clients").select("id, meta_page_token"),
-      ]);
-      const tk: Record<string, boolean> = {};
-      for (const t of (tok.data as { id: string; meta_page_token: string | null }[]) ?? []) {
-        tk[t.id] = Boolean(t.meta_page_token);
-      }
-      setTokens(tk);
-      for (const c of clients) {
-        const [cnt, last] = await Promise.all([
-          supabase
-            .from("leads")
-            .select("id", { count: "exact", head: true })
-            .eq("client_id", c.id)
-            .gte("created_at", weekAgo),
-          supabase
-            .from("leads")
-            .select("created_at")
-            .eq("client_id", c.id)
-            .order("created_at", { ascending: false })
-            .limit(1),
-        ]);
-        out[c.id] = {
-          lead7: cnt.count ?? 0,
-          last: (last.data?.[0]?.created_at as string) ?? null,
-        };
-      }
-      setStats(out);
-      setLoading(false);
-    }
-    load();
-  }, [clients]);
-
-  function giorniFa(iso: string | null): string {
-    if (!iso) return "mai";
-    const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-    if (d <= 0) return "oggi";
-    if (d === 1) return "ieri";
-    return d + " gg fa";
-  }
-
-  const St = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => (
-    <span className={"st " + (ok ? "ok" : "warn")}>
-      <span className="ic">{ok ? "✓" : "⚠"}</span>
-      {ok ? yes : no}
-    </span>
-  );
-
-  return (
-    <div className="panel">
-      <h2>Stato integrazione</h2>
-      <p style={{ color: "var(--muted)", marginTop: -6 }}>
-        A colpo d'occhio: cosa è collegato e quando è arrivato l'ultimo lead per
-        ogni cliente. Lo stato delle campagne Meta (accese/spente) te lo
-        controllo io da qui in chat.
-      </p>
-      {loading ? (
-        <div style={{ color: "var(--muted)" }}>Caricamento…</div>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Cliente</th>
-              <th>Pagina FB</th>
-              <th>Token Meta</th>
-              <th>Ad account</th>
-              <th>Lead ultimi 7 gg</th>
-              <th>Ultimo lead</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((c) => (
-              <tr key={c.id}>
-                <td><b>{c.name}</b></td>
-                <td><St ok={Boolean(c.meta_page_id)} yes="collegata" no="mancante" /></td>
-                <td><St ok={tokens[c.id] ?? false} yes="valido" no="mancante" /></td>
-                <td><St ok={Boolean(c.meta_ad_account_id)} yes="attivo" no="non collegato" /></td>
-                <td>{stats[c.id]?.lead7 ?? 0}</td>
-                <td>{giorniFa(stats[c.id]?.last ?? null)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-interface IntStat {
-  lead7: number;
-  last: string | null;
 }
 
 /* ---------------- Attività recenti ---------------- */
@@ -797,65 +712,29 @@ function UsersPanel({ clients }: { clients: Client[] }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
-
   async function load() {
     setLoading(true);
-    const res = await callAdmin("list_users");
+    setErr(null);
+    const { data, error } = await supabase.rpc("list_users");
     setLoading(false);
-    if (res.error) return setErr(res.error);
-    setUsers(res.users as SecretaryRow[]);
+    if (error) return setErr(error.message);
+    setUsers(
+      ((data as SecretaryRow[]) ?? []).filter((u) => u.role !== "admin")
+    );
   }
   useEffect(() => {
     load();
   }, []);
-  useEffect(() => {
-    if (!clientId && clients[0]) setClientId(clients[0].id);
-  }, [clients, clientId]);
 
-  async function create() {
-    setErr(null);
-    setMsg(null);
-    if (!email.trim() || !password.trim() || !clientId)
-      return setErr("Compila email, password e cliente.");
-    const res = await callAdmin("create_venditore", {
-      email: email.trim(),
-      password,
-      client_id: clientId,
-      full_name: fullName.trim() || null,
-    });
-    if (res.error) return setErr(res.error);
-    setMsg("Accesso creato. Comunica email e password al venditore.");
-    setEmail("");
-    setPassword("");
-    setFullName("");
-    load();
-  }
 
-  async function resetPwd(u: SecretaryRow) {
-    const p = prompt(`Nuova password per ${u.email}:`);
-    if (!p) return;
-    const res = await callAdmin("set_password", { user_id: u.id, password: p });
-    if (res.error) return alert(res.error);
-    alert("Password aggiornata.");
-  }
-
-  async function del(u: SecretaryRow) {
-    if (!confirm(`Eliminare l'accesso di ${u.email}?`)) return;
-    const res = await callAdmin("delete_user", { user_id: u.id });
-    if (res.error) return alert(res.error);
-    load();
-  }
-
-  const clientName = (id: string | null) =>
-    clients.find((c) => c.id === id)?.name ?? (id ? "—" : "(tutti)");
 
   return (
     <div className="panel">
       <h2>Accessi (venditori)</h2>
+      <p style={{ color: "var(--muted)", marginTop: -6 }}>
+        Qui vedi i venditori attivi. Per creare un nuovo accesso o cambiare una
+        password, chiedilo a Ettore: te lo crea su richiesta in un minuto.
+      </p>
       {err && <div className="notice err">{err}</div>}
       {msg && <div className="notice ok">{msg}</div>}
 
@@ -878,25 +757,11 @@ function UsersPanel({ clients }: { clients: Client[] }) {
                 <td>{u.full_name || "—"}</td>
                 <td>{u.email}</td>
                 <td>{u.role === "admin" ? "Amministratore" : "Venditore"}</td>
-                <td>{u.role === "admin" ? "(tutti)" : clientName(u.client_id)}</td>
+                <td>{(clients.find((c) => c.id === u.client_id)?.name) ?? "—"}</td>
                 <td style={{ textAlign: "right" }}>
-                  {u.role !== "admin" && (
-                    <>
-                      <button
-                        className="btn small"
-                        onClick={() => resetPwd(u)}
-                        style={{ marginRight: 6 }}
-                      >
-                        Password
-                      </button>
-                      <button
-                        className="btn small danger"
-                        onClick={() => del(u)}
-                      >
-                        Elimina
-                      </button>
-                    </>
-                  )}
+                  <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                    attivo
+                  </span>
                 </td>
               </tr>
             ))}
@@ -904,34 +769,6 @@ function UsersPanel({ clients }: { clients: Client[] }) {
         </table>
       )}
 
-      <h3 style={{ fontSize: 14, marginTop: 18 }}>Crea nuovo accesso venditore</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className="field">
-          <label>Nome</label>
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Cliente assegnato</label>
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>Email (per il login)</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Password iniziale</label>
-          <input value={password} onChange={(e) => setPassword(e.target.value)} />
-        </div>
-      </div>
-      <button className="btn primary" onClick={create}>
-        + Crea accesso
-      </button>
     </div>
   );
 }
