@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 // NOTA: la chiave anon è PUBBLICA per design (le regole di sicurezza del
 // database proteggono i dati). La service_role NON va mai messa nel codice.
 const DEFAULT_URL = "https://mvujbtygcmowkbvoqcgp.supabase.co";
-const DEFAULT_ANON_KEY = "LA_TUA_CHIAVE_ANON";
+const DEFAULT_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWpidHlnY21vd2tidm9xY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MzQ3MDMsImV4cCI6MjEwMzAxMDcwM30.Xk3CUy-3ESAuHvTAQRDtDrrAN4iTQlhQ2pYc9Lb_PSw";
 
 export const SUPABASE_URL =
   (import.meta.env.VITE_SUPABASE_URL as string) || DEFAULT_URL;
