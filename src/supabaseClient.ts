@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 // variabili VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY su Vercel.
 // NOTA: la chiave anon è PUBBLICA per design (le regole di sicurezza del
 // database proteggono i dati). La service_role NON va mai messa nel codice.
-const DEFAULT_URL = "https://PROJECT_REF.supabase.co";
+const DEFAULT_URL = "https://mvujbtygcmowkbvoqcgp.supabase.co";
 const DEFAULT_ANON_KEY = "LA_TUA_CHIAVE_ANON";
 
 export const SUPABASE_URL =
