@@ -51,6 +51,10 @@ export interface Lead {
   assigned_to: string | null;
   value: number | null;
   notes: string | null;
+  next_action_date: string | null;
+  closing_date: string | null;
+  lost_reason: string | null;
+  tags: string | null;
   position: number;
   created_at: string;
   updated_at: string;

@@ -32,6 +32,10 @@ export default function LeadModal({
     lead?.stage_id ?? newInStage?.id ?? stages[0]?.id
   );
   const [notes, setNotes] = useState(lead?.notes ?? "");
+  const [nextAction, setNextAction] = useState(lead?.next_action_date ?? "");
+  const [closingDate, setClosingDate] = useState(lead?.closing_date ?? "");
+  const [lostReason, setLostReason] = useState(lead?.lost_reason ?? "");
+  const [tags, setTags] = useState(lead?.tags ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -47,6 +51,10 @@ export default function LeadModal({
       value: Number(value) || 0,
       stage_id: stageId,
       notes: notes.trim() || null,
+      next_action_date: nextAction.trim() || null,
+      closing_date: closingDate.trim() || null,
+      lost_reason: lostReason.trim() || null,
+      tags: tags.trim() || null,
     };
     let error;
     let newLeadId: string | null = null;
@@ -171,6 +179,49 @@ export default function LeadModal({
                 onChange={(e) => setValue(e.target.value)}
               />
             </div>
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Prossima azione</label>
+              <input
+                type="date"
+                value={nextAction}
+                onChange={(e) => setNextAction(e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Chiusura prevista</label>
+              <input
+                type="date"
+                value={closingDate}
+                onChange={(e) => setClosingDate(e.target.value)}
+              />
+            </div>
+          </div>
+          {stages.find((s) => s.id === stageId)?.name === "LOST" && (
+            <div className="field">
+              <label>Motivo della perdita</label>
+              <select
+                value={lostReason}
+                onChange={(e) => setLostReason(e.target.value)}
+              >
+                <option value="">— scegli —</option>
+                <option>Prezzo troppo alto</option>
+                <option>Ha scelto un concorrente</option>
+                <option>Non interessato più</option>
+                <option>Irraggiungibile</option>
+                <option>Budget fermo</option>
+                <option>Altro</option>
+              </select>
+            </div>
+          )}
+          <div className="field">
+            <label>Etichette (separate da virgola, es. VIP, caldo)</label>
+            <input
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="es. VIP, da richiamare"
+            />
           </div>
           <div className="field">
             <label>Note (storico chiamate, esito, ecc.)</label>

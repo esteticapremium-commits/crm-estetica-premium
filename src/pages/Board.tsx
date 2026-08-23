@@ -14,6 +14,19 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import LeadModal from "./LeadModal";
 
+// Probabilità di chiusura per fase (impostazione da CRM vendita: il valore
+// della pipeline si pondera per la probabilità della fase in cui si trova).
+export const STAGE_PROBABILITY: Record<string, number> = {
+  "NO ANSWER": 5,
+  "RECALL": 15,
+  "DISCOVERY": 30,
+  "SETTING": 50,
+  "NO SHOW": 10,
+  "CLOSING": 75,
+  "LOST": 0,
+  "CLOSED": 100,
+};
+
 export default function Board({
   client,
   pipeline,
@@ -96,6 +109,13 @@ export default function Board({
       onFocusConsumed?.();
     }
   }, [focusLeadId, leads, onFocusConsumed]);
+
+  // Nome della fase per ogni lead (per i badge sulle card)
+  const leadStageNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of stages) m[s.id] = s.name;
+    return m;
+  }, [stages]);
 
   const leadsByStage = useMemo(() => {
     const map: Record<string, Lead[]> = {};
@@ -180,6 +200,14 @@ export default function Board({
       .length +
     (leadsByStage[stages.find((s) => s.name === "NO ANSWER")?.id ?? ""] ?? [])
       .length;
+  const pipeValue = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const weightedValue = leads.reduce((s, l) => {
+    const st = stages.find((x) => x.id === l.stage_id);
+    const p = st ? (STAGE_PROBABILITY[st.name] ?? 0) : 0;
+    return s + ((Number(l.value) || 0) * p) / 100;
+  }, 0);
+  const eur = (n: number) =>
+    n ? "€ " + Math.round(n).toLocaleString("it-IT") : "€ 0";
 
   return (
     <>
@@ -212,6 +240,14 @@ export default function Board({
                   </span>
                   <span className="kpi-k">in chiusura</span>
                 </div>
+                <div className="kpi">
+                  <span className="kpi-v">{eur(pipeValue)}</span>
+                  <span className="kpi-k">valore pipeline</span>
+                </div>
+                <div className="kpi">
+                  <span className="kpi-v">{eur(weightedValue)}</span>
+                  <span className="kpi-k">valore ponderato</span>
+                </div>
               </div>
             </div>
           )}
@@ -223,12 +259,18 @@ export default function Board({
                 leads={leadsByStage[s.id] ?? []}
                 onOpen={(l) => setEditing(l)}
                 onAdd={canEdit ? () => setCreatingInStage(s) : undefined}
+                leadStageNames={leadStageNames}
               />
             ))}
           </div>
         </div>
         <DragOverlay>
-          {activeLead ? <LeadCardView lead={activeLead} /> : null}
+          {activeLead ? (
+            <LeadCardView
+              lead={activeLead}
+              stageName={leadStageNames[activeLead.stage_id] ?? ""}
+            />
+          ) : null}
         </DragOverlay>
       </DndContext>
 
@@ -267,11 +309,13 @@ function Column({
   leads,
   onOpen,
   onAdd,
+  leadStageNames,
 }: {
   stage: Stage;
   leads: Lead[];
   onOpen: (l: Lead) => void;
   onAdd?: () => void;
+  leadStageNames: Record<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
@@ -286,7 +330,12 @@ function Column({
       </div>
       <div className="col-body" ref={setNodeRef}>
         {leads.map((l) => (
-          <DraggableCard key={l.id} lead={l} onOpen={() => onOpen(l)} />
+          <DraggableCard
+            key={l.id}
+            lead={l}
+            onOpen={() => onOpen(l)}
+            stageName={leadStageNames[l.stage_id] ?? ""}
+          />
         ))}
       </div>
       {onAdd && (
@@ -299,7 +348,15 @@ function Column({
 }
 
 /* ---------------- Card trascinabile ---------------- */
-function DraggableCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
+function DraggableCard({
+  lead,
+  onOpen,
+  stageName,
+}: {
+  lead: Lead;
+  onOpen: () => void;
+  stageName: string;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
   });
@@ -311,24 +368,43 @@ function DraggableCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
       {...attributes}
       onClick={onOpen}
     >
-      <LeadCardInner lead={lead} />
+      <LeadCardInner lead={lead} stageName={stageName} />
     </div>
   );
 }
 
 /* Card usata anche nell'overlay di trascinamento */
-function LeadCardView({ lead }: { lead: Lead }) {
+function LeadCardView({ lead, stageName }: { lead: Lead; stageName: string }) {
   return (
     <div className="card" style={{ width: 264 }}>
-      <LeadCardInner lead={lead} />
+      <LeadCardInner lead={lead} stageName={stageName} />
     </div>
   );
 }
 
-function LeadCardInner({ lead }: { lead: Lead }) {
+function daysSince(d: string) {
+  if (!d) return null;
+  const diff = Date.now() - new Date(d).getTime();
+  return Math.max(0, Math.floor(diff / 86400000));
+}
+
+function LeadCardInner({
+  lead,
+  stageName,
+}: {
+  lead: Lead;
+  stageName: string;
+}) {
+  const idle = daysSince(lead.updated_at ?? lead.created_at);
+  const isDead = ["LOST", "CLOSED"].includes(stageName);
   return (
     <>
       <div className="name">{lead.name || "(senza nome)"}</div>
+      {lead.value ? (
+        <div className="deal-value">
+          € {Number(lead.value).toLocaleString("it-IT")}
+        </div>
+      ) : null}
       {lead.phone && (
         <div className="row">
           <span>📞</span>
@@ -345,6 +421,20 @@ function LeadCardInner({ lead }: { lead: Lead }) {
           </span>
         </div>
       )}
+      {lead.next_action_date && (
+        <div className="row">
+          <span>📅</span>
+          <span className={lead.next_action_date <= new Date().toISOString().slice(0, 10) ? "overdue" : ""}>
+            {new Date(lead.next_action_date).toLocaleDateString("it-IT", {
+              day: "numeric",
+              month: "short",
+            })}
+          </span>
+        </div>
+      )}
+      {stageName === "LOST" && lead.lost_reason && (
+        <div className="row lost-reason">✗ {lead.lost_reason}</div>
+      )}
       <div className="tags">
         {lead.assigned_to && (
           <span className="chip">
@@ -354,6 +444,9 @@ function LeadCardInner({ lead }: { lead: Lead }) {
         )}
         {lead.source && <span className="chip src">{lead.source}</span>}
         {lead.notes && <span className="chip note">📝 nota</span>}
+        {!isDead && idle !== null && idle >= 3 && (
+          <span className="chip idle">⏳ fermo {idle} gg</span>
+        )}
       </div>
     </>
   );

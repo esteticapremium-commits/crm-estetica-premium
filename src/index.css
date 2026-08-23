@@ -820,6 +820,31 @@ a {
   background: var(--gold-soft);
 }
 
+/* ---- Elementi vendita (deal value, fermi, scadenze) ---- */
+.deal-value {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #d9b56a;
+  margin-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.chip.idle {
+  background: rgba(224, 90, 90, 0.12);
+  color: #e08a8a;
+}
+.row.overdue {
+  color: #e08a8a;
+  font-weight: 700;
+}
+.lost-reason {
+  color: #b0aca2;
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+.theme-premium .row.overdue {
+  color: #e08a8a;
+}
+
 /* ============================================================
    TEMA PREMIUM — riservato alle agenzie di marketing (Estetica)
    Palette: notte profonda, oro, grafite. Eleganza, non colori.

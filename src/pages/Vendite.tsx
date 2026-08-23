@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
+import { STAGE_PROBABILITY } from "./Board";
 
 interface StageEvent {
   id: string;
@@ -116,6 +117,34 @@ export default function Vendite({
     return arr.slice(0, 21); // ultime 3 settimane
   }, [events, stageById]);
 
+  // KPI da CRM vendita: valore pipeline, ponderato, chiusi (€), tasso
+  const pipeValue = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const weightedValue = leads.reduce((s, l) => {
+    const st = stageById[l.stage_id];
+    return s + ((Number(l.value) || 0) * (st ? STAGE_PROBABILITY[st.name] ?? 0 : 0)) / 100;
+  }, 0);
+  const closedId = stages.find((s) => s.name === "CLOSED")?.id ?? "";
+  const closedLeads = byStage[closedId] ?? [];
+  const closedEur = closedLeads.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const activeStages = stages.filter((s) => !["LOST", "CLOSED"].includes(s.name)).map((s) => s.id);
+  const activeLeads = leads.filter((l) => activeStages.includes(l.stage_id));
+  const closeRate = leads.length ? Math.round((closedLeads.length / leads.length) * 100) : 0;
+
+  // Da richiamare: prossima azione scaduta o di oggi, lead non chiusi
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const toCall = leads
+    .filter((l) => l.next_action_date && l.next_action_date <= todayIso && activeStages.includes(l.stage_id))
+    .sort((a, b) => (a.next_action_date ?? "").localeCompare(b.next_action_date ?? ""));
+  // Lead fermi: nessuna attività da 5+ giorni, non chiusi
+  const stale = leads
+    .filter((l) => {
+      if (!activeStages.includes(l.stage_id)) return false;
+      const upd = l.updated_at ?? l.created_at;
+      const days = (Date.now() - new Date(upd).getTime()) / 86400000;
+      return days >= 5;
+    })
+    .sort((a, b) => (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at));
+
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const todayRow = days.find((d) => d.day === today);
   const weekMov = days.slice(0, 7).reduce((s, d) => s + d.movimenti, 0);
@@ -126,7 +155,7 @@ export default function Vendite({
     <div className="page vendite">
       <h1>Vendite · {client.name}</h1>
       <p className="sub">
-        Pipeline: <b>{pipeline.name}</b> · attività di Giovanni giorno per giorno
+        Pipeline: <b>{pipeline.name}</b> · attività del team vendita giorno per giorno
         e tasso di passaggio tra le fasi.
       </p>
 
@@ -148,9 +177,35 @@ export default function Vendite({
           </div>
         </div>
         <div className="stat">
-          <div className="k">Chiusi (CLOSED)</div>
+          <div className="k">Tasso di chiusura</div>
           <div className="v" style={{ color: "#16a34a" }}>
-            {(byStage[stages.find((s) => s.name === "CLOSED")?.id ?? ""] ?? []).length}
+            {closeRate}%
+          </div>
+        </div>
+      </div>
+      <div className="cards-grid">
+        <div className="stat">
+          <div className="k">Valore pipeline</div>
+          <div className="v">
+            € {pipeValue.toLocaleString("it-IT")}
+          </div>
+        </div>
+        <div className="stat">
+          <div className="k">Valore ponderato</div>
+          <div className="v" style={{ color: "var(--gold)" }}>
+            € {Math.round(weightedValue).toLocaleString("it-IT")}
+          </div>
+        </div>
+        <div className="stat">
+          <div className="k">Chiusi (€)</div>
+          <div className="v" style={{ color: "#16a34a" }}>
+            € {closedEur.toLocaleString("it-IT")}
+          </div>
+        </div>
+        <div className="stat">
+          <div className="k">Da richiamare</div>
+          <div className="v" style={{ color: toCall.length ? "#d3a24f" : undefined }}>
+            {toCall.length}
           </div>
         </div>
       </div>
@@ -188,6 +243,48 @@ export default function Vendite({
           Esempio: se RECALL ha 71 lead e DISCOVERY ne ha 12, il tasso è 12/71 = 17%.
         </div>
       </div>
+
+      {toCall.length > 0 && (
+        <div className="panel">
+          <h2>📞 Da richiamare (prossima azione scaduta o di oggi)</h2>
+          <table className="table">
+            <thead>
+              <tr><th>Lead</th><th>Fase</th><th>Prossima azione</th><th>Fermo da</th></tr>
+            </thead>
+            <tbody>
+              {toCall.slice(0, 10).map((l) => (
+                <tr key={l.id}>
+                  <td><b>{l.name || "(senza nome)"}</b></td>
+                  <td>{stageById[l.stage_id]?.name ?? ""}</td>
+                  <td>{new Date(l.next_action_date!).toLocaleDateString("it-IT")}</td>
+                  <td>{Math.floor((Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) / 86400000)} gg</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {stale.length > 0 && (
+        <div className="panel">
+          <h2>⏳ Lead fermi (nessun movimento da 5+ giorni)</h2>
+          <table className="table">
+            <thead>
+              <tr><th>Lead</th><th>Fase</th><th>Fermo da</th><th>Valore</th></tr>
+            </thead>
+            <tbody>
+              {stale.slice(0, 10).map((l) => (
+                <tr key={l.id}>
+                  <td><b>{l.name || "(senza nome)"}</b></td>
+                  <td>{stageById[l.stage_id]?.name ?? ""}</td>
+                  <td>{Math.floor((Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) / 86400000)} gg</td>
+                  <td>{l.value ? "€ " + Number(l.value).toLocaleString("it-IT") : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="panel" style={{ overflowX: "auto" }}>
         <h2>Attività giornaliera · ultime 3 settimane</h2>
