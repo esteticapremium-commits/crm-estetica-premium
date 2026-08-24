@@ -10,6 +10,8 @@ interface ContractPub {
   signed_name: string | null;
   signed_at: string | null;
   signature_data: string | null;
+  client_fields: string | null;
+  client_data: string | null;
 }
 
 /**
@@ -21,6 +23,7 @@ export default function FirmaPage({ token }: { token: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [name, setName] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
@@ -88,6 +91,13 @@ export default function FirmaPage({ token }: { token: string }) {
 
   async function sign() {
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
+    const fields = (doc?.client_fields ?? "")
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+    for (const f of fields) {
+      if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
+    }
     const c = canvasRef.current;
     if (!c) return;
     setBusy(true);
@@ -97,6 +107,7 @@ export default function FirmaPage({ token }: { token: string }) {
       p_token: token,
       p_name: name.trim(),
       p_sig: data,
+      p_data: JSON.stringify(values),
     });
     setBusy(false);
     if (error) return setErr("Firma non riuscita: " + error.message);
@@ -130,6 +141,29 @@ export default function FirmaPage({ token }: { token: string }) {
                   className="firma-preview"
                 />
               )}
+              {doc.client_data && (() => {
+                try {
+                  const data = JSON.parse(doc.client_data);
+                  const keys = Object.keys(data);
+                  if (keys.length) {
+                    return (
+                      <div className="client-data" style={{ margin: "12px 0" }}>
+                        <b style={{ display: "block", marginBottom: 6 }}>
+                          Dati dichiarati dal firmatario
+                        </b>
+                        {keys.map((k) => (
+                          <div key={k} style={{ fontSize: 13, margin: "2px 0" }}>
+                            <span style={{ color: "var(--muted)" }}>{k}: </span>
+                            <b>{String(data[k])}</b>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                } catch {
+                  return null;
+                }
+              })()}
               <DocumentBody body={doc.body} />
             </div>
           )}
@@ -143,8 +177,30 @@ export default function FirmaPage({ token }: { token: string }) {
               </div>
               <div className="firma-body">
                 <DocumentBody body={doc.body} />
+                {(doc.client_fields ?? "").trim() && (
+                  <div className="client-fields">
+                    <b style={{ display: "block", marginBottom: 6 }}>
+                      I tuoi dati (richiesti)
+                    </b>
+                    {(doc.client_fields ?? "")
+                      .split("\n")
+                      .map((f) => f.trim())
+                      .filter(Boolean)
+                      .map((f) => (
+                        <div className="field" key={f} style={{ marginBottom: 8 }}>
+                          <label>{f}</label>
+                          <input
+                            value={values[f] ?? ""}
+                            onChange={(e) =>
+                              setValues((prev) => ({ ...prev, [f]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      ))}
+                  </div>
+                )}
                 <div className="field" style={{ marginTop: 22 }}>
-                  <label>Nome e cognome</label>
+                  <label>Nome e cognome (firmatario)</label>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}

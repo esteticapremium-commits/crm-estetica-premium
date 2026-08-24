@@ -729,6 +729,7 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [newBody, setNewBody] = useState("");
+  const [newFields, setNewFields] = useState("");
   const [editing, setEditing] = useState<ContractTemplate | null>(null);
 
   const clientId = clients[0]?.id;
@@ -751,10 +752,16 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
     if (!newName.trim() || !clientId) return;
     const { error } = await supabase
       .from("contract_templates")
-      .insert({ client_id: clientId, name: newName.trim(), body: newBody });
+      .insert({
+        client_id: clientId,
+        name: newName.trim(),
+        body: newBody,
+        client_fields: newFields.trim() || null,
+      });
     if (error) return alert(error.message);
     setNewName("");
     setNewBody("");
+    setNewFields("");
     load();
   }
 
@@ -762,7 +769,7 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
     if (!editing) return;
     const { error } = await supabase
       .from("contract_templates")
-      .update({ name: editing.name, body: editing.body })
+      .update({ name: editing.name, body: editing.body, client_fields: editing.client_fields })
       .eq("id", editing.id);
     if (error) return alert(error.message);
     setEditing(null);
@@ -835,6 +842,16 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
           value={newBody}
           onChange={(e) => setNewBody(e.target.value)}
         />
+        <div className="field" style={{ marginTop: 8 }}>
+          <label>Campi che il cliente deve compilare (uno per riga)</label>
+          <textarea
+            className="field"
+            style={{ width: "100%", minHeight: 90 }}
+            placeholder={"Ragione sociale\nP.IVA\nSede legale\nRappresentante legale"}
+            value={newFields}
+            onChange={(e) => setNewFields(e.target.value)}
+          />
+        </div>
       </div>
 
       {editing && (
@@ -855,6 +872,14 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
                   style={{ minHeight: 220 }}
                   value={editing.body ?? ""}
                   onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Campi che il cliente deve compilare (uno per riga)</label>
+                <textarea
+                  style={{ minHeight: 90 }}
+                  value={editing.client_fields ?? ""}
+                  onChange={(e) => setEditing({ ...editing, client_fields: e.target.value })}
                 />
               </div>
             </div>

@@ -105,6 +105,7 @@ export default function LeadModal({
       template_id: ctTpl,
       title: ctTitle.trim() || "Contratto",
       body,
+      client_fields: tpl?.client_fields ?? null,
       status: "draft",
       sent_to: ctTo.trim() || lead.email || null,
       created_by: meName ?? null,
@@ -358,6 +359,27 @@ export default function LeadModal({
                         ? `📤 Inviato a ${c.sent_to ?? "—"}`
                         : `📝 Bozza · a ${c.sent_to ?? "—"}`}
                     </div>
+                    {c.client_data &&
+                      (() => {
+                        try {
+                          const data = JSON.parse(c.client_data);
+                          const keys = Object.keys(data).filter(
+                            (k) => String(data[k] ?? "").trim()
+                          );
+                          if (keys.length)
+                            return (
+                              <div className="contract-meta" style={{ marginTop: 4 }}>
+                                {keys.map((k) => (
+                                  <div key={k}>
+                                    {k}: <b>{String(data[k])}</b>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                        } catch {
+                          return null;
+                        }
+                      })()}
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     {c.status !== "signed" && (

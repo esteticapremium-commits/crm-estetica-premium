@@ -66,6 +66,8 @@ export interface Contract {
   client_id: string;
   lead_id: string | null;
   template_id: string | null;
+  client_fields: string | null;
+  client_data: string | null;
   title: string;
   body: string | null;
   status: "draft" | "sent" | "signed";
@@ -84,5 +86,6 @@ export interface ContractTemplate {
   client_id: string;
   name: string;
   body: string | null;
+  client_fields: string | null;
   created_at: string;
 }

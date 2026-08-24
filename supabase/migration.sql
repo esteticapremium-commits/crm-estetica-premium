@@ -250,6 +250,7 @@ create table if not exists contract_templates (
   client_id uuid not null references clients(id) on delete cascade,
   name text not null,
   body text,
+  client_fields text,
   created_at timestamptz not null default now()
 );
 
@@ -260,6 +261,8 @@ create table if not exists contracts (
   template_id uuid references contract_templates(id) on delete set null,
   title text not null,
   body text,
+  client_fields text,
+  client_data text,
   status text not null default 'draft' check (status in ('draft','sent','signed')),
   sign_token uuid not null default gen_random_uuid() unique,
   sent_to text,
@@ -297,14 +300,15 @@ language sql security definer set search_path = public
 as $$
   select c.id, c.title, c.body, c.status,
          (select l.name from leads l where l.id = c.lead_id),
-         c.signed_name, c.signed_at, c.signature_data
+         c.signed_name, c.signed_at, c.signature_data,
+         c.client_fields, c.client_data
   from contracts c
   where c.sign_token::text = p_token
   limit 1;
 $$;
 grant execute on function public.get_contract_by_token(text) to anon;
 
-create or replace function public.sign_contract(p_token text, p_name text, p_sig text)
+create or replace function public.sign_contract(p_token text, p_name text, p_sig text, p_data text)
 returns boolean
 language plpgsql security definer set search_path = public
 as $$
@@ -315,12 +319,13 @@ begin
   set status = 'signed',
       signed_name = trim(p_name),
       signature_data = p_sig,
+      client_data = p_data,
       signed_at = now()
   where sign_token::text = p_token and status <> 'signed';
   return found;
 end;
 $$;
-grant execute on function public.sign_contract(text, text, text) to anon;
+grant execute on function public.sign_contract(text, text, text, text) to anon;
 
 -- ---------- DATI INIZIALI ----------
 -- Cliente e pipeline: gli stage vengono creati dall'import (o qui sotto
