@@ -1572,7 +1572,9 @@ a {
   }
   .print-area {
     position: absolute;
-    inset: 0;
+    left: 0;
+    top: 0;
+    width: 100%;
     background: #fff;
     padding: 30px;
   }
@@ -1605,6 +1607,9 @@ a {
   background: #ffffff;
   border: 1px solid #e2e0d9;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
+}
+.firma-page .firma-card {
+  max-width: 900px;
 }
 .firma-page .firma-head {
   background: #ffffff;
@@ -1672,6 +1677,14 @@ a {
 .firma-page .firma-body > b {
   color: #14120c;
 }
+.firma-page .client-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+.firma-page .client-fields > b {
+  grid-column: 1 / -1;
+}
 .firma-page .notice.err {
   background: #fdf1f1;
   color: #b3261e;
@@ -1710,4 +1723,49 @@ a {
 .recap-table td:first-child {
   color: #77736a;
   width: 40%;
+}
+
+
+/* Thank you page */
+.thankyou {
+  text-align: center;
+  padding: 26px 10px 10px;
+}
+.thankyou-ic {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: #e7f4e9;
+  color: #0f6b24;
+  font-size: 34px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+.thankyou-title {
+  margin: 0 0 6px;
+  font-family: "Didot", "Bodoni 72", "Georgia", serif;
+  font-size: 26px;
+  color: #14120c;
+  letter-spacing: 0.4px;
+}
+.thankyou-sub {
+  color: #77736a;
+  margin: 0 0 18px;
+  font-size: 14px;
+}
+.thankyou-dl {
+  padding: 14px 26px;
+  font-size: 16px;
+}
+.thankyou-note {
+  color: #99958b;
+  font-size: 12px;
+  margin: 12px 0 4px;
+}
+@media (max-width: 720px) {
+  .firma-page .client-fields {
+    grid-template-columns: 1fr;
+  }
 }

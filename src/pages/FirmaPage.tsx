@@ -158,17 +158,33 @@ export default function FirmaPage({ token }: { token: string }) {
 
           {doc && ok && (
             <div className="firma-body print-area">
-              <div className="notice ok no-print" style={{ fontSize: 15 }}>
-                ✓ Documento firmato il{" "}
-                {doc.signed_at ? new Date(doc.signed_at).toLocaleString("it-IT") : ""}
+              {/* Thank you page: appare dopo la firma */}
+              <div className="thankyou no-print">
+                <div className="thankyou-ic">✓</div>
+                <h2 className="thankyou-title">Grazie, contratto firmato!</h2>
+                <p className="thankyou-sub">
+                  {doc.signed_name} ·{" "}
+                  {doc.signed_at
+                    ? new Date(doc.signed_at).toLocaleString("it-IT", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : ""}
+                </p>
+                <button
+                  className="btn primary thankyou-dl"
+                  onClick={() => window.print()}
+                >
+                  📄 Scarica il contratto firmato (PDF)
+                </button>
+                <p className="thankyou-note">
+                  Il documento qui sotto è quello firmato: lo ricevi completo di
+                  dati, data e firma.
+                </p>
               </div>
-              <button
-                className="btn primary no-print"
-                style={{ width: "100%", padding: 13, fontSize: 16, margin: "10px 0 18px" }}
-                onClick={() => window.print()}
-              >
-                📄 Scarica il PDF compilato
-              </button>
 
               {/* Riepilogo dati + data firma, sempre nel documento/PDF */}
               <div className="firma-recap">
