@@ -280,6 +280,7 @@ export default function Board({
       {editing && (
         <LeadModal
           lead={editing}
+          clientId={client.id}
           stages={stages}
           meName={meName}
           onClose={() => setEditing(null)}

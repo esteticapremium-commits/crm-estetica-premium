@@ -14,9 +14,32 @@ interface ContractPub {
   client_data: string | null;
 }
 
+/** slug di un campo (es. "Sede legale (via e città)" -> "sede_legale_via_e_città") */
+function slug(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** Sostituisce i segnaposto dei campi cliente con trattini (da compilare)
+ *  o con i valori (documento firmato). */
+function fillBody(body: string, fields: string[], values: Record<string, string>, signed: boolean) {
+  let out = body;
+  for (const f of fields) {
+    const sl = slug(f);
+    const val = signed ? values[f] ?? "" : "";
+    out = out.split(`{{${sl}}}`).join(signed ? val || "—" : "________________________________________");
+  }
+  // eventuali segnaposto rimasti
+  out = out.replace(/\{\{[^}]+\}\}/g, "________");
+  return out;
+}
+
 /**
- * Pagina PUBBLICA di firma: il cliente apre il link ricevuto dal venditore,
- * compila nome e cognome, disegna la firma (dito o mouse) e conferma.
+ * Pagina PUBBLICA di firma: il cliente compila i suoi dati, legge il
+ * contratto (con i trattini dove va ogni risposta), disegna la firma e
+ * conferma. Dopo la firma può scaricare il PDF compilato.
  */
 export default function FirmaPage({ token }: { token: string }) {
   const [doc, setDoc] = useState<ContractPub | null>(null);
@@ -36,9 +59,21 @@ export default function FirmaPage({ token }: { token: string }) {
         const row = (data as ContractPub[])?.[0];
         if (!row) return setErr("Documento non trovato o link non valido.");
         setDoc(row);
-        if (row.status === "signed") setOk(true);
+        if (row.status === "signed") {
+          setOk(true);
+          try {
+            setValues(JSON.parse(row.client_data ?? "{}"));
+          } catch {
+            setValues({});
+          }
+        }
       });
   }, [token]);
+
+  const fields = (doc?.client_fields ?? "")
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean);
 
   function setupCanvas(c: HTMLCanvasElement | null) {
     if (!c || canvasRef.current === c) return;
@@ -91,10 +126,6 @@ export default function FirmaPage({ token }: { token: string }) {
 
   async function sign() {
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
-    const fields = (doc?.client_fields ?? "")
-      .split("\n")
-      .map((f) => f.trim())
-      .filter(Boolean);
     for (const f of fields) {
       if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
     }
@@ -124,49 +155,41 @@ export default function FirmaPage({ token }: { token: string }) {
               <div className="notice err">{err}</div>
             </div>
           )}
+
           {doc && ok && (
-            <div className="firma-body">
-              <div className="notice ok" style={{ fontSize: 15 }}>
-                ✓ Documento già firmato
-              </div>
-              <h2 style={{ marginTop: 6 }}>{doc.title}</h2>
-              <p style={{ color: "var(--muted)" }}>
-                Firmato da <b style={{ color: "var(--ink)" }}>{doc.signed_name}</b> il{" "}
+            <div className="firma-body print-area">
+              <div className="notice ok no-print" style={{ fontSize: 15 }}>
+                ✓ Documento firmato il{" "}
                 {doc.signed_at ? new Date(doc.signed_at).toLocaleString("it-IT") : ""}
-              </p>
-              {doc.signature_data && (
-                <img
-                  src={doc.signature_data}
-                  alt="firma"
-                  className="firma-preview"
-                />
-              )}
-              {doc.client_data && (() => {
-                try {
-                  const data = JSON.parse(doc.client_data);
-                  const keys = Object.keys(data);
-                  if (keys.length) {
-                    return (
-                      <div className="client-data" style={{ margin: "12px 0" }}>
-                        <b style={{ display: "block", marginBottom: 6 }}>
-                          Dati dichiarati dal firmatario
-                        </b>
-                        {keys.map((k) => (
-                          <div key={k} style={{ fontSize: 13, margin: "2px 0" }}>
-                            <span style={{ color: "var(--muted)" }}>{k}: </span>
-                            <b>{String(data[k])}</b>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                } catch {
-                  return null;
-                }
-              })()}
-              <DocumentBody body={doc.body} />
+              </div>
+              <button
+                className="btn primary no-print"
+                style={{ width: "100%", padding: 13, fontSize: 16, margin: "10px 0 18px" }}
+                onClick={() => window.print()}
+              >
+                📄 Scarica il PDF compilato
+              </button>
+              <Document body={fillBody(doc.body ?? "", fields, values, true)} />
+              <div className="firma-signatures">
+                <div>
+                  <div className="sig-label">Il firmatario</div>
+                  <div className="sig-name">{doc.signed_name}</div>
+                  {doc.signature_data && (
+                    <img src={doc.signature_data} alt="firma" className="firma-preview" />
+                  )}
+                </div>
+                <div>
+                  <div className="sig-label">Data</div>
+                  <div className="sig-name">
+                    {doc.signed_at
+                      ? new Date(doc.signed_at).toLocaleDateString("it-IT")
+                      : ""}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
+
           {doc && !ok && (
             <>
               <div className="firma-head">
@@ -176,29 +199,33 @@ export default function FirmaPage({ token }: { token: string }) {
                 )}
               </div>
               <div className="firma-body">
-                <DocumentBody body={doc.body} />
-                {(doc.client_fields ?? "").trim() && (
+                {/* 1) prima i campi da compilare */}
+                {fields.length > 0 && (
                   <div className="client-fields">
-                    <b style={{ display: "block", marginBottom: 6 }}>
-                      I tuoi dati (richiesti)
+                    <b style={{ display: "block", marginBottom: 8, fontSize: 15 }}>
+                      Compila i tuoi dati
                     </b>
-                    {(doc.client_fields ?? "")
-                      .split("\n")
-                      .map((f) => f.trim())
-                      .filter(Boolean)
-                      .map((f) => (
-                        <div className="field" key={f} style={{ marginBottom: 8 }}>
-                          <label>{f}</label>
-                          <input
-                            value={values[f] ?? ""}
-                            onChange={(e) =>
-                              setValues((prev) => ({ ...prev, [f]: e.target.value }))
-                            }
-                          />
-                        </div>
-                      ))}
+                    {fields.map((f) => (
+                      <div className="field" key={f} style={{ marginBottom: 8 }}>
+                        <label>{f}</label>
+                        <input
+                          value={values[f] ?? ""}
+                          onChange={(e) =>
+                            setValues((prev) => ({ ...prev, [f]: e.target.value }))
+                          }
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
+
+                {/* 2) poi il contratto, con i trattini dove va ogni risposta */}
+                <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
+                  Il contratto
+                </b>
+                <Document body={fillBody(doc.body ?? "", fields, values, false)} />
+
+                {/* 3) infine la firma */}
                 <div className="field" style={{ marginTop: 22 }}>
                   <label>Nome e cognome (firmatario)</label>
                   <input
@@ -235,9 +262,16 @@ export default function FirmaPage({ token }: { token: string }) {
                 >
                   {busy ? "Invio firma…" : "Firma e conferma ✓"}
                 </button>
-                <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 10, textAlign: "center" }}>
-                  Confermando, accetti il documento e autorizzi la registrazione
-                  di data, ora e firma.
+                <p
+                  style={{
+                    color: "var(--muted)",
+                    fontSize: 12,
+                    marginTop: 10,
+                    textAlign: "center",
+                  }}
+                >
+                  Confermando, accetti il documento e autorizzi la registrazione di
+                  data, ora e firma.
                 </p>
               </div>
             </>
@@ -248,19 +282,40 @@ export default function FirmaPage({ token }: { token: string }) {
   );
 }
 
-function DocumentBody({ body }: { body: string | null }) {
-  if (!body) return null;
+/** Il contratto in stile documento (carta bianca, intestazione serif). */
+function Document({ body }: { body: string }) {
+  const lines = body.split("\n");
   return (
     <div className="firma-doc">
-      {body.split("\n").map((line, i) =>
-        line.trim() === "" ? (
-          <div key={i} style={{ height: 10 }} />
-        ) : (
-          <p key={i} style={{ margin: "4px 0" }}>
-            {line}
+      {lines.map((line, i) => {
+        const t = line.trim();
+        if (t === "")
+          return <div key={i} style={{ height: 10 }} />;
+        // le prime due righe sono l'intestazione (agenzia + tipo contratto)
+        if (i === 0)
+          return (
+            <div key={i} className="doc-company">
+              {t}
+            </div>
+          );
+        if (i === 1)
+          return (
+            <div key={i} className="doc-type">
+              {t}
+            </div>
+          );
+        if (i === 2)
+          return (
+            <div key={i} className="doc-variant">
+              {t}
+            </div>
+          );
+        return (
+          <p key={i} style={{ margin: "6px 0" }}>
+            {t}
           </p>
-        )
-      )}
+        );
+      })}
     </div>
   );
 }

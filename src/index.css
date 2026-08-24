@@ -1503,3 +1503,88 @@ a {
     padding-right: 14px;
   }
 }
+
+/* Documento contratto: carta bianca, testo nero, intestazione serif */
+.firma-doc {
+  border: 1px solid rgba(11, 11, 11, 0.12);
+  border-radius: 10px;
+  padding: 28px 30px;
+  background: #ffffff;
+  color: #1a1a1a;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14.5px;
+  line-height: 1.6;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.firma-doc p {
+  color: #1a1a1a;
+}
+.doc-company {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  margin-bottom: 2px;
+}
+.doc-type {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.doc-variant {
+  text-align: center;
+  font-size: 14px;
+  font-style: italic;
+  color: #444;
+  margin-bottom: 18px;
+  border-bottom: 2px solid #1a1a1a;
+  padding-bottom: 14px;
+}
+.firma-signatures {
+  display: flex;
+  gap: 30px;
+  margin-top: 26px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.sig-label {
+  color: var(--muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.sig-name {
+  font-family: "Didot", "Bodoni 72", "Georgia", serif;
+  font-size: 18px;
+  color: #f2ecdf;
+  margin: 4px 0 8px;
+}
+/* stampa: solo il documento, come un PDF */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    padding: 30px;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .firma-doc {
+    box-shadow: none;
+    border: none;
+    padding: 0;
+  }
+  .sig-name {
+    color: #1a1a1a;
+  }
+}

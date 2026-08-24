@@ -88,30 +88,44 @@ export default function LeadModal({
   }
 
   async function createContract() {
-    if (!lead || !clientId) return;
+    const cid = clientId ?? lead?.client_id;
+    if (!lead || !cid) return setErr("Cliente mancante: riapri la scheda del lead.");
     if (!ctTpl) return setErr("Scegli un modello.");
     setErr(null);
     let body = tpl?.body ?? "";
-    const vals: Record<string, string> = {
-      ...ctVals,
-      data_oggi: new Date().toLocaleDateString("it-IT"),
-    };
-    for (const [k, v] of Object.entries(vals)) {
-      body = body.split(`{{${k}}}`).join(v || "");
+    // sostituisci i segnaposto "normali" (valore, data...) ma lascia quelli
+    // dei campi cliente: li riempirà il cliente nella pagina di firma.
+    const clientSlugs = (tpl?.client_fields ?? "")
+      .split("\n")
+      .map((f) => f.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
+      .filter(Boolean);
+    const vals: Record<string, string> = { ...ctVals, data_oggi: new Date().toLocaleDateString("it-IT") };
+    for (const ph of placeholders) {
+      if (clientSlugs.includes(ph)) continue;
+      body = body.split(`{{${ph}}}`).join(vals[ph] ?? "");
     }
-    const { error } = await supabase.from("contracts").insert({
-      client_id: clientId,
-      lead_id: lead.id,
-      template_id: ctTpl,
-      title: ctTitle.trim() || "Contratto",
-      body,
-      client_fields: tpl?.client_fields ?? null,
-      status: "draft",
-      sent_to: ctTo.trim() || lead.email || null,
-      created_by: meName ?? null,
-    });
+    const { data: created, error } = await supabase
+      .from("contracts")
+      .insert({
+        client_id: cid,
+        lead_id: lead.id,
+        template_id: ctTpl,
+        title: ctTitle.trim() || "Contratto",
+        body,
+        client_fields: tpl?.client_fields ?? null,
+        status: "draft",
+        sent_to: ctTo.trim() || lead.email || null,
+        created_by: meName ?? null,
+      })
+      .select("id, sign_token")
+      .single();
     if (error) return setErr(error.message);
     setCtForm(false);
+    const tok = (created as { sign_token?: string } | null)?.sign_token;
+    if (tok) {
+      const link = `${window.location.origin}/#/firma/${tok}`;
+      alert("Contratto generato (bozza). Link per il cliente:\n\n" + link + "\n\nNon è stato inviato nulla: usa Genera link o WhatsApp.");
+    }
     supabase
       .from("contracts")
       .select("*")
