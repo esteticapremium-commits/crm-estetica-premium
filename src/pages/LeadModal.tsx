@@ -150,6 +150,16 @@ export default function LeadModal({
   const firmLink = (c: Contract) =>
     `${window.location.origin}/#/firma/${c.sign_token}`;
 
+  const waLink = (c: Contract) => {
+    const digits = (lead?.phone ?? "").replace(/\D/g, "");
+    const intl = digits.startsWith("39") ? digits : "39" + digits;
+    const text =
+      "Buongiorno, ti invio il contratto da firmare: " +
+      firmLink(c) +
+      "\nBasta aprire il link, compilare i campi e firmare con il dito. Grazie!";
+    return `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
+  };
+
   async function save() {
     setBusy(true);
     setErr(null);
