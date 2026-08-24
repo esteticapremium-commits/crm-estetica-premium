@@ -142,7 +142,7 @@ export default function FirmaPage({ token }: { token: string }) {
   .signatures { display: flex; gap: 40px; margin-top: 28px; padding-top: 14px; border-top: 1px solid #111; }
   .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
   .sig-name { font-size: 17px; margin: 4px 0 6px; }
-  .sig-img { max-width: 260px; max-height: 90px; }
+  .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
 </style></head><body>
   <div class="company">ESTETICA PREMIUM</div>
   <div class="type">Contratto di collaborazione professionale</div>
@@ -167,7 +167,7 @@ export default function FirmaPage({ token }: { token: string }) {
     <div>
       <div class="sig-label">Il firmatario</div>
       <div class="sig-name">${doc.signed_name ?? ""}</div>
-      ${doc.signature_data ? `<img class="sig-img" src="${doc.signature_data}"/>` : ""}
+      ${doc.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${doc.signature_data}"/></div>` : ""}
     </div>
     <div>
       <div class="sig-label">Data</div>
