@@ -244,6 +244,84 @@ as $$
 $$;
 grant execute on function public.list_users() to authenticated;
 
+-- ---------- CONTRATTI (firma digitale) ----------
+create table if not exists contract_templates (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references clients(id) on delete cascade,
+  name text not null,
+  body text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists contracts (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references clients(id) on delete cascade,
+  lead_id uuid references leads(id) on delete set null,
+  template_id uuid references contract_templates(id) on delete set null,
+  title text not null,
+  body text,
+  status text not null default 'draft' check (status in ('draft','sent','signed')),
+  sign_token uuid not null default gen_random_uuid() unique,
+  sent_to text,
+  sent_at timestamptz,
+  signed_name text,
+  signature_data text,
+  signed_at timestamptz,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+
+alter table contract_templates enable row level security;
+alter table contracts enable row level security;
+
+create policy ct_select on contract_templates for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy ct_write on contract_templates for all to authenticated
+  using (is_admin()) with check (is_admin());
+create policy contracts_select on contracts for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy contracts_insert on contracts for insert to authenticated
+  with check (is_admin() or client_id = my_client_id());
+create policy contracts_update on contracts for update to authenticated
+  using (is_admin() or client_id = my_client_id())
+  with check (is_admin() or client_id = my_client_id());
+create policy contracts_delete on contracts for delete to authenticated
+  using (is_admin() or client_id = my_client_id());
+
+create or replace function public.get_contract_by_token(p_token text)
+returns table(
+  id uuid, title text, body text, status text, lead_name text,
+  signed_name text, signed_at timestamptz, signature_data text
+)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.title, c.body, c.status,
+         (select l.name from leads l where l.id = c.lead_id),
+         c.signed_name, c.signed_at, c.signature_data
+  from contracts c
+  where c.sign_token::text = p_token
+  limit 1;
+$$;
+grant execute on function public.get_contract_by_token(text) to anon;
+
+create or replace function public.sign_contract(p_token text, p_name text, p_sig text)
+returns boolean
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if p_name is null or length(trim(p_name)) = 0 then return false; end if;
+  if p_sig is null or length(p_sig) < 20 then return false; end if;
+  update contracts
+  set status = 'signed',
+      signed_name = trim(p_name),
+      signature_data = p_sig,
+      signed_at = now()
+  where sign_token::text = p_token and status <> 'signed';
+  return found;
+end;
+$$;
+grant execute on function public.sign_contract(text, text, text) to anon;
+
 -- ---------- DATI INIZIALI ----------
 -- Cliente e pipeline: gli stage vengono creati dall'import (o qui sotto
 -- se preferisci crearli a mano nel pannello Fasi).

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
-import type { Lead, Stage } from "../types";
+import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 interface Props {
   lead?: Lead;
@@ -40,6 +40,98 @@ export default function LeadModal({
   const [tags, setTags] = useState(lead?.tags ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Contratti
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [templates, setTemplates] = useState<ContractTemplate[]>([]);
+  const [ctForm, setCtForm] = useState(false);
+  const [ctTpl, setCtTpl] = useState("");
+  const [ctTitle, setCtTitle] = useState("");
+  const [ctTo, setCtTo] = useState(lead?.email ?? "");
+  const [ctVals, setCtVals] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!lead) return;
+    supabase
+      .from("contracts")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setContracts((data as Contract[]) ?? []));
+    supabase
+      .from("contract_templates")
+      .select("*")
+      .order("name")
+      .then(({ data }) => {
+        const list = (data as ContractTemplate[]) ?? [];
+        setTemplates(list);
+        setCtTpl(list[0]?.id ?? "");
+      });
+  }, [lead?.id]);
+
+  // placeholders del modello selezionato
+  const tpl = templates.find((x) => x.id === ctTpl);
+  const placeholders = [
+    ...new Set((tpl?.body ?? "").match(/\{\{(\w+)\}\}/g) ?? []),
+  ].map((ph) => ph.slice(2, -2));
+
+  function openCtForm() {
+    const defaults: Record<string, string> = {
+      nome_lead: lead?.name ?? "",
+      email_lead: lead?.email ?? "",
+      telefono_lead: lead?.phone ?? "",
+      nome_venditore: meName ?? "",
+    };
+    setCtVals(defaults);
+    setCtTitle(`Contratto — ${lead?.name ?? "lead"}`);
+    setCtTo(lead?.email ?? "");
+    setCtForm(true);
+  }
+
+  async function createContract() {
+    if (!lead || !clientId) return;
+    if (!ctTpl) return setErr("Scegli un modello.");
+    setErr(null);
+    let body = tpl?.body ?? "";
+    const vals: Record<string, string> = {
+      ...ctVals,
+      data_oggi: new Date().toLocaleDateString("it-IT"),
+    };
+    for (const [k, v] of Object.entries(vals)) {
+      body = body.split(`{{${k}}}`).join(v || "");
+    }
+    const { error } = await supabase.from("contracts").insert({
+      client_id: clientId,
+      lead_id: lead.id,
+      template_id: ctTpl,
+      title: ctTitle.trim() || "Contratto",
+      body,
+      status: "draft",
+      sent_to: ctTo.trim() || lead.email || null,
+      created_by: meName ?? null,
+    });
+    if (error) return setErr(error.message);
+    setCtForm(false);
+    supabase
+      .from("contracts")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setContracts((data as Contract[]) ?? []));
+  }
+
+  async function markSent(c: Contract) {
+    const { error } = await supabase
+      .from("contracts")
+      .update({ status: "sent", sent_at: new Date().toISOString(), sent_to: ctTo.trim() || c.sent_to })
+      .eq("id", c.id);
+    if (error) return alert(error.message);
+    setContracts((prev) =>
+      prev.map((x) => (x.id === c.id ? { ...x, status: "sent", sent_at: new Date().toISOString() } : x))
+    );
+  }
+
+  const firmLink = (c: Contract) =>
+    `${window.location.origin}/#/firma/${c.sign_token}`;
 
   async function save() {
     setBusy(true);
@@ -237,6 +329,116 @@ export default function LeadModal({
             <div style={{ color: "var(--muted)", fontSize: 12 }}>
               Creato il{" "}
               {new Date(lead!.created_at).toLocaleString("it-IT")}
+            </div>
+          )}
+
+          {!isNew && (
+            <div className="contracts-box">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <b>📄 Contratti</b>
+                <button className="btn small" onClick={openCtForm}>
+                  + Nuovo contratto
+                </button>
+              </div>
+              {contracts.length === 0 && !ctForm && (
+                <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 6 }}>
+                  Nessun contratto per questo lead.
+                </div>
+              )}
+              {contracts.map((c) => (
+                <div className="contract-row" key={c.id}>
+                  <div>
+                    <b>{c.title}</b>
+                    <div className="contract-meta">
+                      {c.status === "signed"
+                        ? `✓ Firmato da ${c.signed_name ?? "—"} il ${
+                            c.signed_at ? new Date(c.signed_at).toLocaleString("it-IT") : ""
+                          }`
+                        : c.status === "sent"
+                        ? `📤 Inviato a ${c.sent_to ?? "—"}`
+                        : `📝 Bozza · a ${c.sent_to ?? "—"}`}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {c.status !== "signed" && (
+                      <>
+                        <button
+                          className="btn small"
+                          onClick={() => {
+                            navigator.clipboard.writeText(firmLink(c));
+                            alert("Link di firma copiato. Incollalo nella mail al cliente.");
+                          }}
+                        >
+                          Copia link
+                        </button>
+                        <a
+                          className="btn small"
+                          style={{ textDecoration: "none" }}
+                          href={`mailto:${encodeURIComponent(c.sent_to ?? "")}?subject=${encodeURIComponent(
+                            c.title
+                          )}&body=${encodeURIComponent(
+                            `Buongiorno,
+
+ti invio il contratto da firmare: ${firmLink(c)}
+
+Basta aprire il link, compilare i campi e firmare con il dito.
+
+Grazie!`
+                          )}`}
+                        >
+                          Invia email
+                        </a>
+                        <button className="btn small" onClick={() => markSent(c)}>
+                          Segna inviato
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {ctForm && (
+                <div className="ct-form">
+                  <div className="field">
+                    <label>Modello</label>
+                    <select value={ctTpl} onChange={(e) => setCtTpl(e.target.value)}>
+                      {templates.map((tp) => (
+                        <option key={tp.id} value={tp.id}>
+                          {tp.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Titolo contratto</label>
+                    <input value={ctTitle} onChange={(e) => setCtTitle(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Email del cliente</label>
+                    <input value={ctTo} onChange={(e) => setCtTo(e.target.value)} />
+                  </div>
+                  {placeholders
+                    .filter((ph) => ph !== "data_oggi")
+                    .map((ph) => (
+                      <div className="field" key={ph}>
+                        <label>{ph.replace(/_/g, " ")}</label>
+                        <input
+                          value={ctVals[ph] ?? ""}
+                          onChange={(e) =>
+                            setCtVals((prev) => ({ ...prev, [ph]: e.target.value }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button className="btn" onClick={() => setCtForm(false)}>
+                      Annulla
+                    </button>
+                    <button className="btn primary" onClick={createContract}>
+                      Genera contratto
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
-import type { Client, Pipeline, Stage } from "../types";
+import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
 
 /* Chiamata alla funzione protetta che gestisce gli utenti */
 async function callAdmin(action: string, payload: Record<string, unknown> = {}) {
@@ -44,7 +44,7 @@ export default function Admin({
   );
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selPipeline, setSelPipeline] = useState<string | null>(null);
-  const [sub, setSub] = useState<"attivita" | "clienti" | "accessi" | "fasi">("fasi");
+  const [sub, setSub] = useState<"attivita" | "clienti" | "accessi" | "fasi" | "contratti">("fasi");
 
   useEffect(() => {
     if (!selClient && clients[0]) setSelClient(clients[0].id);
@@ -97,6 +97,9 @@ export default function Admin({
         <button className={sub === "fasi" ? "active" : ""} onClick={() => setSub("fasi")}>
           Fasi e pipeline
         </button>
+        <button className={sub === "contratti" ? "active" : ""} onClick={() => setSub("contratti")}>
+          Contratti
+        </button>
       </div>
 
       {sub === "attivita" && <ActivityPanel clients={clients} />}
@@ -109,6 +112,7 @@ export default function Admin({
         />
       )}
       {sub === "accessi" && <UsersPanel clients={clients} />}
+      {sub === "contratti" && <ContractsPanel clients={clients} />}
       {sub === "fasi" &&
         (current ? (
           <>
@@ -706,6 +710,203 @@ interface ActRow {
 }
 
 /* ---------------- Utenti / Segretarie ---------------- */
+
+/* ---------------- Contratti (modelli + stato) ---------------- */
+const PLACEHOLDERS: [string, string][] = [
+  ["{{nome_lead}}", "Nome del lead"],
+  ["{{nome_centro}}", "Nome del centro estetico"],
+  ["{{servizio}}", "Servizio venduto"],
+  ["{{valore}}", "Valore del contratto (€)"],
+  ["{{data_oggi}}", "Data odierna (automatica)"],
+  ["{{nome_venditore}}", "Nome del venditore"],
+  ["{{email_lead}}", "Email del lead"],
+  ["{{telefono_lead}}", "Telefono del lead"],
+];
+
+function ContractsPanel({ clients }: { clients: Client[] }) {
+  const [templates, setTemplates] = useState<ContractTemplate[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [editing, setEditing] = useState<ContractTemplate | null>(null);
+
+  const clientId = clients[0]?.id;
+
+  async function load() {
+    setLoading(true);
+    const [{ data: tp }, { data: ct }] = await Promise.all([
+      supabase.from("contract_templates").select("*").order("created_at", { ascending: false }),
+      supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").order("created_at", { ascending: false }).limit(50),
+    ]);
+    setTemplates((tp as ContractTemplate[]) ?? []);
+    setContracts((ct as Contract[]) ?? []);
+    setLoading(false);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function addTemplate() {
+    if (!newName.trim() || !clientId) return;
+    const { error } = await supabase
+      .from("contract_templates")
+      .insert({ client_id: clientId, name: newName.trim(), body: newBody });
+    if (error) return alert(error.message);
+    setNewName("");
+    setNewBody("");
+    load();
+  }
+
+  async function saveTemplate() {
+    if (!editing) return;
+    const { error } = await supabase
+      .from("contract_templates")
+      .update({ name: editing.name, body: editing.body })
+      .eq("id", editing.id);
+    if (error) return alert(error.message);
+    setEditing(null);
+    load();
+  }
+
+  async function delTemplate(t: ContractTemplate) {
+    if (!confirm(`Eliminare il modello "${t.name}"? I contratti già generati restano.`)) return;
+    await supabase.from("contract_templates").delete().eq("id", t.id);
+    load();
+  }
+
+  const statusLabel = (s: string) =>
+    s === "signed" ? "✓ Firmato" : s === "sent" ? "📤 Inviato" : "📝 Bozza";
+
+  return (
+    <>
+      <div className="panel">
+        <h2>Modelli di contratto</h2>
+        <p style={{ color: "var(--muted)", marginTop: -6 }}>
+          Scrivi il testo del contratto con i segnaposto: verranno sostituiti
+          coi dati del lead quando il venditore genera il contratto.
+        </p>
+        <div className="ph-list">
+          {PLACEHOLDERS.map(([ph, desc]) => (
+            <span key={ph} className="ph">
+              {ph} · {desc}
+            </span>
+          ))}
+        </div>
+        <table className="table" style={{ marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th>Modello</th>
+              <th style={{ width: 180 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {templates.map((tpl) => (
+              <tr key={tpl.id}>
+                <td><b>{tpl.name}</b></td>
+                <td style={{ textAlign: "right" }}>
+                  <button className="btn small" onClick={() => setEditing(tpl)} style={{ marginRight: 6 }}>
+                    Modifica
+                  </button>
+                  <button className="btn small danger" onClick={() => delTemplate(tpl)}>
+                    Elimina
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <input
+            className="field"
+            style={{ flex: 1, padding: 9 }}
+            placeholder="Nome modello (es. Contratto consulenza)"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <button className="btn primary" onClick={addTemplate}>
+            + Nuovo modello
+          </button>
+        </div>
+        <textarea
+          className="field"
+          style={{ width: "100%", minHeight: 140, marginTop: 8 }}
+          placeholder={"Testo del contratto con i segnaposto.\nEs:\n\nCONTRATTO DI CONSULENZA\n\nTra Estetica Premium e {{nome_centro}}\n\nServizio: {{servizio}}\nValore: € {{valore}}\nData: {{data_oggi}}\n\nIl presente contratto..."}
+          value={newBody}
+          onChange={(e) => setNewBody(e.target.value)}
+        />
+      </div>
+
+      {editing && (
+        <div className="overlay" onClick={() => setEditing(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>Modifica modello</h3>
+              <button className="x" onClick={() => setEditing(null)}>×</button>
+            </header>
+            <div className="content">
+              <div className="field">
+                <label>Nome</label>
+                <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>Testo</label>
+                <textarea
+                  style={{ minHeight: 220 }}
+                  value={editing.body ?? ""}
+                  onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                />
+              </div>
+            </div>
+            <footer>
+              <button className="btn" onClick={() => setEditing(null)}>Annulla</button>
+              <button className="btn primary" onClick={saveTemplate}>Salva</button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      <div className="panel" style={{ overflowX: "auto" }}>
+        <h2>Contratti recenti</h2>
+        {loading ? (
+          <div style={{ color: "var(--muted)" }}>Caricamento…</div>
+        ) : contracts.length === 0 ? (
+          <p style={{ color: "var(--muted)", margin: 0 }}>
+            Nessun contratto ancora. Il venditore li genera dalla scheda del lead.
+          </p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Contratto</th>
+                <th>Stato</th>
+                <th>Inviato a</th>
+                <th>Firmato da</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contracts.map((c) => (
+                <tr key={c.id}>
+                  <td><b>{c.title}</b></td>
+                  <td>{statusLabel(c.status)}</td>
+                  <td>{c.sent_to ?? "—"}</td>
+                  <td>{c.signed_name ?? "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {c.signed_at
+                      ? new Date(c.signed_at).toLocaleDateString("it-IT")
+                      : new Date(c.created_at).toLocaleDateString("it-IT")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
 function UsersPanel({ clients }: { clients: Client[] }) {
   const [users, setUsers] = useState<SecretaryRow[]>([]);
   const [loading, setLoading] = useState(true);

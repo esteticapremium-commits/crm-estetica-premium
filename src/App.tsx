@@ -8,6 +8,7 @@ import Dashboard, { ALL_PIPELINES_ID } from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import Performance from "./pages/Performance";
 import Vendite from "./pages/Vendite";
+import FirmaPage from "./pages/FirmaPage";
 
 type Tab = "board" | "dashboard" | "sales" | "performance" | "admin";
 
@@ -48,6 +49,12 @@ export default function App() {
     setClientId(l.client_id);
     setPipelineId(l.pipeline_id);
     setFocusLeadId(l.id);
+  }
+
+  // Link pubblico di firma: #/firma/<token> — nessun login richiesto
+  const firmaMatch = window.location.hash.match(/^#\/firma\/([^/]+)/);
+  if (firmaMatch) {
+    return <FirmaPage token={firmaMatch[1]} />;
   }
 
   const isAdmin = auth.profile?.role === "admin";

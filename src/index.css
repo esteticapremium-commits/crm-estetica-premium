@@ -1378,3 +1378,128 @@ a {
     right: 0;
   }
 }
+
+/* ============================================================
+   CONTRATTI E FIRMA
+   ============================================================ */
+.ph-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ph {
+  background: var(--gold-soft);
+  color: #d9b56a;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.contracts-box {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.contract-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  margin-top: 8px;
+  background: var(--panel);
+}
+.contract-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+.ct-form {
+  border: 1px dashed rgba(200, 162, 75, 0.4);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  background: rgba(200, 162, 75, 0.04);
+}
+
+/* pagina pubblica di firma */
+.firma-wrap {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 28px 14px;
+  background:
+    radial-gradient(900px 420px at 50% -10%, rgba(200, 162, 75, 0.12), transparent 65%),
+    var(--bg);
+}
+.firma-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 640px;
+  overflow: hidden;
+}
+.firma-head {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+}
+.firma-title {
+  font-family: "Didot", "Bodoni 72", "Georgia", serif;
+  font-size: 22px;
+  color: #f2ecdf;
+  letter-spacing: 0.4px;
+}
+.firma-sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+.firma-body {
+  padding: 18px 22px 24px;
+}
+.firma-doc {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px;
+  background: #101318;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.firma-canvas {
+  width: 100%;
+  height: 160px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  touch-action: none;
+  display: block;
+}
+.firma-preview {
+  max-width: 320px;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 4px;
+  margin-top: 10px;
+}
+.theme-premium .firma-doc p {
+  color: #d8d4c8;
+}
+@media (max-width: 860px) {
+  .firma-wrap {
+    padding: 12px 8px;
+  }
+  .firma-body,
+  .firma-head {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}

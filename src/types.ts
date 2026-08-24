@@ -60,3 +60,29 @@ export interface Lead {
   created_at: string;
   updated_at: string;
 }
+
+export interface Contract {
+  id: string;
+  client_id: string;
+  lead_id: string | null;
+  template_id: string | null;
+  title: string;
+  body: string | null;
+  status: "draft" | "sent" | "signed";
+  sign_token: string;
+  sent_to: string | null;
+  sent_at: string | null;
+  signed_name: string | null;
+  signature_data: string | null;
+  signed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ContractTemplate {
+  id: string;
+  client_id: string;
+  name: string;
+  body: string | null;
+  created_at: string;
+}
