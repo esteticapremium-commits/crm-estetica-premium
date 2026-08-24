@@ -120,6 +120,22 @@ export default function LeadModal({
       .then(({ data }) => setContracts((data as Contract[]) ?? []));
   }
 
+  async function sendEmail(c: Contract) {
+    if (!c.sent_to) return alert("Il contratto non ha un destinatario email.");
+    setErr(null);
+    const { data, error } = await supabase.rpc("send_contract_email", {
+      p_contract_id: c.id,
+    });
+    if (error) return alert("Invio non riuscito: " + error.message);
+    if (data !== "inviata") return alert(data);
+    alert("Email inviata a " + c.sent_to + ". Il link di firma è nella mail.");
+    setContracts((prev) =>
+      prev.map((x) =>
+        x.id === c.id ? { ...x, status: "sent", sent_at: new Date().toISOString() } : x
+      )
+    );
+  }
+
   async function markSent(c: Contract) {
     const { error } = await supabase
       .from("contracts")
