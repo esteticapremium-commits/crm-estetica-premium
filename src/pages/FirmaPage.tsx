@@ -59,6 +59,7 @@ export default function FirmaPage({ token }: { token: string }) {
         const row = (data as ContractPub[])?.[0];
         if (!row) return setErr("Documento non trovato o link non valido.");
         setDoc(row);
+        document.title = row.title + " — Estetica Premium";
         if (row.status === "signed") {
           setOk(true);
           try {

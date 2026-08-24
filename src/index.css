@@ -1561,8 +1561,14 @@ a {
   color: #f2ecdf;
   margin: 4px 0 8px;
 }
-/* stampa: solo il documento, come un PDF */
+/* stampa: solo il documento, come un PDF (flusso su più pagine) */
 @media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    background: #fff !important;
+  }
   body * {
     visibility: hidden;
   }
@@ -1570,16 +1576,23 @@ a {
   .print-area * {
     visibility: visible;
   }
-  .print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    background: #fff;
-    padding: 30px;
-  }
+  .firma-head,
+  .thankyou,
   .no-print {
     display: none !important;
+  }
+  .firma-wrap {
+    padding: 0 !important;
+  }
+  .firma-card {
+    border: none !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+  }
+  .print-area {
+    position: static !important;
+    padding: 24px;
+    background: #fff;
   }
   .firma-doc {
     box-shadow: none;
@@ -1588,6 +1601,10 @@ a {
   }
   .sig-name {
     color: #1a1a1a;
+  }
+  .firma-recap {
+    background: #fff;
+    border-color: #ddd;
   }
 }
 
