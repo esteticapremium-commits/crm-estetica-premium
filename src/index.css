@@ -1212,3 +1212,169 @@ a {
   font-family: "Didot", "Bodoni 72", "Georgia", serif;
 }
 
+
+/* ============================================================
+   RESPONSIVE — mobile e tablet
+   ============================================================ */
+@media (max-width: 860px) {
+  .topbar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .topbar .brand {
+    font-size: 14px;
+  }
+  .topbar .brand small {
+    display: none;
+  }
+  .nav {
+    order: 10;
+    width: 100%;
+    overflow-x: auto;
+    flex: none;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .nav button {
+    padding: 6px 11px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .search-wrap {
+    flex: 1;
+    min-width: 0;
+  }
+  .search {
+    min-width: 0;
+    width: 100%;
+  }
+  .search input {
+    width: 100%;
+    min-width: 0;
+  }
+  .who {
+    display: none;
+  }
+  .userchip .avatar {
+    width: 28px;
+    height: 28px;
+  }
+  .spacer {
+    display: none;
+  }
+
+  /* Bacheca: colonne quasi a tutto schermo, scorrimento orizzontale */
+  .board-wrap,
+  .theme-premium .board-wrap.premium {
+    padding: 8px;
+  }
+  .theme-premium .board-wrap.premium .board {
+    padding: 10px 8px 16px;
+    gap: 10px;
+  }
+  .column,
+  .theme-premium .column {
+    width: 84vw;
+    min-width: 84vw;
+    max-width: 340px;
+  }
+
+  /* Header bacheca */
+  .theme-premium .board-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 16px 14px;
+  }
+  .theme-premium .board-kpis {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .theme-premium .kpi {
+    min-width: 96px;
+    padding: 8px 12px;
+  }
+  .theme-premium .kpi-v {
+    font-size: 19px;
+  }
+
+  /* Modale lead: campi affiancati -> verticali, leggibile */
+  .overlay {
+    padding: 6px;
+    align-items: flex-end;
+  }
+  .modal {
+    max-width: 100%;
+    max-height: 94vh;
+    border-radius: 14px 14px 0 0;
+  }
+  .modal .content {
+    padding: 14px;
+  }
+  .modal footer {
+    flex-wrap: wrap;
+  }
+  .modal footer .btn {
+    flex: 1;
+    min-width: 0;
+  }
+  .modal-row {
+    flex-direction: column;
+    gap: 0;
+  }
+  .modal header h3 {
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Tabelle: scorrono dentro il pannello, mai overflow di pagina */
+  .panel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel h2,
+  .panel > p {
+    min-width: 260px;
+  }
+  .table {
+    min-width: 560px;
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    padding: 12px 13px;
+  }
+  .stat .v {
+    font-size: 22px;
+  }
+
+  .login-wrap {
+    padding: 12px;
+  }
+  .login-box {
+    max-width: 100%;
+    padding: 22px 18px;
+  }
+
+  .page {
+    padding: 14px 10px;
+  }
+  .subnav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .subnav button {
+    white-space: nowrap;
+  }
+
+  .search-results {
+    left: -60px;
+    right: 0;
+  }
+}

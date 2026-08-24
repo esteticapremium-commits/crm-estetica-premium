@@ -145,7 +145,7 @@ export default function App() {
   const boardPipeline = isAllView ? pipelines[0] ?? null : currentPipeline;
 
   return (
-    <div className={"app" + (isPremium ? " theme-premium" : "")}>
+    <div className="app theme-premium">
       <div className="topbar">
         <div className="brand">
           Estetica Premium <small>· pipeline</small>

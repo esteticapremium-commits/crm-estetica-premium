@@ -116,7 +116,9 @@ create trigger leads_touch
   before update on leads for each row execute function touch_updated_at();
 
 -- ---------- SICUREZZA (RLS) ----------
--- Chiave anon pubblica, ma RLS limita i dati: solo il proprio cliente.
+-- Admin: pieno accesso. Venditore: solo il cliente del suo profilo.
+-- Anon: solo l'ingest dei lead dal workflow n8n (cliente Estetica Premium).
+
 alter table clients enable row level security;
 alter table pipelines enable row level security;
 alter table stages enable row level security;
@@ -124,18 +126,123 @@ alter table leads enable row level security;
 alter table profiles enable row level security;
 alter table lead_stage_events enable row level security;
 
-drop policy if exists "anon read" on clients;
-create policy "anon read" on clients for select to anon using (true);
-drop policy if exists "anon all" on pipelines;
-create policy "anon all" on pipelines for all to anon using (true) with check (true);
-drop policy if exists "anon all" on stages;
-create policy "anon all" on stages for all to anon using (true) with check (true);
-drop policy if exists "anon all" on leads;
-create policy "anon all" on leads for all to anon using (true) with check (true);
-drop policy if exists "anon all" on profiles;
-create policy "anon all" on profiles for all to anon using (true) with check (true);
-drop policy if exists "anon all" on lead_stage_events;
-create policy "anon all" on lead_stage_events for all to anon using (true) with check (true);
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select coalesce((select role = 'admin' from public.profiles where id = auth.uid()), false)
+$$;
+
+create or replace function public.my_client_id()
+returns uuid language sql stable security definer set search_path = public
+as $$
+  select client_id from public.profiles where id = auth.uid()
+$$;
+
+create policy clients_select on clients for select to authenticated
+  using (is_admin() or id = my_client_id());
+create policy clients_write on clients for all to authenticated
+  using (is_admin()) with check (is_admin());
+
+create policy pipelines_select on pipelines for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy pipelines_write on pipelines for all to authenticated
+  using (is_admin()) with check (is_admin());
+
+create policy stages_select on stages for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy stages_write on stages for all to authenticated
+  using (is_admin()) with check (is_admin());
+
+create policy leads_select on leads for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy leads_insert on leads for insert to authenticated
+  with check (is_admin() or client_id = my_client_id());
+create policy leads_update on leads for update to authenticated
+  using (is_admin() or client_id = my_client_id())
+  with check (is_admin() or client_id = my_client_id());
+create policy leads_delete on leads for delete to authenticated
+  using (is_admin() or client_id = my_client_id());
+
+-- n8n (Instantly) entra con la chiave anon: solo insert/update sul cliente
+-- Estetica Premium (sostituisci l'UUID col client_id reale del progetto).
+create policy leads_anon_insert on leads for insert to anon
+  with check (client_id = 'fae0d66c-0e93-4e5e-b6f1-82ad0c47674c');
+create policy leads_anon_update on leads for update to anon
+  using (client_id = 'fae0d66c-0e93-4e5e-b6f1-82ad0c47674c')
+  with check (client_id = 'fae0d66c-0e93-4e5e-b6f1-82ad0c47674c');
+
+create policy profiles_select on profiles for select to authenticated
+  using (is_admin() or id = auth.uid());
+create policy profiles_insert on profiles for insert to authenticated
+  with check (is_admin());
+create policy profiles_update on profiles for update to authenticated
+  using (is_admin() or id = auth.uid())
+  with check (is_admin() or id = auth.uid());
+create policy profiles_delete on profiles for delete to authenticated
+  using (is_admin());
+
+create policy lse_select on lead_stage_events for select to authenticated
+  using (is_admin() or client_id = my_client_id());
+create policy lse_write on lead_stage_events for insert to authenticated
+  with check (is_admin() or client_id = my_client_id());
+create policy lse_update on lead_stage_events for update to authenticated
+  using (is_admin() or client_id = my_client_id())
+  with check (is_admin() or client_id = my_client_id());
+create policy lse_delete on lead_stage_events for delete to authenticated
+  using (is_admin() or client_id = my_client_id());
+
+-- ---------- RPC per l'ingest n8n (anon, senza RLS debole) ----------
+create or replace function public.upsert_lead(
+  p_name text, p_phone text, p_email text, p_source text, p_assigned text
+) returns uuid language plpgsql security definer set search_path = public
+as $$
+declare
+  v_client uuid := 'fae0d66c-0e93-4e5e-b6f1-82ad0c47674c';
+  v_pipe uuid; v_stage uuid; v_id uuid;
+begin
+  if p_name is null or length(trim(p_name)) = 0 then return null; end if;
+  if p_phone is null or length(trim(p_phone)) = 0 then return null; end if;
+  select id into v_pipe from pipelines where client_id = v_client limit 1;
+  select id into v_stage from stages
+    where pipeline_id = v_pipe and name = 'NO ANSWER' order by position limit 1;
+  insert into leads (client_id, pipeline_id, stage_id, name, phone, email, source, assigned_to, position)
+  values (v_client, v_pipe, v_stage, trim(p_name), trim(p_phone),
+          nullif(trim(coalesce(p_email,'')),''), coalesce(nullif(trim(p_source),''),'Instantly'),
+          nullif(trim(coalesce(p_assigned,'')),''), 0)
+  on conflict (phone) do update set
+    name = excluded.name,
+    email = coalesce(excluded.email, leads.email)
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+grant execute on function public.upsert_lead(text, text, text, text, text) to anon, authenticated;
+
+create or replace function public.append_note(p_phone text, p_text text)
+returns void language plpgsql security definer set search_path = public
+as $$
+begin
+  if p_text is null or length(trim(p_text)) = 0 then return; end if;
+  update leads
+  set notes = coalesce(notes || E'\n\n', '') || to_char(now(), 'DD/MM/YYYY HH24:MI') || ' — ' || trim(p_text)
+  where phone = p_phone and client_id = 'fae0d66c-0e93-4e5e-b6f1-82ad0c47674c';
+end;
+$$;
+grant execute on function public.append_note(text, text) to anon, authenticated;
+
+create or replace function public.list_users()
+returns table(id uuid, email text, role text, client_id uuid, full_name text)
+language sql security definer set search_path = public
+as $$
+  select u.id, u.email::text, p.role, p.client_id, p.full_name
+  from auth.users u
+  left join public.profiles p on p.id = u.id
+  where u.deleted_at is null
+    and (exists (select 1 from public.profiles a where a.id = auth.uid() and a.role = 'admin')
+         or u.id = auth.uid())
+  order by u.created_at;
+$$;
+grant execute on function public.list_users() to authenticated;
 
 -- ---------- DATI INIZIALI ----------
 -- Cliente e pipeline: gli stage vengono creati dall'import (o qui sotto

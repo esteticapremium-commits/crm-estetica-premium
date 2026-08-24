@@ -13,6 +13,7 @@ import {
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import LeadModal from "./LeadModal";
+import { romeToday } from "../dates";
 
 // Probabilità di chiusura per fase (impostazione da CRM vendita: il valore
 // della pipeline si pondera per la probabilità della fase in cui si trova).
@@ -292,6 +293,7 @@ export default function Board({
         <LeadModal
           newInStage={creatingInStage}
           clientId={client.id}
+          pipelineId={pipeline.id}
           stages={stages}
           meName={meName}
           onClose={() => setCreatingInStage(null)}
@@ -426,7 +428,7 @@ function LeadCardInner({
       {lead.next_action_date && (
         <div className="row">
           <span>📅</span>
-          <span className={lead.next_action_date <= new Date().toISOString().slice(0, 10) ? "overdue" : ""}>
+          <span className={lead.next_action_date <= romeToday() ? "overdue" : ""}>
             {new Date(lead.next_action_date).toLocaleDateString("it-IT", {
               day: "numeric",
               month: "short",

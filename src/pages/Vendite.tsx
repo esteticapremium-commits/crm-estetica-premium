@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import { STAGE_PROBABILITY } from "./Board";
+import { romeDay, romeLastDays, romeToday } from "../dates";
 
 interface StageEvent {
   id: string;
@@ -97,8 +98,8 @@ export default function Vendite({
       return byDay.get(d)!;
     };
     for (const e of events) {
-      const d = (e.changed_at || "").slice(0, 10);
-      if (!d) continue;
+      if (!e.changed_at) continue;
+      const d = romeDay(e.changed_at);
       const row = mk(d);
       row.movimenti++;
       // "chiamate" = spostamenti verso NO ANSWER o RECALL
@@ -132,7 +133,7 @@ export default function Vendite({
   const closeRate = leads.length ? Math.round((closedLeads.length / leads.length) * 100) : 0;
 
   // Da richiamare: prossima azione scaduta o di oggi, lead non chiusi
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = romeToday();
   const toCall = leads
     .filter((l) => l.next_action_date && l.next_action_date <= todayIso && activeStages.includes(l.stage_id))
     .sort((a, b) => (a.next_action_date ?? "").localeCompare(b.next_action_date ?? ""));
@@ -146,9 +147,13 @@ export default function Vendite({
     })
     .sort((a, b) => (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at));
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => romeToday(), []);
   const todayRow = days.find((d) => d.day === today);
-  const weekMov = days.slice(0, 7).reduce((s, d) => s + d.movimenti, 0);
+  // ultimi 7 giorni DI CALENDARIO (non gli ultimi 7 con attività)
+  const weekDays = useMemo(() => romeLastDays(7), []);
+  const weekMov = days
+    .filter((d) => weekDays.has(d.day))
+    .reduce((s, d) => s + d.movimenti, 0);
 
   if (loading) return <div className="center-msg">Caricamento vendite…</div>;
 

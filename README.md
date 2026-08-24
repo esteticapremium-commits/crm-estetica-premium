@@ -49,6 +49,36 @@ Nessun riferimento ad altri progetti.
 4. `Deploy`. Da ora ogni push aggiorna il sito da solo.
 5. In **Settings → Domains** puoi collegare un tuo dominio (es. crm.esteticapremium.it).
 
+## Edge Function `admin-user` (gestione accessi dal pannello)
+
+La pagina Amministrazione → Accessi usa una Supabase Edge Function per creare
+venditori, cambiare password ed eliminare accessi. Il codice è in
+`supabase/functions/admin-user/index.ts`: verifica che chi chiama sia admin e
+usa la service role **solo lato server** (segreto, mai nel frontend).
+
+Deploy (una volta sola):
+
+```bash
+npx supabase login
+npx supabase functions deploy admin-user --project-ref mvujbtygcmowkbvoqcgp
+```
+
+In alternativa dal pannello: Supabase → Edge Functions → Deploy new function →
+nome `admin-user` → incolla il contenuto di `supabase/functions/admin-user/index.ts` → Deploy.
+
+Finché la funzione non è deployata, la lista venditori funziona comunque
+(via funzione RPC nel database) ma creazione/password/elimina rispondono con
+un errore: basta fare il deploy per attivarle.
+
+## Sicurezza (RLS)
+
+Le policy del database (in `supabase/migration.sql` e `supabase/upgrade_rls.sql`):
+- **admin**: pieno accesso a tutte le tabelle CRM;
+- **venditore**: vede e modifica solo i dati del cliente assegnato al suo profilo;
+- **anon** (workflow n8n/Instantly): solo inserimento/aggiornamento lead del
+  cliente Estetica Premium, nessuna lettura;
+- la service_role non è mai usata dal frontend.
+
 ## Sviluppo locale
 
 ```bash

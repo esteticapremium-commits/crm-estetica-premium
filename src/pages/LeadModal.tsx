@@ -6,6 +6,7 @@ interface Props {
   lead?: Lead;
   newInStage?: Stage;
   clientId?: string;
+  pipelineId?: string;
   stages: Stage[];
   meName?: string;
   onClose: () => void;
@@ -16,6 +17,7 @@ export default function LeadModal({
   lead,
   newInStage,
   clientId,
+  pipelineId,
   stages,
   meName,
   onClose,
@@ -61,7 +63,7 @@ export default function LeadModal({
     if (isNew) {
       const res = await supabase
         .from("leads")
-        .insert({ ...payload, client_id: clientId })
+        .insert({ ...payload, client_id: clientId, pipeline_id: pipelineId })
         .select("id")
         .single();
       error = res.error;
@@ -119,7 +121,7 @@ export default function LeadModal({
             <label>Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Telefono</label>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} />
@@ -129,7 +131,7 @@ export default function LeadModal({
               <input value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Fase</label>
               <select
@@ -163,7 +165,7 @@ export default function LeadModal({
               />
             </div>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Fonte</label>
               <input
@@ -180,7 +182,7 @@ export default function LeadModal({
               />
             </div>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Prossima azione</label>
               <input
