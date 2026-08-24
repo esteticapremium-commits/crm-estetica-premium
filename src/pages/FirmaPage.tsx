@@ -169,6 +169,43 @@ export default function FirmaPage({ token }: { token: string }) {
               >
                 📄 Scarica il PDF compilato
               </button>
+
+              {/* Riepilogo dati + data firma, sempre nel documento/PDF */}
+              <div className="firma-recap">
+                <div className="recap-title">Dati dichiarati dal firmatario</div>
+                <table className="recap-table">
+                  <tbody>
+                    {fields.map((f) => (
+                      <tr key={f}>
+                        <td>{f}</td>
+                        <td><b>{values[f] || "—"}</b></td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td>Firmato da</td>
+                      <td><b>{doc.signed_name}</b></td>
+                    </tr>
+                    <tr>
+                      <td>Data della firma</td>
+                      <td><b>
+                        {doc.signed_at
+                          ? new Date(doc.signed_at).toLocaleString("it-IT", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
+                      </b></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
+                Il contratto firmato
+              </b>
               <Document body={fillBody(doc.body ?? "", fields, values, true)} />
               <div className="firma-signatures">
                 <div>

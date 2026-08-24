@@ -1682,3 +1682,32 @@ a {
   color: #0f6b24;
   border-color: #bfe3c6;
 }
+
+/* riepilogo dati firmatario nel documento firmato */
+.firma-recap {
+  border: 1px solid #dcd9d1;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #faf9f6;
+  margin-bottom: 4px;
+}
+.recap-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #14120c;
+}
+.recap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.recap-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #e8e5dd;
+  color: #2b2a26;
+}
+.recap-table td:first-child {
+  color: #77736a;
+  width: 40%;
+}
