@@ -146,7 +146,7 @@ export default function FirmaPage({ token }: { token: string }) {
   }
 
   return (
-    <div className="app theme-premium">
+    <div className="firma-page">
       <div className="firma-wrap">
         <div className="firma-card">
           {!doc && !err && <div className="center-msg">Caricamento documento…</div>}
