@@ -36,6 +36,7 @@ create table if not exists stages (
   position integer not null default 1,
   color text,
   is_entry boolean not null default false,
+  probability integer,
   ghl_stage_id text,
   created_at timestamptz not null default now()
 );
@@ -57,7 +58,12 @@ create table if not exists leads (
   ghl_contact_id text,
   meta_lead_id text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- campi di lavorazione del lead (scheda lead e bacheca)
+  next_action_date date,
+  closing_date date,
+  lost_reason text,
+  tags text
 );
 
 create index if not exists leads_client_idx on leads(client_id);
@@ -93,10 +99,23 @@ create or replace function record_stage_event()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
+declare
+  v_by text;
 begin
-  insert into lead_stage_events (lead_id, client_id, pipeline_id, from_stage_id, to_stage_id)
-  values (new.id, new.client_id, new.pipeline_id, old.stage_id, new.stage_id);
+  -- Niente "movimenti fantasma": se è un UPDATE che non cambia la fase, esci.
+  if tg_op = 'UPDATE' and new.stage_id is not distinct from old.stage_id then
+    return new;
+  end if;
+  -- Autore = nome del profilo di chi agisce (null per l'ingest n8n/anon).
+  select full_name into v_by from public.profiles where id = auth.uid();
+  insert into lead_stage_events
+    (lead_id, client_id, pipeline_id, from_stage_id, to_stage_id, changed_by)
+  values
+    (new.id, new.client_id, new.pipeline_id,
+     case when tg_op = 'UPDATE' then old.stage_id else null end,
+     new.stage_id, v_by);
   return new;
 end;
 $$;
@@ -294,7 +313,8 @@ create policy contracts_delete on contracts for delete to authenticated
 create or replace function public.get_contract_by_token(p_token text)
 returns table(
   id uuid, title text, body text, status text, lead_name text,
-  signed_name text, signed_at timestamptz, signature_data text
+  signed_name text, signed_at timestamptz, signature_data text,
+  client_fields text, client_data text
 )
 language sql security definer set search_path = public
 as $$
@@ -326,6 +346,59 @@ begin
 end;
 $$;
 grant execute on function public.sign_contract(text, text, text, text) to anon;
+
+-- ---------- INVIO EMAIL CONTRATTO (Resend via pg_net) ----------
+create extension if not exists pg_net;
+
+-- Impostazioni server (es. la chiave API di Resend). Nessuna policy RLS:
+-- accessibile solo a service_role e alle funzioni security definer qui sotto.
+-- Inserire la chiave una volta sola dal pannello Supabase:
+--   insert into app_settings(key, value) values ('resend_api_key', 're_...');
+create table if not exists app_settings (
+  key text primary key,
+  value text
+);
+alter table app_settings enable row level security;
+
+create or replace function public.send_contract_email(p_contract_id uuid)
+returns text language plpgsql security definer set search_path = public
+as $$
+declare
+  v contracts%rowtype;
+  v_key text;
+  v_link text;
+  v_uid uuid := auth.uid();
+  v_admin boolean;
+  v_res jsonb;
+begin
+  select * into v from contracts where id = p_contract_id;
+  if v.id is null then return 'contratto non trovato'; end if;
+  select exists (select 1 from profiles p where p.id = v_uid and p.role = 'admin') into v_admin;
+  if not v_admin and
+     not exists (select 1 from profiles p where p.id = v_uid and p.client_id = v.client_id)
+  then return 'non autorizzato'; end if;
+  if v.sent_to is null or length(trim(v.sent_to)) = 0 then return 'destinatario mancante'; end if;
+  select value into v_key from app_settings where key = 'resend_api_key';
+  if v_key is null then return 'chiave email non configurata'; end if;
+  v_link := 'https://crm-estetica-premium.vercel.app/#/firma/' || v.sign_token::text;
+  select net.http_post(
+    url := 'https://api.resend.com/emails',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || v_key,
+      'Content-Type', 'application/json'
+    ),
+    body := jsonb_build_object(
+      'from', 'Estetica Premium <onboarding@resend.dev>',
+      'to', v.sent_to,
+      'subject', v.title || ' — firma richiesta',
+      'text', E'Buongiorno,\n\nti inviamo il contratto da firmare: ' || v_link || E'\n\nBasta aprire il link, compilare i campi e firmare con il dito.\n\nGrazie,\nEstetica Premium'
+    )
+  ) into v_res;
+  update contracts set status = 'sent', sent_at = now() where id = p_contract_id;
+  return 'inviata';
+end;
+$$;
+grant execute on function public.send_contract_email(uuid) to authenticated;
 
 -- ---------- DATI INIZIALI ----------
 -- Cliente e pipeline: gli stage vengono creati dall'import (o qui sotto

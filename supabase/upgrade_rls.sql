@@ -126,9 +126,21 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_by text;
 begin
-  insert into lead_stage_events (lead_id, client_id, pipeline_id, from_stage_id, to_stage_id)
-  values (new.id, new.client_id, new.pipeline_id, old.stage_id, new.stage_id);
+  -- Niente "movimenti fantasma": se è un UPDATE che non cambia la fase, esci.
+  if tg_op = 'UPDATE' and new.stage_id is not distinct from old.stage_id then
+    return new;
+  end if;
+  -- Autore = nome del profilo di chi agisce (null per l'ingest n8n/anon).
+  select full_name into v_by from public.profiles where id = auth.uid();
+  insert into lead_stage_events
+    (lead_id, client_id, pipeline_id, from_stage_id, to_stage_id, changed_by)
+  values
+    (new.id, new.client_id, new.pipeline_id,
+     case when tg_op = 'UPDATE' then old.stage_id else null end,
+     new.stage_id, v_by);
   return new;
 end;
 $$;

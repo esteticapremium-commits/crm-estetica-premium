@@ -11,15 +11,14 @@ interface LeadRow {
 }
 interface StageRow { id: string; client_id: string; name: string }
 
-interface CenterAgg { g: number; a: number; e: number }
+interface CenterAgg { g: number; w: number; e: number }
 interface Agg {
   name: string;
   gestiti: number;
-  app: number;
-  acc: number;
-  accEur: number;
-  tratt: number;
-  persi: number;
+  closing: number;
+  won: number;
+  wonEur: number;
+  lost: number;
   centers: Record<string, CenterAgg>;
 }
 
@@ -50,18 +49,10 @@ export default function Performance({ clients }: { clients: Client[] }) {
   const data = useMemo(() => {
     const stageById: Record<string, StageRow> = {};
     for (const s of stages) stageById[s.id] = s;
+    // Le fasi della pipeline sono in MAIUSCOLO: CLOSING = in chiusura,
+    // CLOSED = vinto, LOST = perso.
     const nameOf = (l: LeadRow) =>
-      (stageById[l.stage_id]?.name || "").toLowerCase();
-
-    // Stesse regole della Dashboard (escludono "non accettato")
-    const isAccettato = (n: string) =>
-      n.includes("accettato") && !n.includes("non accettato");
-    const isTrattativa = (n: string) => n.includes("trattativa");
-    const isApp = (n: string) => n.includes("appuntament");
-    const isPerso = (n: string) =>
-      n.includes("non interessato") ||
-      n.includes("non in target") ||
-      n.includes("disdett");
+      (stageById[l.stage_id]?.name || "").trim().toUpperCase();
 
     const by: Record<string, Agg> = {};
     let unassigned = 0;
@@ -73,33 +64,32 @@ export default function Performance({ clients }: { clients: Client[] }) {
       const a =
         by[who] ||
         (by[who] = {
-          name: who, gestiti: 0, app: 0, acc: 0, accEur: 0,
-          tratt: 0, persi: 0, centers: {},
+          name: who, gestiti: 0, closing: 0, won: 0, wonEur: 0,
+          lost: 0, centers: {},
         });
       a.gestiti++;
       const cn = clientName[l.client_id] || "—";
-      const c = a.centers[cn] || (a.centers[cn] = { g: 0, a: 0, e: 0 });
+      const c = a.centers[cn] || (a.centers[cn] = { g: 0, w: 0, e: 0 });
       c.g++;
-      if (isApp(n)) a.app++;
-      if (isTrattativa(n)) a.tratt++;
-      if (isPerso(n)) a.persi++;
-      if (isAccettato(n)) {
+      if (n === "CLOSING") a.closing++;
+      if (n === "LOST") a.lost++;
+      if (n === "CLOSED") {
         const v = Number(l.value) || 0;
-        a.acc++; a.accEur += v; c.a++; c.e += v;
+        a.won++; a.wonEur += v; c.w++; c.e += v;
       }
     }
 
     const rows = Object.values(by).sort(
       (x, y) =>
-        y.accEur - x.accEur || y.acc - x.acc || y.gestiti - x.gestiti
+        y.wonEur - x.wonEur || y.won - x.won || y.gestiti - x.gestiti
     );
     const tot = rows.reduce(
       (s, r) => ({
         gestiti: s.gestiti + r.gestiti,
-        acc: s.acc + r.acc,
-        accEur: s.accEur + r.accEur,
+        won: s.won + r.won,
+        wonEur: s.wonEur + r.wonEur,
       }),
-      { gestiti: 0, acc: 0, accEur: 0 }
+      { gestiti: 0, won: 0, wonEur: 0 }
     );
     return { rows, unassigned, tot };
   }, [leads, stages, clientName]);
@@ -118,8 +108,8 @@ export default function Performance({ clients }: { clients: Client[] }) {
 
       <div className="cards-grid">
         <Stat k="Lead assegnati (totale)" v={data.tot.gestiti} />
-        <Stat k="Preventivi accettati" v={data.tot.acc} accent="#16a34a" />
-        <Stat k="Valore accettati" v={eur(data.tot.accEur)} small accent="#16a34a" />
+        <Stat k="Chiusi (CLOSED)" v={data.tot.won} accent="#16a34a" />
+        <Stat k="Valore chiuso" v={eur(data.tot.wonEur)} small accent="#16a34a" />
         <Stat k="Lead non assegnati" v={data.unassigned} accent="#ea580c" />
       </div>
 
@@ -134,11 +124,12 @@ export default function Performance({ clients }: { clients: Client[] }) {
             <thead>
               <tr>
                 <th>Venditore</th>
-                                <th>Gestiti</th>
-                <th>Appunt.</th>
-                <th>In trattativa</th>
-                <th>Accettati</th>
-                <th>€ Accettati</th>
+                <th>Centri</th>
+                <th>Gestiti</th>
+                <th>In chiusura</th>
+                <th>Chiusi</th>
+                <th>€ Chiusi</th>
+                <th>Persi</th>
                 <th>Conversione</th>
               </tr>
             </thead>
@@ -155,11 +146,11 @@ export default function Performance({ clients }: { clients: Client[] }) {
                     </td>
                     <td>{Object.keys(r.centers).length}</td>
                     <td>{r.gestiti}</td>
-                    <td>{r.app}</td>
-                    <td>{r.tratt}</td>
-                    <td className="pos">{r.acc}</td>
-                    <td className="pos">{eur(r.accEur)}</td>
-                    <td>{pct(r.acc, r.gestiti)}</td>
+                    <td>{r.closing}</td>
+                    <td className="pos">{r.won}</td>
+                    <td className="pos">{eur(r.wonEur)}</td>
+                    <td>{r.lost}</td>
+                    <td>{pct(r.won, r.gestiti)}</td>
                   </tr>
                   {open === r.name && (
                     <tr className="perf-detail">
@@ -171,10 +162,10 @@ export default function Performance({ clients }: { clients: Client[] }) {
                               <div className="perf-sub-row" key={cn}>
                                 <span className="cn">{cn}</span>
                                 <span>{c.g} gestiti</span>
-                                <span className="pos">{c.a} accettati</span>
+                                <span className="pos">{c.w} chiusi</span>
                                 <span className="pos">{eur(c.e)}</span>
                                 <span className="muted">
-                                  conv. {pct(c.a, c.g)}
+                                  conv. {pct(c.w, c.g)}
                                 </span>
                               </div>
                             ))}
@@ -190,8 +181,9 @@ export default function Performance({ clients }: { clients: Client[] }) {
       </div>
 
       <p className="sub" style={{ marginTop: 14 }}>
-        Suggerimento: “Gestiti” = lead assegnati a quella persona. “Accettati” e
-        “€ Accettati” contano solo la fase <b>Preventivo Accettato</b>.
+        Suggerimento: “Gestiti” = lead assegnati a quella persona. “Chiusi” e
+        “€ Chiusi” contano solo la fase <b>CLOSED</b>; “In chiusura” la fase{" "}
+        <b>CLOSING</b>; “Persi” la fase <b>LOST</b>.
       </p>
     </div>
   );

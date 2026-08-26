@@ -165,19 +165,10 @@ export default function Board({
     if (error) {
       alert("Non è stato possibile spostare il lead: " + error.message);
       load();
-    } else if (meName?.trim()) {
-      // Il database registra lo spostamento da solo (trigger): qui scriviamo
-      // sopra l'evento appena creato il nome di chi l'ha fatto, per il
-      // registro attività in Amministrazione.
-      supabase
-        .from("lead_stage_events")
-        .update({ changed_by: meName.trim() })
-        .eq("lead_id", leadId)
-        .is("changed_by", null)
-        .order("changed_at", { ascending: false })
-        .limit(1)
-        .then(() => {});
     }
+    // Chi ha spostato il lead lo registra il database stesso (trigger
+    // record_stage_event, che legge il profilo dell'utente autenticato).
+    // Nessun aggiornamento manuale qui: evita di "timbrare" eventi sbagliati.
   }
 
   function onDragStart(e: DragStartEvent) {

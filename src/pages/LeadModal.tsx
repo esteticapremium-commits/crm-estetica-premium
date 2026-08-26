@@ -210,20 +210,8 @@ export default function LeadModal({
     setBusy(false);
     if (error) setErr(error.message);
     else {
-      // Se la fase è cambiata (o il lead è nuovo), il database ha registrato
-      // l'evento da solo: ci scriviamo sopra il nome di chi l'ha fatto.
-      const stageChanged = isNew || stageId !== lead!.stage_id;
-      const lid = newLeadId ?? lead!.id;
-      if (stageChanged && meName?.trim() && lid) {
-        supabase
-          .from("lead_stage_events")
-          .update({ changed_by: meName.trim() })
-          .eq("lead_id", lid)
-          .is("changed_by", null)
-          .order("changed_at", { ascending: false })
-          .limit(1)
-          .then(() => {});
-      }
+      // L'autore dell'eventuale cambio fase lo registra il database stesso
+      // (trigger record_stage_event): niente aggiornamento manuale qui.
       onSaved();
     }
   }
