@@ -61,6 +61,18 @@ export interface Lead {
   updated_at: string;
 }
 
+export interface LeadActivity {
+  id: string;
+  lead_id: string;
+  client_id: string;
+  activity_type: string;
+  outcome: string | null;
+  note: string | null;
+  next_action_date: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface Contract {
   id: string;
   client_id: string;

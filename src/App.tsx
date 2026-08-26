@@ -9,12 +9,13 @@ import Admin from "./pages/Admin";
 import Performance from "./pages/Performance";
 import Vendite from "./pages/Vendite";
 import FirmaPage from "./pages/FirmaPage";
+import Control from "./pages/Control";
 
-type Tab = "board" | "dashboard" | "sales" | "performance" | "admin";
+type Tab = "board" | "dashboard" | "sales" | "performance" | "admin" | "control";
 
 export default function App() {
   const auth = useAuth();
-  const [tab, setTab] = useState<Tab>("board");
+  const [tab, setTab] = useState<Tab>("control");
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string | null>(null);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -159,6 +160,9 @@ export default function App() {
         </div>
 
         <nav className="nav">
+          <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}>
+            {isAdmin ? "Controllo" : "La mia giornata"}
+          </button>
           <button
             className={tab === "board" ? "active" : ""}
             onClick={() => {
@@ -278,6 +282,8 @@ export default function App() {
             autoAssign={!isAdmin}
             focusLeadId={focusLeadId}
             onFocusConsumed={() => setFocusLeadId(null)}
+            canDelete={isAdmin}
+            canReassign={isAdmin}
           />
         ) : (
           <div className="center-msg">Nessuna pipeline disponibile.</div>
@@ -285,6 +291,10 @@ export default function App() {
 
       {tab === "sales" && currentClient && currentPipeline && (
         <Vendite client={currentClient} pipeline={currentPipeline} />
+      )}
+
+      {tab === "control" && currentClient && (
+        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} />
       )}
 
       {tab === "performance" && isAdmin && <Performance clients={clients} />}

@@ -471,6 +471,18 @@ a {
   font-size: 15px;
   margin: 0 0 14px;
 }
+
+.activity-box { border: 1px solid rgba(184,135,37,.38); background: rgba(184,135,37,.06); border-radius: 10px; padding: 12px; margin-top: 14px; }
+.activity-box p, .muted { color: var(--muted); font-size: 12.5px; margin: 4px 0 10px; }
+.control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 14px 0; }
+.control-lead { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.control-lead span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.control-lead > div:last-child { color: var(--danger); font-weight: 650; text-align: right; }
+.team-table { overflow-x: auto; min-width: 600px; }
+.team-head, .team-row { display: grid; grid-template-columns: 2fr repeat(5, 1fr); gap: 10px; padding: 10px 4px; align-items: center; border-bottom: 1px solid var(--line); }
+.team-head { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.danger-text { color: var(--danger); font-weight: 800; }
+@media (max-width: 760px) { .control-grid { grid-template-columns: 1fr; } }
 .bar-row {
   display: grid;
   grid-template-columns: 190px 1fr 46px;

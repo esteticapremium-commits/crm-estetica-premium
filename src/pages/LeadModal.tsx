@@ -9,6 +9,8 @@ interface Props {
   pipelineId?: string;
   stages: Stage[];
   meName?: string;
+  canDelete?: boolean;
+  canReassign?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -20,6 +22,8 @@ export default function LeadModal({
   pipelineId,
   stages,
   meName,
+  canDelete = false,
+  canReassign = false,
   onClose,
   onSaved,
 }: Props) {
@@ -40,6 +44,9 @@ export default function LeadModal({
   const [tags, setTags] = useState(lead?.tags ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [activityType, setActivityType] = useState("call");
+  const [activityOutcome, setActivityOutcome] = useState("");
+  const [activityNote, setActivityNote] = useState("");
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -175,6 +182,9 @@ export default function LeadModal({
   };
 
   async function save() {
+    if (!isNew && activityOutcome && !nextAction && stages.find((s) => s.id === stageId)?.name !== "CLOSED" && stages.find((s) => s.id === stageId)?.name !== "LOST") {
+      return setErr("Dopo un'attività scegli la prossima azione: così nessun lead resta senza seguito.");
+    }
     setBusy(true);
     setErr(null);
     const payload = {
@@ -182,7 +192,7 @@ export default function LeadModal({
       phone: phone.trim() || null,
       email: email.trim() || null,
       source: source.trim() || null,
-      assigned_to: assigned.trim() || null,
+      assigned_to: canReassign ? assigned.trim() || null : meName?.trim() || assigned.trim() || null,
       value: Number(value) || 0,
       stage_id: stageId,
       notes: notes.trim() || null,
@@ -210,6 +220,21 @@ export default function LeadModal({
     setBusy(false);
     if (error) setErr(error.message);
     else {
+      if (!isNew && activityOutcome) {
+        const { error: activityError } = await supabase.from("lead_activities").insert({
+          lead_id: lead!.id,
+          client_id: lead!.client_id,
+          activity_type: activityType,
+          outcome: activityOutcome,
+          note: activityNote.trim() || null,
+          next_action_date: nextAction.trim() || null,
+          created_by: meName?.trim() || null,
+        });
+        if (activityError) {
+          setErr("Lead salvato, ma lo storico attività non è stato registrato: " + activityError.message);
+          return;
+        }
+      }
       // L'autore dell'eventuale cambio fase lo registra il database stesso
       // (trigger record_stage_event): niente aggiornamento manuale qui.
       onSaved();
@@ -242,6 +267,43 @@ export default function LeadModal({
             <label>Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
+
+          {!isNew && (
+            <div className="activity-box">
+              <b>Registra attività</b>
+              <p>Compilala dopo ogni contatto: alimenta il tuo controllo giornaliero.</p>
+              <div className="modal-row">
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Tipo</label>
+                  <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
+                    <option value="call">Chiamata</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="meeting">Appuntamento</option>
+                    <option value="follow_up">Follow-up</option>
+                  </select>
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Esito</label>
+                  <select value={activityOutcome} onChange={(e) => setActivityOutcome(e.target.value)}>
+                    <option value="">— non registrare —</option>
+                    <option value="Risposto">Risposto</option>
+                    <option value="Non risponde">Non risponde</option>
+                    <option value="Interessato">Interessato</option>
+                    <option value="Non interessato">Non interessato</option>
+                    <option value="Appuntamento fissato">Appuntamento fissato</option>
+                    <option value="Appuntamento svolto">Appuntamento svolto</option>
+                    <option value="No show">No show</option>
+                  </select>
+                </div>
+              </div>
+              {activityOutcome && (
+                <div className="field">
+                  <label>Nota sull'attività (facoltativa)</label>
+                  <input value={activityNote} onChange={(e) => setActivityNote(e.target.value)} placeholder="es. richiamare dopo le 18" />
+                </div>
+              )}
+            </div>
+          )}
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Telefono</label>
@@ -283,6 +345,7 @@ export default function LeadModal({
                 value={assigned}
                 onChange={(e) => setAssigned(e.target.value)}
                 placeholder="es. Asmaa"
+                disabled={!canReassign}
               />
             </div>
           </div>
@@ -354,7 +417,7 @@ export default function LeadModal({
             />
           </div>
 
-          {!isNew && (
+          {!isNew && canDelete && (
             <div style={{ color: "var(--muted)", fontSize: 12 }}>
               Creato il{" "}
               {new Date(lead!.created_at).toLocaleString("it-IT")}

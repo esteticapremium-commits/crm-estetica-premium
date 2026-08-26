@@ -36,6 +36,8 @@ export default function Board({
   autoAssign,
   focusLeadId,
   onFocusConsumed,
+  canDelete = false,
+  canReassign = false,
 }: {
   client: Client;
   pipeline: Pipeline;
@@ -47,6 +49,8 @@ export default function Board({
   /** Apre in modale il lead arrivato dalla ricerca globale. */
   focusLeadId?: string | null;
   onFocusConsumed?: () => void;
+  canDelete?: boolean;
+  canReassign?: boolean;
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -274,6 +278,8 @@ export default function Board({
           clientId={client.id}
           stages={stages}
           meName={meName}
+          canDelete={canDelete}
+          canReassign={canReassign}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
