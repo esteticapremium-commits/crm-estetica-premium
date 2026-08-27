@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { fillBody } from "../contractPdf";
 
 interface ContractPub {
   id: string;
@@ -14,27 +15,7 @@ interface ContractPub {
   client_data: string | null;
 }
 
-/** slug di un campo (es. "Sede legale (via e città)" -> "sede_legale_via_e_città") */
-function slug(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-/** Sostituisce i segnaposto dei campi cliente con trattini (da compilare)
- *  o con i valori (documento firmato). */
-function fillBody(body: string, fields: string[], values: Record<string, string>, signed: boolean) {
-  let out = body;
-  for (const f of fields) {
-    const sl = slug(f);
-    const val = signed ? values[f] ?? "" : "";
-    out = out.split(`{{${sl}}}`).join(signed ? val || "—" : "________________________________________");
-  }
-  // eventuali segnaposto rimasti
-  out = out.replace(/\{\{[^}]+\}\}/g, "________");
-  return out;
-}
+// slug/fillBody sono in ../contractPdf (confronto tollerante agli accenti).
 
 /**
  * Pagina PUBBLICA di firma: il cliente compila i suoi dati, legge il

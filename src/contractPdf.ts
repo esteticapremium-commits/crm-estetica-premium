@@ -2,31 +2,39 @@
 // Usata dal CRM (scheda lead) per riscaricare la copia firmata; la stessa
 // impaginazione della pagina pubblica di firma.
 
-/** slug di un campo (es. "Sede legale (via e città)" -> "sede_legale_via_e_città") */
-export function slug(s: string) {
+/** Normalizza un nome campo o un segnaposto: toglie gli accenti (a->a, e->e...),
+ *  minuscolo, e ogni carattere non alfanumerico diventa "_". Cosi il campo
+ *  "Sede legale (via e citta)" e il segnaposto {{sede_legale_via_e_citta}}
+ *  combaciano sempre, a prescindere da accenti e formattazione. */
+export function normKey(s: string): string {
   return s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
 
-/** Sostituisce i segnaposto dei campi cliente coi valori (documento firmato). */
+/** Sostituisce i segnaposto dei campi cliente coi valori (documento firmato)
+ *  o coi trattini (documento ancora da compilare). Il confronto tra segnaposto
+ *  e nome del campo e tollerante ad accenti e formattazione. */
 export function fillBody(
   body: string,
   fields: string[],
   values: Record<string, string>,
   signed: boolean
 ) {
-  let out = body;
-  for (const f of fields) {
-    const sl = slug(f);
-    const val = signed ? values[f] ?? "" : "";
-    out = out
-      .split(`{{${sl}}}`)
-      .join(signed ? val || "—" : "________________________________________");
-  }
-  out = out.replace(/\{\{[^}]+\}\}/g, "________");
-  return out;
+  const byKey: Record<string, string> = {};
+  for (const f of fields) byKey[normKey(f)] = signed ? values[f] ?? "" : "";
+  return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_m, raw: string) => {
+    const k = normKey(raw);
+    if (k in byKey) {
+      return signed
+        ? byKey[k] || "—"
+        : "________________________________________";
+    }
+    return "________";
+  });
 }
 
 export interface SignedContract {
