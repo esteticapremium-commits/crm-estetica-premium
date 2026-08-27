@@ -148,12 +148,13 @@ export default function Vendite({
     .sort((a, b) => (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at));
 
   const today = useMemo(() => romeToday(), []);
-  const todayRow = days.find((d) => d.day === today);
   // ultimi 7 giorni DI CALENDARIO (non gli ultimi 7 con attività)
   const weekDays = useMemo(() => romeLastDays(7), []);
-  const weekMov = days
-    .filter((d) => weekDays.has(d.day))
-    .reduce((s, d) => s + d.movimenti, 0);
+  // "Lavorato" = card aggiornata: updated_at cambia a ogni salvataggio (anche
+  // solo della nota). Conta ogni lead toccato, non solo i cambi di fase.
+  const workedDay = (l: Lead) => romeDay(l.updated_at ?? l.created_at);
+  const workedToday = leads.filter((l) => workedDay(l) === today).length;
+  const workedWeek = leads.filter((l) => weekDays.has(workedDay(l))).length;
 
   if (loading) return <div className="center-msg">Caricamento vendite…</div>;
 
@@ -173,13 +174,13 @@ export default function Vendite({
         <div className="stat">
           <div className="k">Lavorati oggi</div>
           <div className="v" style={{ color: "var(--gold)" }}>
-            {todayRow?.movimenti ?? 0}
+            {workedToday}
           </div>
         </div>
         <div className="stat">
           <div className="k">Lavorati ultimi 7 giorni</div>
           <div className="v" style={{ color: "var(--gold)" }}>
-            {weekMov}
+            {workedWeek}
           </div>
         </div>
         <div className="stat">
@@ -304,7 +305,7 @@ export default function Vendite({
             <thead>
               <tr>
                 <th>Giorno</th>
-                <th>Lead lavorati</th>
+                <th>Spostamenti di fase</th>
                 <th>Chiamate (NA/RECALL)</th>
                 <th>→ Discovery</th>
                 <th>→ Closing</th>

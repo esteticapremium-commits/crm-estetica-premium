@@ -19,6 +19,21 @@ export function romeToday(): string {
   return romeDay(new Date());
 }
 
+/** Data e ora "gg/mm/aaaa hh:mm" nel fuso di Roma, per timbrare le note. */
+export function romeStamp(instant: Date | string = new Date()): string {
+  const d = typeof instant === "string" ? new Date(instant) : instant;
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(d)
+    .replace(",", "");
+}
+
 /** Set dei giorni di calendario degli ultimi N giorni (oggi compreso), a Roma. */
 export function romeLastDays(n: number): Set<string> {
   const out = new Set<string>();

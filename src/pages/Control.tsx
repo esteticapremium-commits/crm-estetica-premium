@@ -37,14 +37,17 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
   const due = visible.filter((l) => active(l) && (!l.next_action_date || l.next_action_date <= today));
   const stale = visible.filter((l) => active(l) && (Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) >= 2 * 86400000);
   const closed = visible.filter((l) => stages.find((s) => s.id === l.stage_id)?.name === "CLOSED");
-  const activityToday = activities.filter((a) => romeDay(a.created_at) === today && (admin || isMine(a.created_by)));
-  const workWeek = activities.filter((a) => week.has(romeDay(a.created_at)) && (admin || isMine(a.created_by))).length + moves.filter((m) => week.has(romeDay(m.changed_at)) && (admin || isMine(m.changed_by))).length;
+  // "Lavorato" = card aggiornata: updated_at cambia a ogni salvataggio, anche
+  // quando si aggiorna solo la nota. Conta ogni lead toccato, non solo i cambi di fase.
+  const workedDay = (l: Lead) => romeDay(l.updated_at ?? l.created_at);
+  const workedToday = visible.filter((l) => workedDay(l) === today).length;
+  const workedWeek = visible.filter((l) => week.has(workedDay(l))).length;
   const people = useMemo(() => {
     const names = new Set<string>(); team.forEach((p) => p.full_name && names.add(p.full_name)); leads.forEach((l) => l.assigned_to && names.add(l.assigned_to)); activities.forEach((a) => a.created_by && names.add(a.created_by));
     return [...names].sort().map((name) => {
-      const mine = leads.filter((l) => l.assigned_to === name); const acts = activities.filter((a) => a.created_by === name);
+      const mine = leads.filter((l) => l.assigned_to === name);
       const wins = mine.filter((l) => stages.find((s) => s.id === l.stage_id)?.name === "CLOSED");
-      return { name, open: mine.filter(active).length, due: mine.filter((l) => active(l) && (!l.next_action_date || l.next_action_date <= today)).length, today: acts.filter((a) => romeDay(a.created_at) === today).length + moves.filter((m) => m.changed_by === name && romeDay(m.changed_at) === today).length, wins: wins.length, value: wins.reduce((n, l) => n + Number(l.value || 0), 0) };
+      return { name, open: mine.filter(active).length, due: mine.filter((l) => active(l) && (!l.next_action_date || l.next_action_date <= today)).length, today: mine.filter((l) => workedDay(l) === today).length, wins: wins.length, value: wins.reduce((n, l) => n + Number(l.value || 0), 0) };
     });
   }, [leads, activities, moves, stages, team, today]);
   if (loading) return <div className="center-msg">Caricamento controllo commerciale…</div>;
@@ -55,8 +58,8 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
     <div className="cards-grid">
       <Stat k={admin ? "Lead attivi" : "I miei lead attivi"} v={visible.filter(active).length} />
       <Stat k="Da lavorare oggi" v={due.length} accent={due.length ? "#dc2626" : undefined} />
-      <Stat k="Attività registrate oggi" v={activityToday.length} accent="#b88725" />
-      <Stat k="Attività ultimi 7 gg" v={workWeek} />
+      <Stat k="Lead lavorati oggi" v={workedToday} accent="#b88725" />
+      <Stat k="Lead lavorati ultimi 7 gg" v={workedWeek} />
       <Stat k="Valore chiuso" v={eur(closed.reduce((n, l) => n + Number(l.value || 0), 0))} accent="#16a34a" />
     </div>
     <div className="control-grid">

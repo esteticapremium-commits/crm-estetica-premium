@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { romeStamp } from "../dates";
+import { openSignedContractPdf } from "../contractPdf";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 interface Props {
@@ -38,6 +40,7 @@ export default function LeadModal({
     lead?.stage_id ?? newInStage?.id ?? stages[0]?.id
   );
   const [notes, setNotes] = useState(lead?.notes ?? "");
+  const [quickNote, setQuickNote] = useState("");
   const [nextAction, setNextAction] = useState(lead?.next_action_date ?? "");
   const [closingDate, setClosingDate] = useState(lead?.closing_date ?? "");
   const [lostReason, setLostReason] = useState(lead?.lost_reason ?? "");
@@ -187,6 +190,13 @@ export default function LeadModal({
     }
     setBusy(true);
     setErr(null);
+    // Nota rapida: aggiunta in cima allo storico con data e ora (fuso Roma).
+    const qn = quickNote.trim();
+    const finalNotes = qn
+      ? notes.trim()
+        ? `${romeStamp()} — ${qn}\n${notes}`
+        : `${romeStamp()} — ${qn}`
+      : notes;
     const payload = {
       name: name.trim() || null,
       phone: phone.trim() || null,
@@ -195,7 +205,7 @@ export default function LeadModal({
       assigned_to: canReassign ? assigned.trim() || null : meName?.trim() || assigned.trim() || null,
       value: Number(value) || 0,
       stage_id: stageId,
-      notes: notes.trim() || null,
+      notes: finalNotes.trim() || null,
       next_action_date: nextAction.trim() || null,
       closing_date: closingDate.trim() || null,
       lost_reason: lostReason.trim() || null,
@@ -220,6 +230,8 @@ export default function LeadModal({
     setBusy(false);
     if (error) setErr(error.message);
     else {
+      setNotes(finalNotes);
+      setQuickNote("");
       if (!isNew && activityOutcome) {
         const { error: activityError } = await supabase.from("lead_activities").insert({
           lead_id: lead!.id,
@@ -409,6 +421,20 @@ export default function LeadModal({
               placeholder="es. VIP, da richiamare"
             />
           </div>
+          {!isNew && (
+            <div className="field">
+              <label>Aggiungi nota (con data e ora automatiche)</label>
+              <input
+                value={quickNote}
+                onChange={(e) => setQuickNote(e.target.value)}
+                placeholder="es. richiamato: vuole essere ricontattato venerdì"
+              />
+              <small style={{ color: "var(--muted)" }}>
+                Finisce in cima allo storico qui sotto, con data e ora, e la card
+                conta come lead lavorato oggi.
+              </small>
+            </div>
+          )}
           <div className="field">
             <label>Note (storico chiamate, esito, ecc.)</label>
             <textarea
@@ -505,6 +531,14 @@ Grazie!`
                           Segna inviato
                         </button>
                       </>
+                    )}
+                    {c.status === "signed" && (
+                      <button
+                        className="btn small"
+                        onClick={() => openSignedContractPdf(c)}
+                      >
+                        📄 Scarica PDF firmato
+                      </button>
                     )}
                   </div>
                 </div>

@@ -1,0 +1,121 @@
+// Genera e apre in stampa/PDF il contratto FIRMATO, con dati, data e firma.
+// Usata dal CRM (scheda lead) per riscaricare la copia firmata; la stessa
+// impaginazione della pagina pubblica di firma.
+
+/** slug di un campo (es. "Sede legale (via e città)" -> "sede_legale_via_e_città") */
+export function slug(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** Sostituisce i segnaposto dei campi cliente coi valori (documento firmato). */
+export function fillBody(
+  body: string,
+  fields: string[],
+  values: Record<string, string>,
+  signed: boolean
+) {
+  let out = body;
+  for (const f of fields) {
+    const sl = slug(f);
+    const val = signed ? values[f] ?? "" : "";
+    out = out
+      .split(`{{${sl}}}`)
+      .join(signed ? val || "—" : "________________________________________");
+  }
+  out = out.replace(/\{\{[^}]+\}\}/g, "________");
+  return out;
+}
+
+export interface SignedContract {
+  title: string;
+  body: string | null;
+  client_fields: string | null;
+  client_data: string | null;
+  signed_name: string | null;
+  signed_at: string | null;
+  signature_data: string | null;
+}
+
+/** Apre una finestra col SOLO documento firmato e lancia la stampa/salva PDF. */
+export function openSignedContractPdf(c: SignedContract) {
+  const fields = (c.client_fields ?? "")
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean);
+  let values: Record<string, string> = {};
+  try {
+    values = JSON.parse(c.client_data ?? "{}");
+  } catch {
+    values = {};
+  }
+  const fullBody = fillBody(c.body ?? "", fields, values, true);
+  const rows = fields
+    .map((f) => `<tr><td>${f}</td><td><b>${values[f] || "—"}</b></td></tr>`)
+    .join("");
+  const dataLong = c.signed_at
+    ? new Date(c.signed_at).toLocaleString("it-IT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+  const dataShort = c.signed_at
+    ? new Date(c.signed_at).toLocaleDateString("it-IT")
+    : "";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
+<style>
+  @page { size: A4; margin: 22mm 18mm; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; font-size: 13.5px; line-height: 1.55; }
+  .company { text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 1.5px; }
+  .type { text-align: center; font-size: 16px; font-weight: 700; }
+  .variant { text-align: center; font-style: italic; color: #444; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 18px; }
+  .recap { border: 1px solid #ccc; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; }
+  .recap h3 { margin: 0 0 8px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  .recap td { padding: 3px 4px; border-bottom: 1px solid #eee; }
+  .recap td:first-child { color: #666; width: 42%; }
+  .doc p { margin: 6px 0; white-space: pre-wrap; }
+  .signatures { display: flex; gap: 40px; margin-top: 28px; padding-top: 14px; border-top: 1px solid #111; }
+  .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+  .sig-name { font-size: 17px; margin: 4px 0 6px; }
+  .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
+</style></head><body>
+  <div class="company">ESTETICA PREMIUM</div>
+  <div class="type">Contratto di collaborazione professionale</div>
+  <div class="variant">${c.title}</div>
+  <div class="recap">
+    <h3>Dati dichiarati dal firmatario</h3>
+    <table><tbody>
+      ${rows}
+      <tr><td>Firmato da</td><td><b>${c.signed_name ?? ""}</b></td></tr>
+      <tr><td>Data della firma</td><td><b>${dataLong}</b></td></tr>
+    </tbody></table>
+  </div>
+  <div class="doc">${fullBody.split("\n").map((l) => `<p>${l}</p>`).join("")}</div>
+  <div class="signatures">
+    <div>
+      <div class="sig-label">Il firmatario</div>
+      <div class="sig-name">${c.signed_name ?? ""}</div>
+      ${c.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${c.signature_data}"/></div>` : ""}
+    </div>
+    <div>
+      <div class="sig-label">Data</div>
+      <div class="sig-name">${dataShort}</div>
+    </div>
+  </div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
