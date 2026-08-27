@@ -213,8 +213,35 @@ export default function FirmaPage({ token }: { token: string }) {
       p_sig: data,
       p_data: JSON.stringify(values),
     });
+    if (error) {
+      setBusy(false);
+      return setErr("Firma non riuscita: " + error.message);
+    }
+    // Ricarica il documento ORA firmato dal database (con data e firma salvate).
+    // Senza questo passaggio, data e firma restano vuote nella copia scaricata,
+    // perché "doc" era stato caricato PRIMA della firma.
+    const { data: fresh } = await supabase.rpc("get_contract_by_token", {
+      p_token: token,
+    });
+    const row = (fresh as ContractPub[])?.[0];
+    if (row) {
+      setDoc(row);
+    } else {
+      // Fallback: aggiorna localmente con ciò che è stato appena firmato.
+      setDoc((d) =>
+        d
+          ? {
+              ...d,
+              status: "signed",
+              signed_name: name.trim(),
+              signature_data: data,
+              signed_at: new Date().toISOString(),
+              client_data: JSON.stringify(values),
+            }
+          : d
+      );
+    }
     setBusy(false);
-    if (error) return setErr("Firma non riuscita: " + error.message);
     setOk(true);
   }
 
