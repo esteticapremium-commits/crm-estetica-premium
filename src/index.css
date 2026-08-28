@@ -1665,16 +1665,20 @@ a {
   max-width: 640px;
   overflow: hidden;
 }
+.firma-brandbar { display: flex; align-items: center; gap: 10px; padding: 13px 22px; background: #4b1025; color: #fff8f2; }
+.firma-monogram { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid rgba(255,255,255,.42); border-radius: 9px; background: #f8f1e9; color: #5b102a; font-family: Georgia, serif; font-size: 17px; font-weight: 700; letter-spacing: -1px; }
+.firma-brandbar b, .firma-brandbar span { display: block; }.firma-brandbar b { font-size: 13px; letter-spacing: .15px; }.firma-brandbar span { margin-top: 2px; color: #e5c5cd; font-size: 10px; font-weight: 650; }.firma-brandbar small { margin-left: auto; color: #e5c5cd; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 .firma-head {
   padding: 18px 22px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  background: #fffdfa;
 }
 .firma-title {
   font-family: "Didot", "Bodoni 72", "Georgia", serif;
   font-size: 22px;
-  color: #f2ecdf;
-  letter-spacing: 0.4px;
+  color: #34101e;
+  font-size: 23px;
+  letter-spacing: -.25px;
 }
 .firma-sub {
   color: var(--muted);
@@ -1684,6 +1688,8 @@ a {
 .firma-body {
   padding: 18px 22px 24px;
 }
+.client-fields { padding: 15px; border: 1px solid #eaded8; border-radius: 11px; background: #fffaf7; }
+.firma-step { display: flex; align-items: flex-start; gap: 10px; margin: 2px 0 13px; }.firma-step > span { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%; background: #5b102a; color: #fffaf6; font-size: 10px; font-weight: 800; }.firma-step b, .firma-step small { display: block; }.firma-step b { color: #4b1025; font-size: 14px; }.firma-step small { margin-top: 2px; color: #806f74; font-size: 11px; }.document-step { margin-top: 22px; }
 .firma-doc {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1734,6 +1740,7 @@ a {
     padding-left: 14px;
     padding-right: 14px;
   }
+  .firma-brandbar { padding-left: 14px; padding-right: 14px; }.firma-brandbar small { display: none; }
 }
 
 /* Documento contratto: carta bianca, testo nero, intestazione serif */

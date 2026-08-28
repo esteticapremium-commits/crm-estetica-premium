@@ -248,19 +248,22 @@ export default function FirmaPage({ token }: { token: string }) {
 
           {doc && !ok && (
             <>
+              <div className="firma-brandbar">
+                <div className="firma-monogram">EP</div>
+                <div><b>Estetica Premium</b><span>Accordo di collaborazione</span></div>
+                <small>Documento riservato</small>
+              </div>
               <div className="firma-head">
-                <div className="firma-title">{doc.title}</div>
+                <div className="firma-title">Accordo di collaborazione professionale</div>
                 {doc.lead_name && (
-                  <div className="firma-sub">Destinato a: {doc.lead_name}</div>
+                  <div className="firma-sub">Periodo di prova di 30 giorni · Destinato a {doc.lead_name}</div>
                 )}
               </div>
               <div className="firma-body">
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
-                    <b style={{ display: "block", marginBottom: 8, fontSize: 15 }}>
-                      Compila i tuoi dati
-                    </b>
+                    <div className="firma-step"><span>01</span><div><b>Verifica i dati aziendali</b><small>Servono per completare correttamente l’accordo.</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
                         <label>{f}</label>
@@ -276,15 +279,14 @@ export default function FirmaPage({ token }: { token: string }) {
                 )}
 
                 {/* 2) poi il contratto, con i trattini dove va ogni risposta */}
-                <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
-                  Il contratto
-                </b>
+                <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
                 <Document body={draftParts.main} />
                 <ContractSignatureBox values={values} />
                 {draftParts.approval && <Document body={draftParts.approval} />}
 
                 {/* 3) infine la firma */}
-                <div className="field" style={{ marginTop: 22 }}>
+                <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
+                <div className="field" style={{ marginTop: 14 }}>
                   <label>Nome e cognome (firmatario)</label>
                   <input
                     value={name}
@@ -318,7 +320,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   onClick={sign}
                   disabled={busy}
                 >
-                  {busy ? "Invio firma…" : "Firma e conferma ✓"}
+                  {busy ? "Registrazione firma…" : "Conferma e firma il contratto"}
                 </button>
                 <p
                   style={{
