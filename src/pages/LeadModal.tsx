@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { openSignedContractPdf } from "../contractPdf";
+import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
+
+const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 
 interface Props {
   lead?: Lead;
@@ -73,8 +76,19 @@ export default function LeadModal({
       .order("name")
       .then(({ data }) => {
         const list = (data as ContractTemplate[]) ?? [];
-        setTemplates(list);
-        setCtTpl(list[0]?.id ?? "");
+        const trialTemplate: ContractTemplate = {
+          id: BUILT_IN_TRIAL_TEMPLATE_ID,
+          client_id: lead.client_id,
+          name: TRIAL_CONTRACT_TEMPLATE.name,
+          body: TRIAL_CONTRACT_TEMPLATE.body,
+          client_fields: TRIAL_CONTRACT_TEMPLATE.clientFields,
+          created_at: "",
+        };
+        const templatesWithTrial = list.some((t) => t.name === trialTemplate.name)
+          ? list
+          : [trialTemplate, ...list];
+        setTemplates(templatesWithTrial);
+        setCtTpl(templatesWithTrial[0]?.id ?? "");
       });
   }, [lead?.id]);
 
@@ -119,7 +133,7 @@ export default function LeadModal({
       .insert({
         client_id: cid,
         lead_id: lead.id,
-        template_id: ctTpl,
+        template_id: ctTpl === BUILT_IN_TRIAL_TEMPLATE_ID ? null : ctTpl,
         title: ctTitle.trim() || "Contratto",
         body,
         client_fields: tpl?.client_fields ?? null,

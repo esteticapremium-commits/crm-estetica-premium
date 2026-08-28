@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
 
 /* Chiamata alla funzione protetta che gestisce gli utenti */
@@ -729,41 +728,20 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
   const [newBody, setNewBody] = useState("");
   const [newFields, setNewFields] = useState("");
   const [editing, setEditing] = useState<ContractTemplate | null>(null);
-  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const clientId = clients[0]?.id;
 
   async function load() {
     setLoading(true);
-    setTemplateError(null);
     const [{ data: tp }, { data: ct }] = await Promise.all([
       supabase.from("contract_templates").select("*").order("created_at", { ascending: false }),
       supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").order("created_at", { ascending: false }).limit(50),
     ]);
-    let templateList = (tp as ContractTemplate[]) ?? [];
-    // Il modello di prova è disponibile subito nel gestionale, senza che
-    // l'amministratore debba ricopiare un contratto già approvato.
-    if (clientId && !templateList.some((t) => t.name === TRIAL_CONTRACT_TEMPLATE.name)) {
-      const { data: created, error } = await supabase
-        .from("contract_templates")
-        .insert({
-          client_id: clientId,
-          name: TRIAL_CONTRACT_TEMPLATE.name,
-          body: TRIAL_CONTRACT_TEMPLATE.body,
-          client_fields: TRIAL_CONTRACT_TEMPLATE.clientFields,
-        })
-        .select("*")
-        .single();
-      if (error) setTemplateError(`Il modello di prova non è stato aggiunto: ${error.message}`);
-      else if (created) templateList = [created as ContractTemplate, ...templateList];
-    }
-    setTemplates(templateList);
+    setTemplates((tp as ContractTemplate[]) ?? []);
     setContracts((ct as Contract[]) ?? []);
     setLoading(false);
   }
-  useEffect(() => {
-    if (clientId) void load();
-  }, [clientId]);
+  useEffect(() => { void load(); }, []);
 
   async function addTemplate() {
     if (!newName.trim() || !clientId) return;
@@ -810,13 +788,6 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
           Scrivi il testo del contratto con i segnaposto: verranno sostituiti
           coi dati del lead quando il venditore genera il contratto.
         </p>
-        {!templates.some((t) => t.name === TRIAL_CONTRACT_TEMPLATE.name) && (
-          <div className="trial-template-callout">
-            <div><b>Modello prova 30 giorni</b><span>Importa l'accordo Estetica Premium senza cauzione.</span></div>
-            <button className="btn primary" onClick={() => void load()} disabled={loading}>Aggiungi modello</button>
-          </div>
-        )}
-        {templateError && <div className="notice err">{templateError}</div>}
         <div className="ph-list">
           {PLACEHOLDERS.map(([ph, desc]) => (
             <span key={ph} className="ph">
