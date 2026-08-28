@@ -594,25 +594,38 @@ a {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  background:
+    radial-gradient(720px 360px at 50% -8%, rgba(91, 16, 42, .12), transparent 68%),
+    #f7f2ec;
 }
 .login-box {
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: #fffdfa;
+  border: 1px solid #eaded8;
   border-radius: 16px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 18px 48px rgba(69, 16, 35, .10);
   width: 100%;
   max-width: 380px;
   padding: 28px;
 }
 .login-box h1 {
-  font-size: 20px;
-  margin: 0 0 4px;
-  color: var(--brand);
+  font-family: "Didot", "Bodoni 72", Georgia, serif;
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -.3px;
+  margin: 0 0 6px;
+  color: #5b102a;
 }
 .login-box p {
-  color: var(--muted);
+  color: #806f74;
   margin: 0 0 20px;
 }
+.login-box .field label { color: #704653; }
+.login-box .field input { background: #fff; border-color: #e6d6d2; color: #34101e; }
+.login-box .field input:focus { border-color: #7a1834; box-shadow: 0 0 0 3px rgba(122, 24, 52, .10); }
+.login-box .btn.primary { background: #5b102a; border-color: #5b102a; color: #fffaf6; }
+.login-box .btn.primary:hover { background: #42101f; border-color: #42101f; }
+.login-box a { color: #6b1832; font-weight: 650; }
+.login-box .notice.ok { color: #1e6a45; border-color: #bfe3c6; background: #edf7ef; }
 
 /* ---------- Sotto-menu Amministrazione ---------- */
 .subnav {
