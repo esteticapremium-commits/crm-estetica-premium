@@ -1277,6 +1277,9 @@ a {
   .settings-hero h2 { font-size: 27px; }
   .settings-context { margin-top: 14px; min-width: 0; }
   .settings-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-nav button { min-height: 58px; padding: 9px 10px; }
+  .settings-content .panel h2, .settings-content .panel > p { min-width: 0; }
+  .users-create-grid { grid-template-columns: 1fr !important; }
 
   .platform-shell { display: block; overflow: auto; }
   .sidebar { position: relative; z-index: 10; width: 100%; padding: 12px 10px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.07); }
@@ -1284,11 +1287,11 @@ a {
   .sidebar-toggle { display: none; }
   .side-nav { flex-direction: row; overflow-x: auto; gap: 5px; }
   .nav-label, .side-item.disabled, .sidebar-user { display: none; }
-  .side-nav button { width: auto; flex: none; padding: 8px 10px; white-space: nowrap; }
-  .platform-shell .app-header { min-height: auto; padding: 14px 12px; gap: 10px; align-items: flex-start; }
-  .header-actions { flex: 1; justify-content: flex-end; }
+  .side-nav button { width: auto; min-height: 42px; flex: none; padding: 9px 11px; white-space: nowrap; }
+  .platform-shell .app-header { min-height: auto; padding: 13px 12px; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .header-actions { width: 100%; flex: 1 0 100%; justify-content: stretch; }
   .header-actions .select { display: none; }
-  .platform-shell .search { min-width: 0; width: 140px; }
+  .platform-shell .search-wrap, .platform-shell .search { min-width: 0; width: 100%; }
   .platform-shell .search input { width: 100%; }
   .app-content > .page { padding: 18px 12px; }
 }

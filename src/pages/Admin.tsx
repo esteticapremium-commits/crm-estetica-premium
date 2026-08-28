@@ -1038,7 +1038,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
       )}
 
       <h3 style={{ fontSize: 14, marginTop: 18 }}>Crea nuovo accesso venditore</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="users-create-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="field">
           <label>Nome</label>
           <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="es. Mario Rossi" />
