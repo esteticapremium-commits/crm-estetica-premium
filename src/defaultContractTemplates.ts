@@ -141,7 +141,7 @@ Data: {{data_oggi}}
 Collaboratore
 Nome: Ettore Androsoni
 Ragione sociale: AI BUSINESS REVOLUTION
-Firma: ________________________________________
+Firma: firma del Collaboratore apposta nel presente documento.
 Data: {{data_oggi}}
 
 Il Committente dichiara di avere letto attentamente il presente contratto e, ai sensi e per gli effetti degli articoli 1341 e 1342 del codice civile, dichiara di approvare specificamente le seguenti clausole: art. 4 (natura della prestazione), art. 5 (facoltà di sospensione e interruzione del Collaboratore), art. 6 (durata), art. 7 (completamento del periodo di prova), art. 12 (proprietà intellettuale e strumenti), art. 13 (piattaforme e fornitori terzi), art. 14 (limitazione di responsabilità) e art. 17 (legge applicabile e foro competente).

@@ -1705,6 +1705,9 @@ a {
   padding: 4px;
   margin-top: 10px;
 }
+.collaborator-signature { min-width: 190px; }
+.collaborator-signature img { display: block; width: 210px; max-width: 100%; height: auto; margin: 5px 0 2px; mix-blend-mode: multiply; }
+.collaborator-signature small { display: block; color: #64748b; font-size: 10px; font-weight: 650; letter-spacing: .4px; }
 .theme-premium .firma-doc p {
   color: #d8d4c8;
 }

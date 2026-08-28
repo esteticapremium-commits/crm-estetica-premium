@@ -61,6 +61,7 @@ export interface SignedContract {
 
 /** Apre una finestra col SOLO documento firmato e lancia la stampa/salva PDF. */
 export function openSignedContractPdf(c: SignedContract) {
+  const collaboratorSignatureUrl = `${window.location.origin}/ettore-androsoni-signature.png`;
   const fields = (c.client_fields ?? "")
     .split("\n")
     .map((f) => f.trim())
@@ -104,6 +105,7 @@ export function openSignedContractPdf(c: SignedContract) {
   .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
   .sig-name { font-size: 17px; margin: 4px 0 6px; }
   .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
+  .collaborator-sig { width: 210px; height: auto; border: 0; padding: 0; }
 </style></head><body>
   <div class="company">ESTETICA PREMIUM</div>
   <div class="type">Contratto di collaborazione professionale</div>
@@ -122,6 +124,11 @@ export function openSignedContractPdf(c: SignedContract) {
       <div class="sig-label">Il firmatario</div>
       <div class="sig-name">${escapeHtml(c.signed_name)}</div>
       ${c.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${c.signature_data}"/></div>` : ""}
+    </div>
+    <div>
+      <div class="sig-label">Il Collaboratore</div>
+      <div class="sig-name">Ettore Androsoni</div>
+      <div style="margin-top:6px"><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/></div>
     </div>
     <div>
       <div class="sig-label">Data</div>

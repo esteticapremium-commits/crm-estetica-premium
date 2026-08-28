@@ -247,6 +247,7 @@ export default function FirmaPage({ token }: { token: string }) {
                     <img src={doc.signature_data} alt="firma" className="firma-preview" />
                   )}
                 </div>
+                <CollaboratorSignature />
                 <div>
                   <div className="sig-label">Data</div>
                   <div className="sig-name">
@@ -293,6 +294,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   Il contratto
                 </b>
                 <Document body={fillBody(doc.body ?? "", fields, values, false)} />
+                <CollaboratorSignature />
 
                 {/* 3) infine la firma */}
                 <div className="field" style={{ marginTop: 22 }}>
@@ -347,6 +349,17 @@ export default function FirmaPage({ token }: { token: string }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CollaboratorSignature() {
+  return (
+    <div className="collaborator-signature">
+      <div className="sig-label">Il Collaboratore</div>
+      <div className="sig-name">Ettore Androsoni</div>
+      <img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" />
+      <small>AI BUSINESS REVOLUTION</small>
     </div>
   );
 }
