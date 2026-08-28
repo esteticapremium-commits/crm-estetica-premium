@@ -151,127 +151,45 @@ export default function App() {
   const currentPipeline = allPipeline ?? pipelines.find((p) => p.id === pipelineId) ?? null;
   // La Bacheca non conosce la vista Totale: usa sempre una pipeline reale.
   const boardPipeline = isAllView ? pipelines[0] ?? null : currentPipeline;
+  const pageTitle: Record<Tab, string> = {
+    control: isAdmin ? "Panoramica" : "Le mie priorità",
+    board: "CRM · Pipeline",
+    sales: "CRM · Vendite",
+    dashboard: "Analisi commerciale",
+    performance: "Performance",
+    admin: "Impostazioni",
+  };
 
   return (
-    <div className="app theme-premium">
-      <div className="topbar">
-        <div className="brand">
-          Estetica Premium <small>· pipeline</small>
-        </div>
-
-        <nav className="nav">
-          <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}>
-            {isAdmin ? "Controllo" : "La mia giornata"}
-          </button>
-          <button
-            className={tab === "board" ? "active" : ""}
-            onClick={() => {
-              setTab("board");
-              // La Bacheca non ha la vista Totale: torna a una pipeline reale.
-              if (pipelineId === ALL_PIPELINES_ID) setPipelineId(pipelines[0]?.id ?? null);
-            }}
-          >
-            Bacheca
-          </button>
-          {isPremium && (
-            <button
-              className={tab === "sales" ? "active" : ""}
-              onClick={() => setTab("sales")}
-            >
-              Vendite
-            </button>
-          )}
-          {!isPremium && (
-            <button
-              className={tab === "dashboard" ? "active" : ""}
-              onClick={() => setTab("dashboard")}
-            >
-              Dashboard
-            </button>
-          )}
-          {isAdmin && !isPremium && (
-            <button
-              className={tab === "performance" ? "active" : ""}
-              onClick={() => setTab("performance")}
-            >
-              Performance
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              className={tab === "admin" ? "active" : ""}
-              onClick={() => setTab("admin")}
-            >
-              Amministrazione
-            </button>
-          )}
+    <div className="app theme-premium platform-shell">
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark">E</span><span>Estetica Premium<small>Business OS</small></span></div>
+        <nav className="side-nav" aria-label="Navigazione principale">
+          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
+          <span className="nav-label">CRM</span>
+          {!isAdmin && <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>✓</i> Le mie priorità</button>}
+          <button className={tab === "board" ? "active" : ""} onClick={() => { setTab("board"); if (pipelineId === ALL_PIPELINES_ID) setPipelineId(pipelines[0]?.id ?? null); }}><i>▦</i> Pipeline</button>
+          <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
+          {isAdmin && <><span className="nav-label">Prossimamente</span><span className="side-item disabled"><i>□</i> Piano editoriale</span><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
         </nav>
-
-        {/* CRM singolo: il selettore cliente non esiste. */}
-
-        {/* Selettore pipeline: appare solo se il cliente ha piu' di una pipeline */}
-        {pipelines.length > 1 && tab !== "admin" && tab !== "performance" && (
-          <select
-            className="select"
-            value={pipelineId ?? ""}
-            onChange={(e) => setPipelineId(e.target.value)}
-            title="Scegli la pipeline"
-          >
-            {pipelines.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-            {/* La vista Totale somma tutti i servizi: solo nella Dashboard */}
-            {tab === "dashboard" && (
-              <option value={ALL_PIPELINES_ID}>Totale (tutti i servizi)</option>
+        <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
+      </aside>
+      <main className="app-main">
+        <header className="topbar app-header">
+          <div><div className="eyebrow">{isAdmin ? "Estetica Premium · Azienda" : "Estetica Premium · CRM"}</div><h1>{pageTitle[tab]}</h1></div>
+          <div className="header-actions">
+            {pipelines.length > 1 && tab !== "admin" && tab !== "performance" && (
+              <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
+                {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {tab === "dashboard" && <option value={ALL_PIPELINES_ID}>Totale (tutti i servizi)</option>}
+              </select>
             )}
-          </select>
-        )}
-
-        <div className="spacer" />
-
-        {/* Cerca lead: digiti e scegli, si apre nella sua bacheca */}
-        <div className="search-wrap">
-          <div className="search">
-            🔍
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Cerca lead per nome o telefono…"
-            />
-          </div>
-          {qResults.length > 0 && (
-            <div className="search-results">
-              {qResults.map((l) => (
-                <div className="sr" key={l.id} onClick={() => selectLead(l)}>
-                  <span>
-                    <b>{l.name || "(senza nome)"}</b>
-                    {l.phone}
-                  </span>
-                  <span>
-                    {clients.find((c) => c.id === l.client_id)?.name ?? ""}
-                  </span>
-                </div>
-              ))}
+            <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
+              {qResults.length > 0 && <div className="search-results">{qResults.map((l) => <div className="sr" key={l.id} onClick={() => selectLead(l)}><span><b>{l.name || "(senza nome)"}</b>{l.phone}</span><span>{clients.find((c) => c.id === l.client_id)?.name ?? ""}</span></div>)}</div>}
             </div>
-          )}
-        </div>
-
-        <div className="userchip">
-          <div className="avatar">
-            {(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}
           </div>
-          <div className="who">
-            <b>{auth.profile.full_name || auth.email}</b>
-            {isAdmin ? "Amministratore" : "Venditore"}
-          </div>
-        </div>
-        <button className="btn small" onClick={() => supabase.auth.signOut()}>
-          Esci
-        </button>
-      </div>
-
+        </header>
+        <div className="app-content">
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
@@ -320,6 +238,8 @@ export default function App() {
           }}
         />
       )}
+        </div>
+      </main>
     </div>
   );
 }

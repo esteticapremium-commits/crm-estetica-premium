@@ -1224,6 +1224,63 @@ a {
   font-family: "Didot", "Bodoni 72", "Georgia", serif;
 }
 
+/* ============================================================
+   BUSINESS OS — shell della piattaforma
+   ============================================================ */
+.platform-shell { display: flex; flex-direction: row; background: #101217; overflow: hidden; }
+.sidebar { width: 252px; flex: none; display: flex; flex-direction: column; padding: 22px 12px 14px; background: #13161d; border-right: 1px solid rgba(255,255,255,.07); }
+.platform-shell .brand { padding: 0 11px 26px; color: #f4ecdc; font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 750; line-height: 1.1; }
+.platform-shell .brand::before { display: none; }
+.brand-mark { width: 31px; height: 31px; margin-right: 10px; display: inline-grid; place-items: center; vertical-align: middle; border-radius: 9px; background: linear-gradient(135deg, #f0d78d, #b68126); color: #17120a; font-family: Georgia, serif; font-size: 18px; }
+.platform-shell .brand small { display: block; margin: 5px 0 0 42px; color: #797f8d; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.25px; }
+.side-nav { display: flex; flex-direction: column; gap: 3px; }
+.nav-label { margin: 18px 11px 6px; color: #777d89; font-size: 10px; font-weight: 800; letter-spacing: 1.25px; text-transform: uppercase; }
+.side-nav button, .side-item { width: 100%; display: flex; align-items: center; gap: 11px; border: 0; border-radius: 8px; padding: 10px 11px; background: transparent; color: #bdc1c9; font-size: 13px; font-weight: 620; text-align: left; }
+.side-nav button i, .side-item i { width: 17px; color: #8d94a0; font-size: 16px; font-style: normal; text-align: center; }
+.side-nav button:hover { background: rgba(255,255,255,.055); color: #fff; }
+.side-nav button.active { background: rgba(225, 188, 103, .13); color: #f0d78d; }
+.side-nav button.active i { color: #f0d78d; }
+.side-item.disabled { color: #656b76; cursor: default; }
+.side-item.disabled i { color: #565d68; }
+.sidebar-user { display: flex; align-items: center; gap: 9px; margin-top: auto; padding: 13px 8px 3px; border-top: 1px solid rgba(255,255,255,.07); }
+.sidebar-user .avatar { width: 32px; height: 32px; font-size: 12px; }
+.sidebar-user div:nth-child(2) { min-width: 0; flex: 1; }
+.sidebar-user b, .sidebar-user span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user b { color: #e5e6e9; font-size: 12px; }
+.sidebar-user span { margin-top: 2px; color: #7f8590; font-size: 11px; }
+.sidebar-user button { border: 0; background: transparent; color: #7f8590; font-size: 17px; }
+.sidebar-user button:hover { color: #f0d78d; }
+.app-main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: var(--bg); }
+.platform-shell .app-header { min-height: 76px; justify-content: space-between; flex-wrap: nowrap; padding: 14px 26px; background: rgba(16,18,23,.9); border-color: rgba(255,255,255,.07); }
+.app-header h1 { margin: 2px 0 0; color: #f4f1eb; font-family: system-ui, -apple-system, sans-serif; font-size: 20px; letter-spacing: -.45px; }
+.eyebrow { color: #8e94a1; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: 1.05px; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.platform-shell .search { min-width: 220px; border-color: rgba(255,255,255,.1); border-radius: 8px; }
+.platform-shell .search span { color: #a4aab4; font-size: 19px; line-height: 0; }
+.app-content { min-height: 0; flex: 1; display: flex; flex-direction: column; background: radial-gradient(800px 400px at 50% -100px, rgba(200,162,75,.07), transparent 65%), var(--bg); }
+.app-content > .page { max-width: 1480px; width: 100%; margin: 0 auto; padding: 30px; }
+.app-content > .board-wrap { width: 100%; }
+.platform-shell .page h1 { display: none; }
+.platform-shell .page .sub { margin-bottom: 24px; }
+.platform-shell .stat, .platform-shell .panel { border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
+.platform-shell .stat { padding: 17px; }
+.platform-shell .cards-grid { gap: 14px; margin-bottom: 18px; }
+
+@media (max-width: 860px) {
+  .platform-shell { display: block; overflow: auto; }
+  .sidebar { position: relative; z-index: 10; width: 100%; padding: 12px 10px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .platform-shell .brand { display: none; }
+  .side-nav { flex-direction: row; overflow-x: auto; gap: 5px; }
+  .nav-label, .side-item.disabled, .sidebar-user { display: none; }
+  .side-nav button { width: auto; flex: none; padding: 8px 10px; white-space: nowrap; }
+  .platform-shell .app-header { min-height: auto; padding: 14px 12px; gap: 10px; align-items: flex-start; }
+  .header-actions { flex: 1; justify-content: flex-end; }
+  .header-actions .select { display: none; }
+  .platform-shell .search { min-width: 0; width: 140px; }
+  .platform-shell .search input { width: 100%; }
+  .app-content > .page { padding: 18px 12px; }
+}
+
 
 /* ============================================================
    RESPONSIVE — mobile e tablet
