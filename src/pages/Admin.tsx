@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
 
 /* Chiamata alla funzione protetta che gestisce gli utenti */
@@ -737,7 +738,23 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
       supabase.from("contract_templates").select("*").order("created_at", { ascending: false }),
       supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").order("created_at", { ascending: false }).limit(50),
     ]);
-    setTemplates((tp as ContractTemplate[]) ?? []);
+    let templateList = (tp as ContractTemplate[]) ?? [];
+    // Il modello di prova è disponibile subito nel gestionale, senza che
+    // l'amministratore debba ricopiare un contratto già approvato.
+    if (clientId && !templateList.some((t) => t.name === TRIAL_CONTRACT_TEMPLATE.name)) {
+      const { data: created, error } = await supabase
+        .from("contract_templates")
+        .insert({
+          client_id: clientId,
+          name: TRIAL_CONTRACT_TEMPLATE.name,
+          body: TRIAL_CONTRACT_TEMPLATE.body,
+          client_fields: TRIAL_CONTRACT_TEMPLATE.clientFields,
+        })
+        .select("*")
+        .single();
+      if (!error && created) templateList = [created as ContractTemplate, ...templateList];
+    }
+    setTemplates(templateList);
     setContracts((ct as Contract[]) ?? []);
     setLoading(false);
   }
