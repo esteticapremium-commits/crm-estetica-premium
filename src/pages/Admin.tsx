@@ -34,17 +34,15 @@ interface SecretaryRow {
 
 export default function Admin({
   clients,
-  onClientsChanged,
 }: {
   clients: Client[];
-  onClientsChanged: () => void;
 }) {
   const [selClient, setSelClient] = useState<string | null>(
     clients[0]?.id ?? null
   );
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selPipeline, setSelPipeline] = useState<string | null>(null);
-  const [sub, setSub] = useState<"attivita" | "clienti" | "accessi" | "fasi" | "contratti">("fasi");
+  const [sub, setSub] = useState<"attivita" | "accessi" | "fasi" | "contratti">("accessi");
 
   useEffect(() => {
     if (!selClient && clients[0]) setSelClient(clients[0].id);
@@ -78,60 +76,59 @@ export default function Admin({
   const currentPipeline = pipelines.find((p) => p.id === selPipeline) ?? null;
 
   return (
-    <div className="page">
-      <h1>Amministrazione</h1>
-      <p className="sub">
-        Gestisci fasi, probabilità di chiusura, accessi e log attività.
-      </p>
+    <div className="page settings-page">
+      <section className="settings-hero">
+        <div>
+          <span className="settings-kicker">Configurazione azienda</span>
+          <h2>Impostazioni</h2>
+          <p>Gestisci solo ciò che serve al lavoro quotidiano del team: accessi, pipeline, modelli e controllo attività.</p>
+        </div>
+        <div className="settings-context">
+          <span>Area di lavoro</span>
+          <b>{current?.name ?? "Estetica Premium"}</b>
+          <small>{pipelines.length} {pipelines.length === 1 ? "pipeline attiva" : "pipeline attive"}</small>
+        </div>
+      </section>
 
-      <div className="subnav">
-        <button className={sub === "attivita" ? "active" : ""} onClick={() => setSub("attivita")}>
-          Attività (log)
-        </button>
-        <button className={sub === "clienti" ? "active" : ""} onClick={() => setSub("clienti")}>
-          Clienti
-        </button>
+      <nav className="settings-nav" aria-label="Sezioni impostazioni">
         <button className={sub === "accessi" ? "active" : ""} onClick={() => setSub("accessi")}>
-          Accessi
+          <b>Team</b><small>Accessi venditori</small>
         </button>
         <button className={sub === "fasi" ? "active" : ""} onClick={() => setSub("fasi")}>
-          Fasi e pipeline
+          <b>Pipeline</b><small>Fasi e probabilità</small>
         </button>
         <button className={sub === "contratti" ? "active" : ""} onClick={() => setSub("contratti")}>
-          Contratti
+          <b>Modelli</b><small>Contratti e campi</small>
         </button>
-      </div>
+        <button className={sub === "attivita" ? "active" : ""} onClick={() => setSub("attivita")}>
+          <b>Registro attività</b><small>Movimenti dei lead</small>
+        </button>
+      </nav>
 
-      {sub === "attivita" && <ActivityPanel clients={clients} />}
-      {sub === "clienti" && (
-        <ClientsPanel
-          clients={clients}
-          onChanged={onClientsChanged}
-          selClient={selClient}
-          setSelClient={setSelClient}
-        />
-      )}
-      {sub === "accessi" && <UsersPanel clients={clients} />}
-      {sub === "contratti" && <ContractsPanel clients={clients} />}
-      {sub === "fasi" &&
-        (current ? (
-          <>
-            <PipelinesPanel
-              client={current}
-              pipelines={pipelines}
-              selPipeline={selPipeline}
-              setSelPipeline={setSelPipeline}
-              onChanged={loadPipelines}
-            />
-            {currentPipeline && (
-              <StagesPanel client={current} pipeline={currentPipeline} />
-            )}
-          </>
-        ) : (
-          <div className="center-msg" style={{ padding: 30 }}>
-            Aggiungi prima un cliente nella sezione "Clienti".
-          </div>
-        ))}
+      <div className="settings-content">
+        {sub === "attivita" && <ActivityPanel clients={clients} />}
+        {sub === "accessi" && <UsersPanel clients={clients} />}
+        {sub === "contratti" && <ContractsPanel clients={clients} />}
+        {sub === "fasi" &&
+          (current ? (
+            <>
+              <PipelinesPanel
+                client={current}
+                pipelines={pipelines}
+                selPipeline={selPipeline}
+                setSelPipeline={setSelPipeline}
+                onChanged={loadPipelines}
+              />
+              {currentPipeline && (
+                <StagesPanel client={current} pipeline={currentPipeline} />
+              )}
+            </>
+          ) : (
+            <div className="center-msg" style={{ padding: 30 }}>
+              Nessuna pipeline disponibile.
+            </div>
+          ))}
+      </div>
     </div>
   );
 }
