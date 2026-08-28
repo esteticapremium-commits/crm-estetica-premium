@@ -31,6 +31,12 @@ export default function App() {
     window.localStorage.setItem("ep-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  // Il venditore entra direttamente nella sua bacheca: qui lavora i lead.
+  // I numeri e le performance restano nella sezione Vendite.
+  useEffect(() => {
+    if (auth.profile?.role === "venditore") setTab("board");
+  }, [auth.profile?.role]);
+
   // Ricerca globale: per nome o telefono, su tutti i lead visibili
   useEffect(() => {
     const term = q.trim();
@@ -162,7 +168,6 @@ export default function App() {
         <nav className="side-nav" aria-label="Navigazione principale">
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
           <span className="nav-label">CRM</span>
-          {!isAdmin && <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>✓</i> Le mie priorità</button>}
           <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><i>▦</i> Pipeline</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}

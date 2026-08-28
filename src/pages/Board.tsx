@@ -194,23 +194,6 @@ export default function Board({
     );
 
   const isPremium = client.name.startsWith("Estetica");
-  const total = leads.length;
-  const hot =
-    (leadsByStage[stages.find((s) => s.name === "RECALL")?.id ?? ""] ?? [])
-      .length +
-    (leadsByStage[stages.find((s) => s.name === "NO ANSWER")?.id ?? ""] ?? [])
-      .length;
-  const pipeValue = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
-  const weightedValue = leads.reduce((s, l) => {
-    const st = stages.find((x) => x.id === l.stage_id);
-    const p = st
-      ? (st.probability ?? STAGE_PROBABILITY[st.name] ?? 0)
-      : 0;
-    return s + ((Number(l.value) || 0) * p) / 100;
-  }, 0);
-  const eur = (n: number) =>
-    n ? "€ " + Math.round(n).toLocaleString("it-IT") : "€ 0";
-
   return (
     <>
       <DndContext
@@ -224,31 +207,7 @@ export default function Board({
               <div>
                 <div className="board-title">{pipeline.name}</div>
                 <div className="board-sub">
-                  {total} lead · {hot} da lavorare · {stages.length} fasi
-                </div>
-              </div>
-              <div className="board-kpis">
-                <div className="kpi">
-                  <span className="kpi-v">{total}</span>
-                  <span className="kpi-k">lead totali</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-v">{hot}</span>
-                  <span className="kpi-k">in lavorazione</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-v">
-                    {leadsByStage[stages.find((s) => s.name === "CLOSING")?.id ?? ""]?.length ?? 0}
-                  </span>
-                  <span className="kpi-k">in chiusura</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-v">{eur(pipeValue)}</span>
-                  <span className="kpi-k">valore pipeline</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-v">{eur(weightedValue)}</span>
-                  <span className="kpi-k">valore ponderato</span>
+                  Lavora i lead e aggiorna la fase quando necessario.
                 </div>
               </div>
             </div>

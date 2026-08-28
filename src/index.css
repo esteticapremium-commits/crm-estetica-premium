@@ -1339,10 +1339,10 @@ a {
 .theme-premium.platform-shell .control-lead { border-color: var(--line); }
 .theme-premium.platform-shell .control-lead > div:last-child { color: #b45309; }
 .theme-premium.platform-shell .board-wrap.premium { background: #f7f2ec; }
-.theme-premium.platform-shell .board-header { padding: 26px 30px 20px; background: #fff; border-color: var(--line); }
+.theme-premium.platform-shell .board-header { padding: 18px 30px 16px; background: #fffdfa; border-color: var(--line); }
 .theme-premium.platform-shell .board-title { font-family: Georgia, serif; font-size: 24px; color: #4b1025; font-weight: 650; letter-spacing: -.3px; }
 .theme-premium.platform-shell .board-sub { color: #806f74; }
-.theme-premium.platform-shell .board-wrap.premium .board { padding: 18px 30px 28px; }
+.theme-premium.platform-shell .board-wrap.premium .board { padding: 14px 30px 24px; }
 .theme-premium.platform-shell .kpi { background: #fff; border-color: var(--line); box-shadow: var(--shadow-sm); }
 .theme-premium.platform-shell .kpi-v { color: #4b1025; }
 .theme-premium.platform-shell .kpi-k { color: #8c7479; }
