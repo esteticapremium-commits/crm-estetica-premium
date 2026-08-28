@@ -11,8 +11,9 @@ import Vendite from "./pages/Vendite";
 import FirmaPage from "./pages/FirmaPage";
 import Control from "./pages/Control";
 import EditorialPlan from "./pages/EditorialPlan";
+import Contracts from "./pages/Contracts";
 
-type Tab = "board" | "dashboard" | "sales" | "performance" | "admin" | "control" | "editorial";
+type Tab = "board" | "dashboard" | "sales" | "performance" | "admin" | "control" | "editorial" | "contracts";
 
 export default function App() {
   const auth = useAuth();
@@ -160,6 +161,7 @@ export default function App() {
     performance: "Performance",
     admin: "Impostazioni",
     editorial: "Piano editoriale",
+    contracts: "Contratti",
   };
 
   return (
@@ -172,7 +174,7 @@ export default function App() {
           {!isAdmin && <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>✓</i> Le mie priorità</button>}
           <button className={tab === "board" ? "active" : ""} onClick={() => { setTab("board"); if (pipelineId === ALL_PIPELINES_ID) setPipelineId(pipelines[0]?.id ?? null); }}><i>▦</i> Pipeline</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
-          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
+          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
         </nav>
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
       </aside>
@@ -180,13 +182,13 @@ export default function App() {
         <header className="topbar app-header">
           <div><div className="eyebrow">{isAdmin ? "Estetica Premium · Azienda" : "Estetica Premium · CRM"}</div><h1>{pageTitle[tab]}</h1></div>
           <div className="header-actions">
-            {pipelines.length > 1 && tab !== "admin" && tab !== "performance" && tab !== "editorial" && (
+            {pipelines.length > 1 && tab !== "admin" && tab !== "performance" && tab !== "editorial" && tab !== "contracts" && (
               <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
                 {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 {tab === "dashboard" && <option value={ALL_PIPELINES_ID}>Totale (tutti i servizi)</option>}
               </select>
             )}
-            {tab !== "editorial" && <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
+            {tab !== "editorial" && tab !== "contracts" && <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
               {qResults.length > 0 && <div className="search-results">{qResults.map((l) => <div className="sr" key={l.id} onClick={() => selectLead(l)}><span><b>{l.name || "(senza nome)"}</b>{l.phone}</span><span>{clients.find((c) => c.id === l.client_id)?.name ?? ""}</span></div>)}</div>}
             </div>}
           </div>
@@ -220,6 +222,8 @@ export default function App() {
       {tab === "editorial" && isAdmin && currentClient && (
         <EditorialPlan clientId={currentClient.id} meName={meName} />
       )}
+
+      {tab === "contracts" && isAdmin && <Contracts />}
 
       {tab === "performance" && isAdmin && <Performance clients={clients} />}
 

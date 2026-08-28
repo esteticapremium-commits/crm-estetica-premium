@@ -110,6 +110,19 @@ export interface Contract {
   signed_at: string | null;
   created_by: string | null;
   created_at: string;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  signed_document_hash?: string | null;
+}
+
+export interface ContractEvent {
+  id: string;
+  contract_id: string;
+  action: string;
+  actor: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export interface ContractTemplate {

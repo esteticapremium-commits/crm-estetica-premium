@@ -37,6 +37,18 @@ export function fillBody(
   });
 }
 
+/** I valori del firmatario finiscono in un documento HTML stampabile: mai
+ * interpolarli senza escape, altrimenti un campo compilato dal cliente può
+ * alterare il documento. */
+export function escapeHtml(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export interface SignedContract {
   title: string;
   body: string | null;
@@ -61,7 +73,7 @@ export function openSignedContractPdf(c: SignedContract) {
   }
   const fullBody = fillBody(c.body ?? "", fields, values, true);
   const rows = fields
-    .map((f) => `<tr><td>${f}</td><td><b>${values[f] || "—"}</b></td></tr>`)
+    .map((f) => `<tr><td>${escapeHtml(f)}</td><td><b>${escapeHtml(values[f] || "—")}</b></td></tr>`)
     .join("");
   const dataLong = c.signed_at
     ? new Date(c.signed_at).toLocaleString("it-IT", {
@@ -95,20 +107,20 @@ export function openSignedContractPdf(c: SignedContract) {
 </style></head><body>
   <div class="company">ESTETICA PREMIUM</div>
   <div class="type">Contratto di collaborazione professionale</div>
-  <div class="variant">${c.title}</div>
+  <div class="variant">${escapeHtml(c.title)}</div>
   <div class="recap">
     <h3>Dati dichiarati dal firmatario</h3>
     <table><tbody>
       ${rows}
-      <tr><td>Firmato da</td><td><b>${c.signed_name ?? ""}</b></td></tr>
+      <tr><td>Firmato da</td><td><b>${escapeHtml(c.signed_name)}</b></td></tr>
       <tr><td>Data della firma</td><td><b>${dataLong}</b></td></tr>
     </tbody></table>
   </div>
-  <div class="doc">${fullBody.split("\n").map((l) => `<p>${l}</p>`).join("")}</div>
+  <div class="doc">${fullBody.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
   <div class="signatures">
     <div>
       <div class="sig-label">Il firmatario</div>
-      <div class="sig-name">${c.signed_name ?? ""}</div>
+      <div class="sig-name">${escapeHtml(c.signed_name)}</div>
       ${c.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${c.signature_data}"/></div>` : ""}
     </div>
     <div>

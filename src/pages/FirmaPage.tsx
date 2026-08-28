@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { fillBody } from "../contractPdf";
+import { fillBody, openSignedContractPdf } from "../contractPdf";
 
 interface ContractPub {
   id: string;
@@ -103,72 +103,7 @@ export default function FirmaPage({ token }: { token: string }) {
    *  niente dipendenze dal CSS della pagina, funziona su ogni browser. */
   function downloadPdf() {
     if (!doc) return;
-    const fullBody = fillBody(doc.body ?? "", fields, values, true);
-    const rows = fields
-      .map((f) => `<tr><td>${f}</td><td><b>${values[f] || "—"}</b></td></tr>`)
-      .join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${doc.title}</title>
-<style>
-  @page { size: A4; margin: 22mm 18mm; }
-  body { font-family: Georgia, 'Times New Roman', serif; color: #111; font-size: 13.5px; line-height: 1.55; }
-  .company { text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 1.5px; }
-  .type { text-align: center; font-size: 16px; font-weight: 700; }
-  .variant { text-align: center; font-style: italic; color: #444; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 18px; }
-  .recap { border: 1px solid #ccc; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; }
-  .recap h3 { margin: 0 0 8px; font-size: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  .recap td { padding: 3px 4px; border-bottom: 1px solid #eee; }
-  .recap td:first-child { color: #666; width: 42%; }
-  .doc p { margin: 6px 0; white-space: pre-wrap; }
-  .signatures { display: flex; gap: 40px; margin-top: 28px; padding-top: 14px; border-top: 1px solid #111; }
-  .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
-  .sig-name { font-size: 17px; margin: 4px 0 6px; }
-  .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
-</style></head><body>
-  <div class="company">ESTETICA PREMIUM</div>
-  <div class="type">Contratto di collaborazione professionale</div>
-  <div class="variant">${doc.title}</div>
-  <div class="recap">
-    <h3>Dati dichiarati dal firmatario</h3>
-    <table><tbody>
-      ${rows}
-      <tr><td>Firmato da</td><td><b>${doc.signed_name ?? ""}</b></td></tr>
-      <tr><td>Data della firma</td><td><b>${
-        doc.signed_at
-          ? new Date(doc.signed_at).toLocaleString("it-IT", {
-              day: "2-digit", month: "2-digit", year: "numeric",
-              hour: "2-digit", minute: "2-digit",
-            })
-          : ""
-      }</b></td></tr>
-    </tbody></table>
-  </div>
-  <div class="doc">${fullBody.split("\n").map((l) => `<p>${l}</p>`).join("")}</div>
-  <div class="signatures">
-    <div>
-      <div class="sig-label">Il firmatario</div>
-      <div class="sig-name">${doc.signed_name ?? ""}</div>
-      ${doc.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${doc.signature_data}"/></div>` : ""}
-    </div>
-    <div>
-      <div class="sig-label">Data</div>
-      <div class="sig-name">${
-        doc.signed_at
-          ? new Date(doc.signed_at).toLocaleDateString("it-IT")
-          : ""
-      }</div>
-    </div>
-  </div>
-  <script>window.onload = function(){ window.print(); }<\/script>
-</body></html>`;
-    const w = window.open("", "_blank");
-    if (!w) {
-      alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
-      return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
+    openSignedContractPdf(doc);
   }
 
   function clear() {
