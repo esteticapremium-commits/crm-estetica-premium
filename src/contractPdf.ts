@@ -37,6 +37,19 @@ export function fillBody(
   });
 }
 
+/** Separa il testo principale dalla tabella firme finale del modello.
+ * La tabella viene resa come elemento strutturato, non come righe di testo. */
+export function splitContractClosing(body: string) {
+  const signatureMarker = "\nCommittente\n";
+  const approvalMarker = "\nIl Committente dichiara";
+  const signatureAt = body.indexOf(signatureMarker);
+  const approvalAt = body.indexOf(approvalMarker);
+  return {
+    main: signatureAt >= 0 ? body.slice(0, signatureAt) : body,
+    approval: approvalAt >= 0 ? body.slice(approvalAt + 1) : "",
+  };
+}
+
 /** I valori del firmatario finiscono in un documento HTML stampabile: mai
  * interpolarli senza escape, altrimenti un campo compilato dal cliente può
  * alterare il documento. */
@@ -73,6 +86,7 @@ export function openSignedContractPdf(c: SignedContract) {
     values = {};
   }
   const fullBody = fillBody(c.body ?? "", fields, values, true);
+  const contractParts = splitContractClosing(fullBody);
   const rows = fields
     .map((f) => `<tr><td>${escapeHtml(f)}</td><td><b>${escapeHtml(values[f] || "—")}</b></td></tr>`)
     .join("");
@@ -101,9 +115,9 @@ export function openSignedContractPdf(c: SignedContract) {
   .recap td { padding: 3px 4px; border-bottom: 1px solid #eee; }
   .recap td:first-child { color: #666; width: 42%; }
   .doc p { margin: 6px 0; white-space: pre-wrap; }
-  .signatures { display: flex; gap: 40px; margin-top: 28px; padding-top: 14px; border-top: 1px solid #111; }
-  .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
-  .sig-name { font-size: 17px; margin: 4px 0 6px; }
+  .signature-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 24px 0 18px; border: 1px solid #111; break-inside: avoid; }
+  .signature-cell { display: grid; gap: 4px; min-height: 260px; padding: 14px 16px; border-right: 1px solid #111; }
+  .signature-cell:last-child { border-right: 0; }.signature-cell h3 { margin: -14px -16px 10px; padding: 11px 16px; border-bottom: 1px solid #111; font-size: 16px; }.signature-cell span { margin-top: 4px; font-size: 12px; font-weight: 700; }.signature-cell strong { min-height: 22px; padding-bottom: 4px; border-bottom: 1px solid #333; font-size: 14px; font-weight: 500; }
   .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
   .collaborator-sig { width: 210px; height: auto; border: 0; padding: 0; }
 </style></head><body>
@@ -118,23 +132,9 @@ export function openSignedContractPdf(c: SignedContract) {
       <tr><td>Data della firma</td><td><b>${dataLong}</b></td></tr>
     </tbody></table>
   </div>
-  <div class="doc">${fullBody.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
-  <div class="signatures">
-    <div>
-      <div class="sig-label">Il firmatario</div>
-      <div class="sig-name">${escapeHtml(c.signed_name)}</div>
-      ${c.signature_data ? `<div style="margin-top:6px"><img class="sig-img" src="${c.signature_data}"/></div>` : ""}
-    </div>
-    <div>
-      <div class="sig-label">Il Collaboratore</div>
-      <div class="sig-name">Ettore Androsoni</div>
-      <div style="margin-top:6px"><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/></div>
-    </div>
-    <div>
-      <div class="sig-label">Data</div>
-      <div class="sig-name">${dataShort}</div>
-    </div>
-  </div>
+  <div class="doc">${contractParts.main.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
+  <div class="signature-grid"><div class="signature-cell"><h3>Committente</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong><span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong><span>Firma</span>${c.signature_data ? `<img class="sig-img" src="${c.signature_data}"/>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>Collaboratore</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/><span>Data</span><strong>${dataShort}</strong></div></div>
+  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>` : ""}
   <script>window.onload = function(){ window.print(); }<\/script>
 </body></html>`;
   const w = window.open("", "_blank");

@@ -1712,6 +1712,16 @@ a {
 .collaborator-signature { min-width: 190px; }
 .collaborator-signature img { display: block; width: 210px; max-width: 100%; height: auto; margin: 5px 0 2px; mix-blend-mode: multiply; }
 .collaborator-signature small { display: block; color: #64748b; font-size: 10px; font-weight: 650; letter-spacing: .4px; }
+.contract-signature-box { display: grid; grid-template-columns: 1fr 1fr; margin: 24px 0 18px; border: 1px solid #1f2937; font-family: Georgia, serif; color: #111827; }
+.signature-cell { display: grid; grid-template-columns: 1fr; gap: 4px; min-height: 290px; padding: 14px 16px; border-right: 1px solid #1f2937; }
+.signature-cell:last-child { border-right: 0; }
+.signature-cell > b { margin: -14px -16px 10px; padding: 11px 16px; border-bottom: 1px solid #1f2937; font-size: 16px; }
+.signature-cell span { margin-top: 4px; font-size: 12px; font-weight: 700; }
+.signature-cell strong { min-height: 24px; padding-bottom: 4px; border-bottom: 1px solid #334155; font-size: 14px; font-weight: 500; }
+.signature-cell i { display: block; min-height: 62px; border-bottom: 1px solid #334155; }
+.signature-cell img { width: 205px; max-width: 100%; height: 58px; object-fit: contain; object-position: left center; border-bottom: 1px solid #334155; mix-blend-mode: multiply; }
+.signature-cell .firma-preview { background: transparent; border-radius: 0; padding: 0; margin: 0; }
+@media (max-width: 640px) { .contract-signature-box { grid-template-columns: 1fr; }.signature-cell { border-right: 0; border-bottom: 1px solid #1f2937; }.signature-cell:last-child { border-bottom: 0; } }
 .theme-premium .firma-doc p {
   color: #d8d4c8;
 }

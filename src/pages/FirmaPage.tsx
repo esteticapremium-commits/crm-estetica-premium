@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { fillBody, openSignedContractPdf } from "../contractPdf";
+import { fillBody, openSignedContractPdf, splitContractClosing } from "../contractPdf";
 
 interface ContractPub {
   id: string;
@@ -56,6 +56,8 @@ export default function FirmaPage({ token }: { token: string }) {
     .split("\n")
     .map((f) => f.trim())
     .filter(Boolean);
+  const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, false));
+  const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
 
   function setupCanvas(c: HTMLCanvasElement | null) {
     if (!c || canvasRef.current === c) return;
@@ -238,25 +240,9 @@ export default function FirmaPage({ token }: { token: string }) {
               <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
                 Il contratto firmato
               </b>
-              <Document body={fillBody(doc.body ?? "", fields, values, true)} />
-              <div className="firma-signatures">
-                <div>
-                  <div className="sig-label">Il firmatario</div>
-                  <div className="sig-name">{doc.signed_name}</div>
-                  {doc.signature_data && (
-                    <img src={doc.signature_data} alt="firma" className="firma-preview" />
-                  )}
-                </div>
-                <CollaboratorSignature />
-                <div>
-                  <div className="sig-label">Data</div>
-                  <div className="sig-name">
-                    {doc.signed_at
-                      ? new Date(doc.signed_at).toLocaleDateString("it-IT")
-                      : ""}
-                  </div>
-                </div>
-              </div>
+              <Document body={signedParts.main} />
+              <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
+              {signedParts.approval && <Document body={signedParts.approval} />}
             </div>
           )}
 
@@ -293,8 +279,9 @@ export default function FirmaPage({ token }: { token: string }) {
                 <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
                   Il contratto
                 </b>
-                <Document body={fillBody(doc.body ?? "", fields, values, false)} />
-                <CollaboratorSignature />
+                <Document body={draftParts.main} />
+                <ContractSignatureBox values={values} />
+                {draftParts.approval && <Document body={draftParts.approval} />}
 
                 {/* 3) infine la firma */}
                 <div className="field" style={{ marginTop: 22 }}>
@@ -353,13 +340,14 @@ export default function FirmaPage({ token }: { token: string }) {
   );
 }
 
-function CollaboratorSignature() {
+function ContractSignatureBox({ values, signedName, signature, signedAt }: { values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
+  const company = values["Ragione sociale del committente"] || "____________________________";
+  const signer = signedName || values["Rappresentante legale del committente"] || "____________________________";
+  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "____________________________";
   return (
-    <div className="collaborator-signature">
-      <div className="sig-label">Il Collaboratore</div>
-      <div className="sig-name">Ettore Androsoni</div>
-      <img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" />
-      <small>AI BUSINESS REVOLUTION</small>
+    <div className="contract-signature-box">
+      <div className="signature-cell"><b>Committente</b><span>Nome</span><strong>{signer}</strong><span>Ragione sociale</span><strong>{company}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : <i /> }<span>Data</span><strong>{date}</strong></div>
+      <div className="signature-cell collaborator"><b>Collaboratore</b><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" /><span>Data</span><strong>{date}</strong></div>
     </div>
   );
 }
