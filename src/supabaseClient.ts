@@ -1,24 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
-// CRM Estetica Premium — progetto separato.
-// Il database di questo CRM è un progetto Supabase dedicato: la URL e la
-// chiave anon (pubblica) vanno inserite qui sotto, oppure tramite le
-// variabili VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY su Vercel.
-// NOTA: la chiave anon è PUBBLICA per design (le regole di sicurezza del
-// database proteggono i dati). La service_role NON va mai messa nel codice.
-const DEFAULT_URL = "https://mvujbtygcmowkbvoqcgp.supabase.co";
-const DEFAULT_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWpidHlnY21vd2tidm9xY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MzQ3MDMsImV4cCI6MjEwMzAxMDcwM30.Xk3CUy-3ESAuHvTAQRDtDrrAN4iTQlhQ2pYc9Lb_PSw";
+// La chiave anon è pubblica per design, ma non deve vivere nel repository.
+// Ogni ambiente dichiara esplicitamente il proprio progetto Supabase: una
+// copia del codice non può quindi collegarsi per errore al CRM reale.
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-export const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string) || DEFAULT_URL;
-export const SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || DEFAULT_ANON_KEY;
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  // Gestiamo noi il link di recupero password (vedi Login.tsx), così
-  // l'app non consuma da sola il token nell'URL.
-  auth: { detectSessionInUrl: false },
-});
+export const supabase = createClient(
+  SUPABASE_URL || "https://not-configured.supabase.co",
+  SUPABASE_ANON_KEY || "not-configured",
+  { auth: { detectSessionInUrl: false } }
+);
 
 // URL della funzione che gestisce gli utenti (usata solo dall'admin)
-export const ADMIN_FN_URL = `${SUPABASE_URL}/functions/v1/admin-user`;
+export const ADMIN_FN_URL = `${SUPABASE_URL || ""}/functions/v1/admin-user`;

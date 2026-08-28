@@ -55,6 +55,7 @@ export default function Board({
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
   const [editing, setEditing] = useState<Lead | null>(null);
   const [creatingInStage, setCreatingInStage] = useState<Stage | null>(null);
@@ -64,7 +65,8 @@ export default function Board({
   );
 
   const load = useCallback(async () => {
-    const [{ data: st }, { data: ld }] = await Promise.all([
+    setError(null);
+    const [{ data: st, error: stagesError }, { data: ld, error: leadsError }] = await Promise.all([
       supabase
         .from("stages")
         .select("*")
@@ -77,6 +79,7 @@ export default function Board({
         .order("position")
         .order("created_at", { ascending: false }),
     ]);
+    if (stagesError || leadsError) setError((stagesError || leadsError)?.message ?? "Errore nel caricamento della pipeline.");
     setStages((st as Stage[]) ?? []);
     setLeads((ld as Lead[]) ?? []);
     setLoading(false);
@@ -181,6 +184,7 @@ export default function Board({
   }
 
   if (loading) return <div className="center-msg">Caricamento bacheca…</div>;
+  if (error) return <div className="center-msg">Non è stato possibile caricare la pipeline.<br /><small>{error}</small></div>;
   if (stages.length === 0)
     return (
       <div className="center-msg">

@@ -10,16 +10,22 @@ export default function Contracts() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [events, setEvents] = useState<ContractEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Contract | null>(null);
   const load = () => {
     setLoading(true);
+    setLoadError(null);
     Promise.all([
       supabase.from("contracts").select("*").order("created_at", { ascending: false }),
       supabase.from("leads").select("id,name,email,phone,client_id,pipeline_id,stage_id,source,assigned_to,value,notes,next_action_date,closing_date,lost_reason,tags,position,created_at,updated_at"),
       supabase.from("contract_events").select("*").order("created_at", { ascending: false }).limit(500),
-    ]).then(([c, l, e]) => { setContracts((c.data as Contract[]) ?? []); setLeads((l.data as Lead[]) ?? []); setEvents((e.data as ContractEvent[]) ?? []); setLoading(false); });
+    ]).then(([c, l, e]) => {
+      const failure = [c, l, e].find((r) => r.error)?.error;
+      if (failure) setLoadError(failure.message);
+      setContracts((c.data as Contract[]) ?? []); setLeads((l.data as Lead[]) ?? []); setEvents((e.data as ContractEvent[]) ?? []); setLoading(false);
+    }).catch(() => { setLoadError("Errore di connessione durante il caricamento dei contratti."); setLoading(false); });
   };
   useEffect(load, []);
   const now = Date.now();
@@ -30,6 +36,7 @@ export default function Contracts() {
   const renew = async (c: Contract) => { const { data, error } = await supabase.rpc("renew_contract_link", { p_contract_id: c.id }); if (error) return alert(error.message); await navigator.clipboard.writeText(`${window.location.origin}/#/firma/${data}`); alert("Nuovo link creato e copiato. Scade tra 30 giorni."); load(); };
   const revoke = async (c: Contract) => { if (!confirm(`Revocare il link di firma per “${c.title}”?`)) return; const { error } = await supabase.rpc("revoke_contract", { p_contract_id: c.id }); if (error) return alert(error.message); load(); };
   if (loading) return <div className="center-msg">Caricamento contratti…</div>;
+  if (loadError) return <div className="center-msg">La sezione Contratti richiede l’aggiornamento del database.<br /><small>{loadError}</small></div>;
   return <div className="page contracts-page">
     <div className="contracts-intro"><div><h1>Contratti</h1><p>Controlla firma, scadenze e storico di ogni accordo.</p></div><div className="contract-safety">Link firmabili protetti da scadenza e revoca</div></div>
     <div className="cards-grid contracts-kpis"><Kpi label="Da firmare" value={count("pending")} /><Kpi label="Firmati" value={count("signed")} good /><Kpi label="Scaduti" value={count("expired")} warn /><Kpi label="Revocati" value={count("revoked")} /></div>

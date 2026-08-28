@@ -1,19 +1,17 @@
-import { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import { useAuth } from "./useAuth";
 import type { Client, Lead, Pipeline } from "./types";
-import Login from "./pages/Login";
-import Board from "./pages/Board";
-import Dashboard, { ALL_PIPELINES_ID } from "./pages/Dashboard";
-import Admin from "./pages/Admin";
-import Performance from "./pages/Performance";
-import Vendite from "./pages/Vendite";
-import FirmaPage from "./pages/FirmaPage";
-import Control from "./pages/Control";
-import EditorialPlan from "./pages/EditorialPlan";
-import Contracts from "./pages/Contracts";
+const Login = lazy(() => import("./pages/Login"));
+const Board = lazy(() => import("./pages/Board"));
+const Admin = lazy(() => import("./pages/Admin"));
+const Vendite = lazy(() => import("./pages/Vendite"));
+const FirmaPage = lazy(() => import("./pages/FirmaPage"));
+const Control = lazy(() => import("./pages/Control"));
+const EditorialPlan = lazy(() => import("./pages/EditorialPlan"));
+const Contracts = lazy(() => import("./pages/Contracts"));
 
-type Tab = "board" | "dashboard" | "sales" | "performance" | "admin" | "control" | "editorial" | "contracts";
+type Tab = "board" | "sales" | "admin" | "control" | "editorial" | "contracts";
 
 export default function App() {
   const auth = useAuth();
@@ -52,12 +50,6 @@ export default function App() {
     setClientId(l.client_id);
     setPipelineId(l.pipeline_id);
     setFocusLeadId(l.id);
-  }
-
-  // Link pubblico di firma: #/firma/<token> — nessun login richiesto
-  const firmaMatch = window.location.hash.match(/^#\/firma\/([^/]+)/);
-  if (firmaMatch) {
-    return <FirmaPage token={firmaMatch[1]} />;
   }
 
   const isAdmin = auth.profile?.role === "admin";
@@ -109,11 +101,22 @@ export default function App() {
       });
   }, [clientId]);
 
+  if (!isSupabaseConfigured) {
+    return <div className="center-msg">Configurazione mancante. Imposta <b>VITE_SUPABASE_URL</b> e <b>VITE_SUPABASE_ANON_KEY</b> nelle variabili d’ambiente di Vercel.</div>;
+  }
+
+  // Link pubblico di firma: #/firma/<token> — nessun login richiesto.
+  // Le dichiarazioni degli hook restano tutte sopra questo return.
+  const firmaMatch = window.location.hash.match(/^#\/firma\/([^/]+)/);
+  if (firmaMatch) {
+    return <Suspense fallback={<div className="center-msg">Caricamento documento…</div>}><FirmaPage token={firmaMatch[1]} /></Suspense>;
+  }
+
   if (auth.loading) {
     return <div className="center-msg">Caricamento…</div>;
   }
   if (!auth.userId) {
-    return <Login />;
+    return <Suspense fallback={<div className="center-msg">Caricamento…</div>}><Login /></Suspense>;
   }
   if (!auth.profile) {
     return (
@@ -133,32 +136,12 @@ export default function App() {
   }
 
   const currentClient = clients.find((c) => c.id === clientId) ?? null;
-  // Tema premium: riservato alle agenzie di marketing (clienti "Estetica").
-  // Gli altri clienti restano sul tema caldo standard.
-  const isPremium = currentClient?.name.startsWith("Estetica") ?? false;
-  const isAllView = pipelineId === ALL_PIPELINES_ID;
-  // Pipeline sintetica "Totale": esiste solo per la Dashboard.
-  const allPipeline: Pipeline | null =
-    isAllView && clientId
-      ? {
-          id: ALL_PIPELINES_ID,
-          client_id: clientId,
-          name: "Totale (tutti i servizi)",
-          position: -1,
-          meta_form_id: null,
-          meta_ad_account_id: null,
-          created_at: "",
-        }
-      : null;
-  const currentPipeline = allPipeline ?? pipelines.find((p) => p.id === pipelineId) ?? null;
-  // La Bacheca non conosce la vista Totale: usa sempre una pipeline reale.
-  const boardPipeline = isAllView ? pipelines[0] ?? null : currentPipeline;
+  const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
+  const boardPipeline = currentPipeline;
   const pageTitle: Record<Tab, string> = {
     control: isAdmin ? "Panoramica" : "Le mie priorità",
     board: "CRM · Pipeline",
     sales: "CRM · Vendite",
-    dashboard: "Analisi commerciale",
-    performance: "Performance",
     admin: "Impostazioni",
     editorial: "Piano editoriale",
     contracts: "Contratti",
@@ -172,7 +155,7 @@ export default function App() {
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
           <span className="nav-label">CRM</span>
           {!isAdmin && <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>✓</i> Le mie priorità</button>}
-          <button className={tab === "board" ? "active" : ""} onClick={() => { setTab("board"); if (pipelineId === ALL_PIPELINES_ID) setPipelineId(pipelines[0]?.id ?? null); }}><i>▦</i> Pipeline</button>
+          <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><i>▦</i> Pipeline</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
         </nav>
@@ -182,10 +165,9 @@ export default function App() {
         <header className="topbar app-header">
           <div><div className="eyebrow">{isAdmin ? "Estetica Premium · Azienda" : "Estetica Premium · CRM"}</div><h1>{pageTitle[tab]}</h1></div>
           <div className="header-actions">
-            {pipelines.length > 1 && tab !== "admin" && tab !== "performance" && tab !== "editorial" && tab !== "contracts" && (
+            {pipelines.length > 1 && tab !== "admin" && tab !== "editorial" && tab !== "contracts" && (
               <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
                 {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                {tab === "dashboard" && <option value={ALL_PIPELINES_ID}>Totale (tutti i servizi)</option>}
               </select>
             )}
             {tab !== "editorial" && tab !== "contracts" && <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
@@ -193,7 +175,7 @@ export default function App() {
             </div>}
           </div>
         </header>
-        <div className="app-content">
+        <div className="app-content"><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
@@ -225,15 +207,6 @@ export default function App() {
 
       {tab === "contracts" && isAdmin && <Contracts />}
 
-      {tab === "performance" && isAdmin && <Performance clients={clients} />}
-
-      {tab === "dashboard" &&
-        (currentClient && currentPipeline ? (
-          <Dashboard client={currentClient} pipeline={currentPipeline} pipelines={pipelines} />
-        ) : (
-          <div className="center-msg">Nessuna pipeline disponibile.</div>
-        ))}
-
       {tab === "admin" && isAdmin && (
         <Admin
           clients={clients}
@@ -248,7 +221,7 @@ export default function App() {
           }}
         />
       )}
-        </div>
+        </Suspense></div>
       </main>
     </div>
   );

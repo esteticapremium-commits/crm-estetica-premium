@@ -9,12 +9,15 @@ const CHANNELS = ["Instagram", "TikTok", "LinkedIn", "YouTube", "Newsletter", "B
 export default function EditorialPlan({ clientId, meName }: { clientId: string; meName: string }) {
   const [items, setItems] = useState<EditorialContent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EditorialStatus | "all">("all");
   const [editing, setEditing] = useState<EditorialContent | null | "new">(null);
 
   const load = () => {
     setLoading(true);
-    supabase.from("editorial_contents").select("*").eq("client_id", clientId).order("scheduled_for", { ascending: true, nullsFirst: false }).then(({ data }) => {
+    setLoadError(null);
+    supabase.from("editorial_contents").select("*").eq("client_id", clientId).order("scheduled_for", { ascending: true, nullsFirst: false }).then(({ data, error }) => {
+      if (error) setLoadError(error.message);
       setItems((data as EditorialContent[]) ?? []); setLoading(false);
     });
   };
@@ -28,7 +31,7 @@ export default function EditorialPlan({ clientId, meName }: { clientId: string; 
     <div className="editorial-intro"><div><h1>Piano editoriale</h1><p>Organizza idee, produzione e pubblicazione dei contenuti dell’azienda.</p></div><button className="btn primary" onClick={() => setEditing("new")}>+ Nuovo contenuto</button></div>
     <div className="cards-grid editorial-kpis"><Kpi label="In programma" value={upcoming.length} /><Kpi label="In produzione" value={items.filter((x) => x.status === "in_production" || x.status === "review").length} /><Kpi label="Pubblicati" value={published.length} /><Kpi label="Prossima uscita" value={upcoming[0]?.scheduled_for ? new Date(upcoming[0].scheduled_for).toLocaleDateString("it-IT", { day: "2-digit", month: "short" }) : "—"} /></div>
     <section className="panel editorial-list"><div className="editorial-toolbar"><div className="status-filters">{(["all", "idea", "in_production", "review", "scheduled", "published"] as const).map((s) => <button key={s} className={filter === s ? "active" : ""} onClick={() => setFilter(s)}>{s === "all" ? "Tutti" : STATUS[s]}</button>)}</div></div>
-      {loading ? <p className="muted">Caricamento piano editoriale…</p> : visible.length === 0 ? <div className="empty-editorial"><b>Nessun contenuto qui.</b><span>Inizia aggiungendo un’idea o una pubblicazione già pianificata.</span><button className="btn" onClick={() => setEditing("new")}>Aggiungi contenuto</button></div> : <div className="editorial-table"><div className="editorial-head"><span>Contenuto</span><span>Canale</span><span>Stato</span><span>Pubblicazione</span><span>Responsabile</span></div>{visible.map((item) => <button className="editorial-row" key={item.id} onClick={() => setEditing(item)}><span><b>{item.title}</b><small>{item.format || item.pillar || "Contenuto"}</small></span><span>{item.channel}</span><span><em className={`status ${item.status}`}>{STATUS[item.status]}</em></span><span>{item.scheduled_for ? new Date(item.scheduled_for).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</span><span>{item.owner || "—"}</span></button>)}</div>}
+      {loading ? <p className="muted">Caricamento piano editoriale…</p> : loadError ? <div className="empty-editorial"><b>Il piano editoriale non è ancora attivo.</b><span>Nel database manca la relativa migrazione: {loadError}</span></div> : visible.length === 0 ? <div className="empty-editorial"><b>Nessun contenuto qui.</b><span>Inizia aggiungendo un’idea o una pubblicazione già pianificata.</span><button className="btn" onClick={() => setEditing("new")}>Aggiungi contenuto</button></div> : <div className="editorial-table"><div className="editorial-head"><span>Contenuto</span><span>Canale</span><span>Stato</span><span>Pubblicazione</span><span>Responsabile</span></div>{visible.map((item) => <button className="editorial-row" key={item.id} onClick={() => setEditing(item)}><span><b>{item.title}</b><small>{item.format || item.pillar || "Contenuto"}</small></span><span>{item.channel}</span><span><em className={`status ${item.status}`}>{STATUS[item.status]}</em></span><span>{item.scheduled_for ? new Date(item.scheduled_for).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</span><span>{item.owner || "—"}</span></button>)}</div>}
     </section>
     {editing && <ContentForm item={editing === "new" ? null : editing} clientId={clientId} meName={meName} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
   </div>;

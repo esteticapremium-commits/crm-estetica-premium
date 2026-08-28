@@ -12,12 +12,17 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
   const [moves, setMoves] = useState<StageEvent[]>([]);
   const [team, setTeam] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const ids = pipelines.map((p) => p.id);
   const idsKey = ids.join(",");
 
   useEffect(() => {
-    if (!ids.length) return;
+    if (!ids.length) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError(null);
     Promise.all([
       supabase.from("leads").select("*").in("pipeline_id", ids),
       supabase.from("stages").select("*").in("pipeline_id", ids),
@@ -25,9 +30,11 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
       supabase.from("lead_stage_events").select("changed_by,changed_at,to_stage_id").eq("client_id", client.id).order("changed_at", { ascending: false }).limit(5000),
       supabase.from("profiles").select("id,role,client_id,full_name").eq("client_id", client.id).eq("role", "venditore"),
     ]).then(([l, s, a, m, p]) => {
+      const failure = [l, s, a, m, p].find((r) => r.error)?.error;
+      if (failure) setError(`Non è stato possibile caricare il controllo: ${failure.message}`);
       setLeads((l.data as Lead[]) ?? []); setStages((s.data as Stage[]) ?? []);
       setActivities((a.data as LeadActivity[]) ?? []); setMoves((m.data as StageEvent[]) ?? []); setTeam((p.data as Profile[]) ?? []); setLoading(false);
-    });
+    }).catch(() => { setError("Errore di connessione durante il caricamento del controllo."); setLoading(false); });
   }, [client.id, idsKey]);
 
   const isMine = (name: string | null) => !admin && (name ?? "").trim().toLowerCase() === meName.trim().toLowerCase();
@@ -51,6 +58,7 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
     });
   }, [leads, activities, moves, stages, team, today]);
   if (loading) return <div className="center-msg">Caricamento controllo commerciale…</div>;
+  if (error) return <div className="center-msg">{error}<br /><small>Verifica di aver eseguito le migrazioni Supabase del progetto.</small></div>;
   const eur = (n: number) => "€ " + Math.round(n).toLocaleString("it-IT");
   return <div className="page control-page">
     <h1>{admin ? "Controllo vendite" : "La mia giornata"}</h1>
