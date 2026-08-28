@@ -175,7 +175,7 @@ export default function FirmaPage({ token }: { token: string }) {
           )}
 
           {doc && ok && (
-            <div className="firma-body print-area">
+            <div className="firma-body print-area signing-document">
               {/* Thank you page: appare dopo la firma */}
               <div className="thankyou no-print">
                 <div className="thankyou-ic">✓</div>
@@ -260,6 +260,7 @@ export default function FirmaPage({ token }: { token: string }) {
                 )}
               </div>
               <div className="firma-body">
+                <div className="signing-document">
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
@@ -333,6 +334,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   Confermando, accetti il documento e autorizzi la registrazione di
                   data, ora e firma.
                 </p>
+                </div>
               </div>
             </>
           )}
