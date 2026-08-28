@@ -167,7 +167,7 @@ export default function App() {
   return (
     <div className="app theme-premium platform-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">E</span><span>Estetica Premium<small>Business OS</small></span></div>
+        <div className="brand"><img src="/estetica-premium-logo.png" alt="Estetica Premium" /><small>Business OS</small></div>
         <nav className="side-nav" aria-label="Navigazione principale">
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
           <span className="nav-label">CRM</span>
