@@ -1281,6 +1281,76 @@ a {
   .app-content > .page { padding: 18px 12px; }
 }
 
+/* Design system B2B — chiaro, leggibile, senza effetti decorativi. */
+.theme-premium.platform-shell {
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel2: #ffffff;
+  --ink: #172033;
+  --muted: #68738a;
+  --line: #e6eaf0;
+  --brand: #2563eb;
+  --brand-dark: #1d4ed8;
+  --gold: #2563eb;
+  --gold-soft: #eaf1ff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn-text: #b45309;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
+  --shadow: 0 8px 24px rgba(15,23,42,.06);
+  color: var(--ink);
+}
+.theme-premium.platform-shell .sidebar { background: #111a2d; border-color: #1e293b; }
+.theme-premium.platform-shell .platform-shell .brand, .theme-premium.platform-shell .brand { color: #f8fafc; }
+.theme-premium.platform-shell .brand-mark { background: #2563eb; color: #fff; font-family: system-ui, sans-serif; font-weight: 800; }
+.theme-premium.platform-shell .platform-shell .brand small { color: #91a0bb; }
+.theme-premium.platform-shell .nav-label { color: #8190aa; }
+.theme-premium.platform-shell .side-nav button { color: #c4cede; }
+.theme-premium.platform-shell .side-nav button i { color: #9dacbf; }
+.theme-premium.platform-shell .side-nav button:hover { background: #1d2941; }
+.theme-premium.platform-shell .side-nav button.active { background: #263b63; color: #fff; }
+.theme-premium.platform-shell .side-nav button.active i { color: #93c5fd; }
+.theme-premium.platform-shell .side-item.disabled { color: #72819a; }
+.theme-premium.platform-shell .sidebar-user { border-color: #263247; }
+.theme-premium.platform-shell .sidebar-user b { color: #f1f5f9; }
+.theme-premium.platform-shell .sidebar-user span, .theme-premium.platform-shell .sidebar-user button { color: #9dacbf; }
+.theme-premium.platform-shell .avatar { background: #dbeafe; color: #1d4ed8; }
+.theme-premium.platform-shell .app-main, .theme-premium.platform-shell .app-content { background: var(--bg); }
+.theme-premium.platform-shell .app-header { background: rgba(255,255,255,.92); border-color: var(--line); }
+.theme-premium.platform-shell .app-header h1 { color: #172033; }
+.theme-premium.platform-shell .eyebrow { color: #71809a; }
+.theme-premium.platform-shell .select, .theme-premium.platform-shell .search, .theme-premium.platform-shell .btn { background: #fff; border-color: #dce3ed; color: #273449; }
+.theme-premium.platform-shell .search input { color: #172033; }
+.theme-premium.platform-shell .btn.primary { background: #2563eb; color: #fff; }
+.theme-premium.platform-shell .btn.primary:hover { background: #1d4ed8; }
+.theme-premium.platform-shell .stat, .theme-premium.platform-shell .panel { background: #fff; border-color: var(--line); box-shadow: var(--shadow-sm); }
+.theme-premium.platform-shell .stat .v { color: #172033; }
+.theme-premium.platform-shell .page .sub, .theme-premium.platform-shell .muted { color: #68738a; }
+.theme-premium.platform-shell .activity-box { background: #f8fbff; border-color: #bfdbfe; }
+.theme-premium.platform-shell .control-lead { border-color: var(--line); }
+.theme-premium.platform-shell .control-lead > div:last-child { color: #b45309; }
+.theme-premium.platform-shell .board-wrap.premium { background: #f6f8fb; }
+.theme-premium.platform-shell .board-header { padding: 26px 30px 20px; background: #fff; border-color: var(--line); }
+.theme-premium.platform-shell .board-title { font-family: system-ui, sans-serif; font-size: 22px; color: #172033; font-weight: 750; letter-spacing: -.4px; }
+.theme-premium.platform-shell .board-sub { color: #68738a; }
+.theme-premium.platform-shell .board-wrap.premium .board { padding: 18px 30px 28px; }
+.theme-premium.platform-shell .kpi { background: #fff; border-color: var(--line); box-shadow: var(--shadow-sm); }
+.theme-premium.platform-shell .kpi-v { color: #172033; }
+.theme-premium.platform-shell .kpi-k { color: #71809a; }
+.theme-premium.platform-shell .column { background: #f8fafc; border-color: #dde4ee; box-shadow: none; }
+.theme-premium.platform-shell .col-head { background: #f8fafc; border-color: #dde4ee; color: #536177; letter-spacing: .7px; }
+.theme-premium.platform-shell .col-dot { box-shadow: none; }
+.theme-premium.platform-shell .col-count { background: #e9eef6; color: #536177; }
+.theme-premium.platform-shell .card { background: #fff; border-color: #e2e8f0; border-left: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.theme-premium.platform-shell .card:hover { border-left-color: #2563eb; box-shadow: 0 5px 12px rgba(15,23,42,.08); transform: translateY(-1px); }
+.theme-premium.platform-shell .card .name { color: #1e293b; }
+.theme-premium.platform-shell .card .row, .theme-premium.platform-shell .card .row a { color: #64748b; }
+.theme-premium.platform-shell .chip { background: #f1f5f9; color: #526176; }
+.theme-premium.platform-shell .chip.src { background: #eff6ff; color: #2563eb; }
+.theme-premium.platform-shell .chip.note { background: #ecfdf5; color: #15803d; }
+.theme-premium.platform-shell .field input, .theme-premium.platform-shell .field select, .theme-premium.platform-shell .field textarea { background: #fff; border-color: #dce3ed; color: #172033; }
+.theme-premium.platform-shell .field label { color: #475569; }
+
 
 /* ============================================================
    RESPONSIVE — mobile e tablet

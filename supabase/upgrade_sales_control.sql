@@ -26,3 +26,29 @@ create policy lead_activities_delete on public.lead_activities for delete to aut
 -- I lead restano nello storico: solo l'amministratore può eliminarli.
 drop policy if exists leads_delete on public.leads;
 create policy leads_delete on public.leads for delete to authenticated using (public.is_admin());
+
+-- Ogni venditore lavora solo sui lead assegnati al proprio nome.
+-- L'interfaccia assegna automaticamente i nuovi lead al venditore autenticato;
+-- qui la regola è applicata anche direttamente dal database.
+create or replace function public.my_full_name()
+returns text language sql stable security definer set search_path = public
+as $$ select full_name from public.profiles where id = auth.uid() $$;
+
+drop policy if exists leads_select on public.leads;
+drop policy if exists leads_insert on public.leads;
+drop policy if exists leads_update on public.leads;
+create policy leads_select on public.leads for select to authenticated
+  using (public.is_admin() or (client_id = public.my_client_id() and assigned_to = public.my_full_name()));
+create policy leads_insert on public.leads for insert to authenticated
+  with check (public.is_admin() or (client_id = public.my_client_id() and assigned_to = public.my_full_name()));
+create policy leads_update on public.leads for update to authenticated
+  using (public.is_admin() or (client_id = public.my_client_id() and assigned_to = public.my_full_name()))
+  with check (public.is_admin() or (client_id = public.my_client_id() and assigned_to = public.my_full_name()));
+
+drop policy if exists lse_select on public.lead_stage_events;
+create policy lse_select on public.lead_stage_events for select to authenticated
+  using (public.is_admin() or (client_id = public.my_client_id() and changed_by = public.my_full_name()));
+
+drop policy if exists lead_activities_select on public.lead_activities;
+create policy lead_activities_select on public.lead_activities for select to authenticated
+  using (public.is_admin() or (client_id = public.my_client_id() and created_by = public.my_full_name()));
