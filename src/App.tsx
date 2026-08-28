@@ -163,7 +163,7 @@ export default function App() {
   return (
     <div className={`app theme-premium platform-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
-        <div className="brand"><div className="brand-logo"><img src="/estetica-premium-logo.png" alt="Estetica Premium" /></div><span className="brand-compact" aria-hidden="true">EP</span><small>Business OS</small></div>
+        <div className="brand" aria-label="Estetica Premium"><div className="brand-logo">EP</div></div>
         <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed((v) => !v)} aria-label={sidebarCollapsed ? "Espandi barra laterale" : "Riduci barra laterale"} title={sidebarCollapsed ? "Espandi menu" : "Riduci menu"}>{sidebarCollapsed ? "›" : "‹"}</button>
         <nav className="side-nav" aria-label="Navigazione principale">
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
