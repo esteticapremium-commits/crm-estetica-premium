@@ -1351,6 +1351,30 @@ a {
 .theme-premium.platform-shell .field input, .theme-premium.platform-shell .field select, .theme-premium.platform-shell .field textarea { background: #fff; border-color: #dce3ed; color: #172033; }
 .theme-premium.platform-shell .field label { color: #475569; }
 
+/* Piano editoriale */
+.editorial-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; margin-bottom: 24px; }
+.editorial-intro h1 { display: block !important; margin: 0 0 5px; font-size: 24px !important; }
+.editorial-intro p { margin: 0; color: var(--muted); }
+.editorial-kpis .stat .v { font-size: 25px; }
+.editorial-list { padding: 0; overflow: hidden; }
+.editorial-toolbar { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.status-filters { display: flex; gap: 6px; overflow-x: auto; }
+.status-filters button { flex: none; border: 1px solid transparent; border-radius: 7px; padding: 6px 9px; background: transparent; color: #64748b; font-size: 12px; font-weight: 650; }
+.status-filters button:hover { background: #f1f5f9; }
+.status-filters button.active { background: #eaf1ff; color: #1d4ed8; }
+.editorial-head, .editorial-row { display: grid; grid-template-columns: minmax(260px, 2.2fr) repeat(4, minmax(120px, 1fr)); align-items: center; gap: 16px; }
+.editorial-head { padding: 11px 16px; background: #f8fafc; color: #71809a; font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+.editorial-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 13px 16px; background: #fff; color: #445268; text-align: left; font-size: 13px; }
+.editorial-row:hover { background: #f8fbff; }
+.editorial-row b, .editorial-row small { display: block; }
+.editorial-row b { color: #1e293b; font-size: 13.5px; }
+.editorial-row small { margin-top: 3px; color: #7a879b; }
+.status { display: inline-flex; border-radius: 999px; padding: 4px 8px; font-size: 11px; font-style: normal; font-weight: 750; }
+.status.idea { background: #f1f5f9; color: #64748b; }.status.in_production { background: #fef3c7; color: #a16207; }.status.review { background: #f3e8ff; color: #7e22ce; }.status.scheduled { background: #dbeafe; color: #1d4ed8; }.status.published { background: #dcfce7; color: #15803d; }
+.empty-editorial { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 54px 20px; color: #71809a; }.empty-editorial b { color: #334155; }.empty-editorial .btn { margin-top: 6px; }
+.editorial-modal { max-width: 620px; }
+@media (max-width: 760px) { .editorial-intro { align-items: flex-start; flex-direction: column; }.editorial-intro .btn { width: 100%; }.editorial-table { overflow-x: auto; }.editorial-head, .editorial-row { min-width: 830px; } }
+
 
 /* ============================================================
    RESPONSIVE — mobile e tablet

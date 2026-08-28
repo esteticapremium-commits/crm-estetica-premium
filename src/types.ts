@@ -73,6 +73,25 @@ export interface LeadActivity {
   created_at: string;
 }
 
+export type EditorialStatus = "idea" | "in_production" | "review" | "scheduled" | "published";
+
+export interface EditorialContent {
+  id: string;
+  client_id: string;
+  title: string;
+  channel: string;
+  format: string | null;
+  status: EditorialStatus;
+  scheduled_for: string | null;
+  owner: string | null;
+  pillar: string | null;
+  cta: string | null;
+  notes: string | null;
+  asset_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Contract {
   id: string;
   client_id: string;
