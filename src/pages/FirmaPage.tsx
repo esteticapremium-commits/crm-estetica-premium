@@ -242,7 +242,7 @@ export default function FirmaPage({ token }: { token: string }) {
               </b>
               <Document body={signedParts.main} />
               <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
-              {signedParts.approval && <Document body={signedParts.approval} />}
+              {signedParts.approval && <Document body={signedParts.approval} plain />}
             </div>
           )}
 
@@ -283,7 +283,7 @@ export default function FirmaPage({ token }: { token: string }) {
                 <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
                 <Document body={draftParts.main} />
                 <ContractSignatureBox values={values} />
-                {draftParts.approval && <Document body={draftParts.approval} />}
+                {draftParts.approval && <Document body={draftParts.approval} plain />}
 
                 {/* 3) infine la firma */}
                 <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
@@ -357,7 +357,7 @@ function ContractSignatureBox({ values, signedName, signature, signedAt }: { val
 }
 
 /** Il contratto in stile documento (carta bianca, intestazione serif). */
-function Document({ body }: { body: string }) {
+function Document({ body, plain = false }: { body: string; plain?: boolean }) {
   const lines = body.split("\n");
   return (
     <div className="firma-doc">
@@ -366,19 +366,19 @@ function Document({ body }: { body: string }) {
         if (t === "")
           return <div key={i} style={{ height: 10 }} />;
         // le prime due righe sono l'intestazione (agenzia + tipo contratto)
-        if (i === 0)
+        if (!plain && i === 0)
           return (
             <div key={i} className="doc-company">
               {t}
             </div>
           );
-        if (i === 1)
+        if (!plain && i === 1)
           return (
             <div key={i} className="doc-type">
               {t}
             </div>
           );
-        if (i === 2)
+        if (!plain && i === 2)
           return (
             <div key={i} className="doc-variant">
               {t}
