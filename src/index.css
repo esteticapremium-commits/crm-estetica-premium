@@ -1603,6 +1603,10 @@ a {
   gap: 6px;
   margin-top: 10px;
 }
+.trial-template-callout { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 14px 0; padding: 13px 14px; border: 1px solid #e2c6cb; border-radius: 10px; background: #fbf0ef; }
+.trial-template-callout b, .trial-template-callout span { display: block; }
+.trial-template-callout b { color: #5b102a; font-size: 13px; }
+.trial-template-callout span { margin-top: 3px; color: #806f74; font-size: 12px; }
 .ph {
   background: var(--gold-soft);
   color: #d9b56a;
