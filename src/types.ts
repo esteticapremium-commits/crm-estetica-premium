@@ -114,6 +114,8 @@ export interface Contract {
   revoked_at?: string | null;
   revoked_by?: string | null;
   signed_document_hash?: string | null;
+  viewed_at?: string | null;
+  view_count?: number | null;
 }
 
 export interface ContractEvent {
