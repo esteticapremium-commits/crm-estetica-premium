@@ -673,6 +673,7 @@ a {
   justify-content: center;
   color: var(--muted);
 }
+.module-error { flex-direction: column; gap: 10px; text-align: center; }.module-error span { color: var(--muted); font-size: 13px; }
 .table {
   width: 100%;
   border-collapse: collapse;

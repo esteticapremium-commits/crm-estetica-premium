@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import { useAuth } from "./useAuth";
 import type { Client, Lead, Pipeline } from "./types";
@@ -12,6 +12,30 @@ const EditorialPlan = lazy(() => import("./pages/EditorialPlan"));
 const Contracts = lazy(() => import("./pages/Contracts"));
 
 type Tab = "board" | "sales" | "admin" | "control" | "editorial" | "contracts";
+
+/** Evita lo schermo bianco se una pagina aperta prova a caricare un file
+ * JavaScript della versione precedente subito dopo una nuova pubblicazione. */
+class ModuleBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    const isStaleModule = /dynamically imported module|module script|ChunkLoadError/i.test(error.message);
+    const recoveryKey = "ep-module-recovery";
+    if (isStaleModule && !window.sessionStorage.getItem(recoveryKey)) {
+      window.sessionStorage.setItem(recoveryKey, "1");
+      window.location.reload();
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <div className="center-msg module-error"><b>Aggiornamento disponibile</b><span>La pagina è stata aggiornata. Premi qui per continuare.</span><button className="btn primary" onClick={() => window.location.reload()}>Ricarica pagina</button></div>;
+  }
+}
 
 export default function App() {
   const auth = useAuth();
@@ -122,14 +146,14 @@ export default function App() {
   // Le dichiarazioni degli hook restano tutte sopra questo return.
   const firmaMatch = window.location.hash.match(/^#\/firma\/([^/]+)/);
   if (firmaMatch) {
-    return <Suspense fallback={<div className="center-msg">Caricamento documento…</div>}><FirmaPage token={firmaMatch[1]} /></Suspense>;
+    return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento documento…</div>}><FirmaPage token={firmaMatch[1]} /></Suspense></ModuleBoundary>;
   }
 
   if (auth.loading) {
     return <div className="center-msg">Caricamento…</div>;
   }
   if (!auth.userId) {
-    return <Suspense fallback={<div className="center-msg">Caricamento…</div>}><Login /></Suspense>;
+    return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento…</div>}><Login /></Suspense></ModuleBoundary>;
   }
   if (!auth.profile) {
     return (
@@ -189,7 +213,7 @@ export default function App() {
             </div>}
           </div>
         </header>
-        <div className="app-content"><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
+        <div className="app-content"><ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
@@ -222,7 +246,7 @@ export default function App() {
       {tab === "contracts" && <Contracts canManageLinks={isAdmin} />}
 
       {tab === "admin" && isAdmin && <Admin clients={clients} />}
-        </Suspense></div>
+        </Suspense></ModuleBoundary></div>
       </main>
     </div>
   );
