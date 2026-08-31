@@ -73,6 +73,21 @@ export interface LeadActivity {
   created_at: string;
 }
 
+export interface SalesTask {
+  id: string;
+  client_id: string;
+  lead_id: string | null;
+  title: string;
+  description: string | null;
+  due_at: string;
+  assigned_to: string;
+  created_by: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type EditorialStatus = "idea" | "in_production" | "review" | "scheduled" | "published";
 
 export interface EditorialContent {
