@@ -1278,23 +1278,23 @@ a {
    BUSINESS OS — shell della piattaforma
    ============================================================ */
 .platform-shell { display: flex; flex-direction: row; background: #101217; overflow: hidden; }
-.sidebar { position: relative; width: 252px; flex: none; display: flex; flex-direction: column; padding: 22px 12px 14px; background: #13161d; border-right: 1px solid rgba(255,255,255,.07); transition: width .18s ease, padding .18s ease; }
-.platform-shell .brand { padding: 0 11px 20px; color: #f4ecdc; font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 750; line-height: 1.1; }
+.sidebar { position: relative; width: 226px; flex: none; display: flex; flex-direction: column; padding: 16px 10px 12px; background: #13161d; border-right: 1px solid rgba(255,255,255,.07); transition: width .18s ease, padding .18s ease; }
+.platform-shell .brand { padding: 0 9px 14px; color: #f4ecdc; font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 750; line-height: 1.1; }
 .platform-shell .brand::before { display: none; }
-.brand-logo { display: grid; place-items: center; width: 54px; height: 54px; border: 1px solid rgba(255,255,255,.3); border-radius: 14px; background: #f8f1e9; color: #5b102a; font-family: "Didot", "Bodoni 72", Georgia, serif; font-size: 27px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
-.sidebar-toggle { position: absolute; top: 112px; right: -13px; z-index: 5; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--brand); box-shadow: 0 2px 8px rgba(69,16,35,.14); font-size: 20px; line-height: 1; display: grid; place-items: center; }
+.brand-logo { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; background: #f8f1e9; color: #5b102a; font-family: "Didot", "Bodoni 72", Georgia, serif; font-size: 24px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
+.sidebar-toggle { position: absolute; top: 88px; right: -12px; z-index: 5; width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--brand); box-shadow: 0 2px 8px rgba(69,16,35,.14); font-size: 18px; line-height: 1; display: grid; place-items: center; }
 .sidebar-toggle:hover { background: var(--gold-soft); }
 .side-nav { display: flex; flex-direction: column; gap: 3px; }
-.nav-label { margin: 18px 11px 6px; color: #777d89; font-size: 10px; font-weight: 800; letter-spacing: 1.25px; text-transform: uppercase; }
-.side-nav button, .side-item { width: 100%; display: flex; align-items: center; gap: 11px; border: 0; border-radius: 8px; padding: 10px 11px; background: transparent; color: #bdc1c9; font-size: 13px; font-weight: 620; text-align: left; }
-.side-nav button i, .side-item i { width: 17px; color: #8d94a0; font-size: 16px; font-style: normal; text-align: center; }
+.nav-label { margin: 14px 9px 5px; color: #777d89; font-size: 9px; font-weight: 800; letter-spacing: 1.15px; text-transform: uppercase; }
+.side-nav button, .side-item { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; color: #bdc1c9; font-size: 12.5px; font-weight: 620; text-align: left; }
+.side-nav button i, .side-item i { width: 16px; color: #8d94a0; font-size: 15px; font-style: normal; text-align: center; }
 .side-nav button:hover { background: rgba(255,255,255,.055); color: #fff; }
 .side-nav button.active { background: rgba(225, 188, 103, .13); color: #f0d78d; }
 .side-nav button.active i { color: #f0d78d; }
 .side-item.disabled { color: #656b76; cursor: default; }
 .side-item.disabled i { color: #565d68; }
-.sidebar-user { display: flex; align-items: center; gap: 9px; margin-top: auto; padding: 13px 8px 3px; border-top: 1px solid rgba(255,255,255,.07); }
-.sidebar-user .avatar { width: 32px; height: 32px; font-size: 12px; }
+.sidebar-user { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 10px 7px 2px; border-top: 1px solid rgba(255,255,255,.07); }
+.sidebar-user .avatar { width: 29px; height: 29px; font-size: 11px; }
 .sidebar-user div:nth-child(2) { min-width: 0; flex: 1; }
 .sidebar-user b, .sidebar-user span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-user b { color: #e5e6e9; font-size: 12px; }
@@ -1307,8 +1307,8 @@ a {
 .sidebar-collapsed .brand-logo { width: 40px; height: 40px; border-radius: 11px; font-size: 20px; }
 .sidebar-collapsed .side-nav { align-items: center; }.sidebar-collapsed .side-nav button { width: 46px; justify-content: center; padding: 11px; font-size: 0; }.sidebar-collapsed .side-nav button i { width: auto; font-size: 17px; }.sidebar-collapsed .sidebar-user { justify-content: center; padding-left: 0; padding-right: 0; }.sidebar-collapsed .sidebar-user div:nth-child(2), .sidebar-collapsed .sidebar-user button { display: none; }
 .app-main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: var(--bg); }
-.platform-shell .app-header { min-height: 76px; justify-content: space-between; flex-wrap: nowrap; padding: 14px 26px; background: rgba(16,18,23,.9); border-color: rgba(255,255,255,.07); }
-.app-header h1 { margin: 2px 0 0; color: #f4f1eb; font-family: system-ui, -apple-system, sans-serif; font-size: 20px; letter-spacing: -.45px; }
+.platform-shell .app-header { min-height: 64px; justify-content: space-between; flex-wrap: nowrap; padding: 10px 22px; background: rgba(16,18,23,.9); border-color: rgba(255,255,255,.07); }
+.app-header h1 { margin: 1px 0 0; color: #f4f1eb; font-family: system-ui, -apple-system, sans-serif; font-size: 18px; letter-spacing: -.45px; }
 .eyebrow { color: #8e94a1; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: 1.05px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .platform-shell .search { min-width: 220px; border-color: rgba(255,255,255,.1); border-radius: 8px; }
