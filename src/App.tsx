@@ -10,8 +10,9 @@ const FirmaPage = lazy(() => import("./pages/FirmaPage"));
 const Control = lazy(() => import("./pages/Control"));
 const EditorialPlan = lazy(() => import("./pages/EditorialPlan"));
 const Contracts = lazy(() => import("./pages/Contracts"));
+const Tasks = lazy(() => import("./pages/Tasks"));
 
-type Tab = "board" | "sales" | "admin" | "control" | "editorial" | "contracts";
+type Tab = "board" | "sales" | "tasks" | "admin" | "control" | "editorial" | "contracts";
 
 /** Evita lo schermo bianco se una pagina aperta prova a caricare un file
  * JavaScript della versione precedente subito dopo una nuova pubblicazione. */
@@ -179,6 +180,7 @@ export default function App() {
     control: "Panoramica",
     board: "CRM · Pipeline",
     sales: "CRM · Vendite",
+    tasks: "CRM · Attività",
     admin: "Impostazioni",
     editorial: "Piano editoriale",
     contracts: "Contratti",
@@ -194,6 +196,7 @@ export default function App() {
           <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button>
           <span className="nav-label">CRM</span>
           <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><i>▦</i> Pipeline</button>
+          <button className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}><i>✓</i> Attività</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
           <button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button>
           {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
@@ -234,6 +237,10 @@ export default function App() {
 
       {tab === "sales" && currentClient && currentPipeline && (
         <Vendite client={currentClient} pipeline={currentPipeline} />
+      )}
+
+      {tab === "tasks" && currentClient && (
+        <Tasks client={currentClient} pipeline={currentPipeline} meName={meName} admin={isAdmin} onOpenLead={(lead) => { setClientId(lead.client_id); setPipelineId(lead.pipeline_id); setFocusLeadId(lead.id); setTab("board"); }} />
       )}
 
       {tab === "control" && currentClient && (
