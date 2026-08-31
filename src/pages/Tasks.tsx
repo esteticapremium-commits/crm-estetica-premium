@@ -5,7 +5,7 @@ import { romeToday } from "../dates";
 
 type View = "today" | "future" | "missing" | "done";
 const localDateTime = (date = new Date()) => { const p = (n: number) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; };
-const dayOf = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date(iso));
+const dayOf = (iso: string) => { const parts = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(iso)); const value = (kind: string) => parts.find((part) => part.type === kind)?.value ?? ""; return `${value("year")}-${value("month")}-${value("day")}`; };
 const timeOf = (iso: string) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 
 export default function Tasks({ client, pipeline, meName, admin, onOpenLead }: { client: Client; pipeline: Pipeline | null; meName: string; admin: boolean; onOpenLead: (lead: Lead) => void }) {
