@@ -46,7 +46,9 @@ export default function FirmaPage({ token }: { token: string }) {
         setDoc(row);
         // L'apertura viene registrata dal database senza raccogliere IP,
         // dispositivo o altri dati personali del firmatario.
-        void supabase.rpc("record_contract_view", { p_token: token });
+        // Le query Supabase partono quando la Promise viene consumata: senza
+        // .then() il contatore resterebbe fermo anche se il documento è aperto.
+        void supabase.rpc("record_contract_view", { p_token: token }).then(() => undefined);
         document.title = row.title + " — Estetica Premium";
         if (row.status === "signed") {
           setOk(true);
