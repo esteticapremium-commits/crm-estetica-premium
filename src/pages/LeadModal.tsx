@@ -6,6 +6,22 @@ import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
+const NOTE_SEPARATOR = "\n\n---\n\n";
+
+function appendNote(history: string, note: string) {
+  const entry = `${romeStamp()} — ${note.trim()}`;
+  return history.trim() ? `${entry}${NOTE_SEPARATOR}${history.trim()}` : entry;
+}
+
+function splitNoteHistory(history: string) {
+  const text = history.trim();
+  if (!text) return [];
+  if (text.includes(NOTE_SEPARATOR)) return text.split(NOTE_SEPARATOR).filter(Boolean);
+  // Compatibilità con le note create prima del nuovo separatore: la prima
+  // nota rapida era su una riga, il testo restante è lo storico precedente.
+  const legacyTimed = text.match(/^(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+—\s+[^\n]*)(?:\n([\s\S]+))?$/);
+  return legacyTimed ? [legacyTimed[1], legacyTimed[2]].filter(Boolean) : [text];
+}
 
 interface Props {
   lead?: Lead;
@@ -207,11 +223,7 @@ export default function LeadModal({
     setErr(null);
     // Nota rapida: aggiunta in cima allo storico con data e ora (fuso Roma).
     const qn = quickNote.trim();
-    const finalNotes = qn
-      ? notes.trim()
-        ? `${romeStamp()} — ${qn}\n${notes}`
-        : `${romeStamp()} — ${qn}`
-      : notes;
+    const finalNotes = qn ? appendNote(notes, qn) : notes;
     const payload = {
       name: name.trim() || null,
       phone: phone.trim() || null,
@@ -272,9 +284,7 @@ export default function LeadModal({
     if (!lead || !quickNote.trim()) return;
     setBusy(true);
     setErr(null);
-    const finalNotes = notes.trim()
-      ? `${romeStamp()} — ${quickNote.trim()}\n${notes}`
-      : `${romeStamp()} — ${quickNote.trim()}`;
+    const finalNotes = appendNote(notes, quickNote);
     const { error } = await supabase
       .from("leads")
       .update({ notes: finalNotes })
@@ -474,7 +484,7 @@ export default function LeadModal({
           )}
           <div className="field lead-note-history">
             <label>Storico note</label>
-            {notes.trim() ? <div className="note-history-list">{notes.split("\n").filter(Boolean).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
+            {notes.trim() ? <div className="note-history-list">{splitNoteHistory(notes).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
           </div>
 
           {!isNew && canDelete && (
