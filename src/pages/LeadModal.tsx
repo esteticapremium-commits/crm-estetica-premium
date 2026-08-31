@@ -268,6 +268,24 @@ export default function LeadModal({
     }
   }
 
+  async function saveQuickNote() {
+    if (!lead || !quickNote.trim()) return;
+    setBusy(true);
+    setErr(null);
+    const finalNotes = notes.trim()
+      ? `${romeStamp()} — ${quickNote.trim()}\n${notes}`
+      : `${romeStamp()} — ${quickNote.trim()}`;
+    const { error } = await supabase
+      .from("leads")
+      .update({ notes: finalNotes })
+      .eq("id", lead.id);
+    setBusy(false);
+    if (error) return setErr("Nota non salvata: " + error.message);
+    setNotes(finalNotes);
+    setQuickNote("");
+    onSaved();
+  }
+
   async function remove() {
     if (!lead) return;
     if (!confirm("Eliminare definitivamente questo lead?")) return;
@@ -449,6 +467,9 @@ export default function LeadModal({
                 Viene salvata come aggiornamento separato con data e ora. La card
                 si aggiorna e il lead conta come lavorato oggi.
               </small>
+              <button className="btn small primary" type="button" disabled={busy || !quickNote.trim()} onClick={() => void saveQuickNote()} style={{ marginTop: 9 }}>
+                {busy ? "Salvataggio…" : "Salva nota"}
+              </button>
             </div>
           )}
           <div className="field lead-note-history">
