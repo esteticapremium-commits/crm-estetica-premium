@@ -31,6 +31,10 @@ export default function FirmaPage({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
+  // Una pressione sul riquadro non e una firma: registriamo almeno un tratto
+  // reale prima di consentire la conferma del documento.
+  const hasInk = useRef(false);
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     supabase
@@ -91,6 +95,7 @@ export default function FirmaPage({ token }: { token: string }) {
     const ctx = c.getContext("2d")!;
     ctx.beginPath();
     ctx.moveTo(x, y);
+    lastPoint.current = { x, y };
   }
   function move(e: React.PointerEvent) {
     if (!drawing.current) return;
@@ -99,9 +104,15 @@ export default function FirmaPage({ token }: { token: string }) {
     const ctx = c.getContext("2d")!;
     ctx.lineTo(x, y);
     ctx.stroke();
+    const previous = lastPoint.current;
+    if (previous && Math.hypot(x - previous.x, y - previous.y) > 1) {
+      hasInk.current = true;
+    }
+    lastPoint.current = { x, y };
   }
   function up() {
     drawing.current = false;
+    lastPoint.current = null;
   }
 
   /** Apre una finestra con SOLO il documento compilato e la stampa:
@@ -116,12 +127,17 @@ export default function FirmaPage({ token }: { token: string }) {
     const ctx = c.getContext("2d")!;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, c.width, c.height);
+    hasInk.current = false;
+    lastPoint.current = null;
   }
 
   async function sign() {
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
     for (const f of fields) {
       if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
+    }
+    if (!hasInk.current) {
+      return setErr("Disegna la firma nel riquadro prima di confermare il contratto.");
     }
     const c = canvasRef.current;
     if (!c) return;
