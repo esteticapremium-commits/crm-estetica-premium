@@ -1,118 +1,49 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
-import type { Client, Lead, LeadActivity, Pipeline, Profile, Stage } from "../types";
+import type { Client, Lead, LeadActivity, Pipeline, Profile, SalesTask, Stage } from "../types";
 import { romeDay, romeLastDays, romeToday } from "../dates";
 
 type StageEvent = { changed_by: string | null; changed_at: string; to_stage_id: string | null };
-type CompanyOverview = {
-  total_leads: number; active_leads: number; appointments: number; closed_leads: number;
-  worked_today: number; due_today: number; conversion_rate: number;
-};
+type CompanyOverview = { total_leads: number; active_leads: number; appointments: number; closed_leads: number; worked_today: number; due_today: number; conversion_rate: number };
+type Attention = { lead: Lead; reason: string; urgency: "danger" | "warning" };
+const DAY = 86400000;
+const taskDay = (iso: string) => romeDay(iso);
+const dayLabel = (iso: string) => new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "short", timeZone: "Europe/Rome" }).format(new Date(iso));
+const timeLabel = (iso: string) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 
 export default function Control({ client, pipelines, meName, admin }: { client: Client; pipelines: Pipeline[]; meName: string; admin: boolean }) {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [stages, setStages] = useState<Stage[]>([]);
-  const [activities, setActivities] = useState<LeadActivity[]>([]);
-  const [moves, setMoves] = useState<StageEvent[]>([]);
-  const [team, setTeam] = useState<Profile[]>([]);
-  const [companyOverview, setCompanyOverview] = useState<CompanyOverview | null>(null);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const ids = pipelines.map((p) => p.id);
-  const idsKey = ids.join(",");
+  const [leads, setLeads] = useState<Lead[]>([]); const [stages, setStages] = useState<Stage[]>([]); const [activities, setActivities] = useState<LeadActivity[]>([]); const [moves, setMoves] = useState<StageEvent[]>([]); const [tasks, setTasks] = useState<SalesTask[]>([]); const [team, setTeam] = useState<Profile[]>([]); const [companyOverview, setCompanyOverview] = useState<CompanyOverview | null>(null); const [overviewError, setOverviewError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const ids = pipelines.map((p) => p.id); const idsKey = ids.join(",");
 
   useEffect(() => {
-    if (!ids.length) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+    if (!ids.length) { setLoading(false); return; }
+    setLoading(true); setError(null);
     Promise.all([
-      supabase.from("leads").select("*").in("pipeline_id", ids),
-      supabase.from("stages").select("*").in("pipeline_id", ids),
-      supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(1000),
-      supabase.from("lead_stage_events").select("changed_by,changed_at,to_stage_id").eq("client_id", client.id).order("changed_at", { ascending: false }).limit(5000),
-      supabase.from("profiles").select("id,role,client_id,full_name").eq("client_id", client.id).eq("role", "venditore"),
-    ]).then(([l, s, a, m, p]) => {
-      const failure = [l, s, a, m, p].find((r) => r.error)?.error;
-      if (failure) setError(`Non è stato possibile caricare il controllo: ${failure.message}`);
-      setLeads((l.data as Lead[]) ?? []); setStages((s.data as Stage[]) ?? []);
-      setActivities((a.data as LeadActivity[]) ?? []); setMoves((m.data as StageEvent[]) ?? []); setTeam((p.data as Profile[]) ?? []); setLoading(false);
-    }).catch(() => { setError("Errore di connessione durante il caricamento del controllo."); setLoading(false); });
+      supabase.from("leads").select("*").in("pipeline_id", ids), supabase.from("stages").select("*").in("pipeline_id", ids), supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(1000), supabase.from("lead_stage_events").select("changed_by,changed_at,to_stage_id").eq("client_id", client.id).order("changed_at", { ascending: false }).limit(5000), supabase.from("sales_tasks").select("*").eq("client_id", client.id).order("due_at").limit(1000), supabase.from("profiles").select("id,role,client_id,full_name").eq("client_id", client.id).eq("role", "venditore"),
+    ]).then(([l, s, a, m, t, p]) => {
+      const failure = [l, s, a, m, t, p].find((r) => r.error)?.error;
+      if (failure) setError(`Non è stato possibile caricare la panoramica: ${failure.message}`);
+      setLeads((l.data as Lead[]) ?? []); setStages((s.data as Stage[]) ?? []); setActivities((a.data as LeadActivity[]) ?? []); setMoves((m.data as StageEvent[]) ?? []); setTasks((t.data as SalesTask[]) ?? []); setTeam((p.data as Profile[]) ?? []); setLoading(false);
+    }).catch(() => { setError("Errore di connessione durante il caricamento della panoramica."); setLoading(false); });
   }, [client.id, idsKey]);
+  useEffect(() => { if (admin) return; setCompanyOverview(null); setOverviewError(null); supabase.rpc("seller_company_overview", { p_client_id: client.id }).then(({ data, error }) => { if (error) setOverviewError("Il quadro generale dell'azienda non è ancora disponibile."); else setCompanyOverview(((data as CompanyOverview[] | null)?.[0]) ?? null); }); }, [admin, client.id]);
 
-  useEffect(() => {
-    if (admin) return;
-    setCompanyOverview(null);
-    setOverviewError(null);
-    supabase.rpc("seller_company_overview", { p_client_id: client.id }).then(({ data, error }) => {
-      if (error) setOverviewError("La panoramica generale non è ancora disponibile.");
-      else setCompanyOverview(((data as CompanyOverview[] | null)?.[0]) ?? null);
-    });
-  }, [admin, client.id]);
+  const mine = (name: string | null) => !admin && (name ?? "").trim().toLowerCase() === meName.trim().toLowerCase();
+  const visible = useMemo(() => admin ? leads : leads.filter((lead) => mine(lead.assigned_to)), [leads, admin, meName]); const today = romeToday(); const week = romeLastDays(7);
+  const stageName = (lead: Lead) => stages.find((stage) => stage.id === lead.stage_id)?.name ?? "—";
+  const active = (lead: Lead) => !["CLOSED", "LOST"].includes(stageName(lead).toUpperCase()); const open = visible.filter(active); const openTasks = tasks.filter((task) => !task.completed_at); const completedToday = tasks.filter((task) => task.completed_at && taskDay(task.completed_at) === today); const overdueTasks = openTasks.filter((task) => taskDay(task.due_at) < today); const todayTasks = openTasks.filter((task) => taskDay(task.due_at) === today); const workedDay = (lead: Lead) => romeDay(lead.updated_at ?? lead.created_at);
+  const lastActivity = useMemo(() => { const values = new Map<string, string>(); activities.forEach((activity) => { if (!values.has(activity.lead_id)) values.set(activity.lead_id, activity.created_at); }); return values; }, [activities]);
+  const missingStep = open.filter((lead) => !lead.next_action_date && !openTasks.some((task) => task.lead_id === lead.id)); const stale = open.filter((lead) => Date.now() - new Date(lastActivity.get(lead.id) ?? lead.updated_at ?? lead.created_at).getTime() >= 2 * DAY); const workedToday = visible.filter((lead) => workedDay(lead) === today).length; const workedWeek = visible.filter((lead) => week.has(workedDay(lead))).length; const closed = visible.filter((lead) => stageName(lead).toUpperCase() === "CLOSED"); const newThisWeek = visible.filter((lead) => week.has(romeDay(lead.created_at))).length; const movesThisWeek = moves.filter((move) => week.has(romeDay(move.changed_at))).length;
+  const attentions = useMemo<Attention[]>(() => { const seen = new Set<string>(); const result: Attention[] = []; const add = (lead: Lead, reason: string, urgency: Attention["urgency"]) => { if (!seen.has(lead.id)) { seen.add(lead.id); result.push({ lead, reason, urgency }); } }; open.filter((lead) => !lead.next_action_date && !openTasks.some((task) => task.lead_id === lead.id)).forEach((lead) => add(lead, "Senza prossimo passo", "danger")); open.filter((lead) => lead.next_action_date && lead.next_action_date < today).forEach((lead) => add(lead, "Follow-up scaduto", "danger")); stale.forEach((lead) => add(lead, "Fermo da almeno 48 ore", "warning")); return result.slice(0, 8); }, [open, openTasks, stale, today]);
+  const people = useMemo(() => { const names = new Set<string>(); team.forEach((person) => person.full_name && names.add(person.full_name)); leads.forEach((lead) => lead.assigned_to && names.add(lead.assigned_to)); return [...names].sort().map((name) => { const ownerLeads = leads.filter((lead) => lead.assigned_to === name); const ownerOpen = ownerLeads.filter(active); const ownerTasks = tasks.filter((task) => task.assigned_to === name && !task.completed_at); return { name, today: ownerTasks.filter((task) => taskDay(task.due_at) === today).length, late: ownerTasks.filter((task) => taskDay(task.due_at) < today).length, missing: ownerOpen.filter((lead) => !lead.next_action_date && !ownerTasks.some((task) => task.lead_id === lead.id)).length, done: tasks.filter((task) => task.assigned_to === name && task.completed_at && taskDay(task.completed_at) === today).length }; }); }, [leads, team, tasks, stages, today]);
+  if (loading) return <div className="center-msg">Caricamento panoramica…</div>;
+  if (error) return <div className="center-msg">{error}<br /><small>Verifica che gli aggiornamenti del database siano stati eseguiti.</small></div>;
+  const eur = (value: number) => "€ " + Math.round(value).toLocaleString("it-IT");
 
-  const isMine = (name: string | null) => !admin && (name ?? "").trim().toLowerCase() === meName.trim().toLowerCase();
-  const visible = useMemo(() => admin ? leads : leads.filter((l) => isMine(l.assigned_to)), [leads, admin, meName]);
-  const today = romeToday(); const week = romeLastDays(7);
-  const active = (l: Lead) => !["CLOSED", "LOST"].includes(stages.find((s) => s.id === l.stage_id)?.name ?? "");
-  const due = visible.filter((l) => active(l) && (!l.next_action_date || l.next_action_date <= today));
-  const stale = visible.filter((l) => active(l) && (Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) >= 2 * 86400000);
-  const closed = visible.filter((l) => stages.find((s) => s.id === l.stage_id)?.name === "CLOSED");
-  // "Lavorato" = card aggiornata: updated_at cambia a ogni salvataggio, anche
-  // quando si aggiorna solo la nota. Conta ogni lead toccato, non solo i cambi di fase.
-  const workedDay = (l: Lead) => romeDay(l.updated_at ?? l.created_at);
-  const workedToday = visible.filter((l) => workedDay(l) === today).length;
-  const workedWeek = visible.filter((l) => week.has(workedDay(l))).length;
-  const people = useMemo(() => {
-    const names = new Set<string>(); team.forEach((p) => p.full_name && names.add(p.full_name)); leads.forEach((l) => l.assigned_to && names.add(l.assigned_to)); activities.forEach((a) => a.created_by && names.add(a.created_by));
-    return [...names].sort().map((name) => {
-      const mine = leads.filter((l) => l.assigned_to === name);
-      const wins = mine.filter((l) => stages.find((s) => s.id === l.stage_id)?.name === "CLOSED");
-      return { name, open: mine.filter(active).length, due: mine.filter((l) => active(l) && (!l.next_action_date || l.next_action_date <= today)).length, today: mine.filter((l) => workedDay(l) === today).length, wins: wins.length, value: wins.reduce((n, l) => n + Number(l.value || 0), 0) };
-    });
-  }, [leads, activities, moves, stages, team, today]);
-  if (loading) return <div className="center-msg">Caricamento controllo commerciale…</div>;
-  if (error) return <div className="center-msg">{error}<br /><small>Verifica di aver eseguito le migrazioni Supabase del progetto.</small></div>;
-  const eur = (n: number) => "€ " + Math.round(n).toLocaleString("it-IT");
-  return <div className="page control-page">
-    <h1>{admin ? "Controllo vendite" : "Panoramica commerciale"}</h1>
-    <p className="sub">{admin ? "Priorità, attività e risultati del team in tempo reale." : "Il quadro generale dell'azienda, aggiornato in tempo reale. I dettagli dei tuoi lead restano in Pipeline e Vendite."}</p>
-    {!admin && <SellerOverview overview={companyOverview} error={overviewError} />}
-    {admin && <>
-    <div className="cards-grid">
-      <Stat k="Lead attivi" v={visible.filter(active).length} />
-      <Stat k="Da lavorare oggi" v={due.length} accent={due.length ? "#dc2626" : undefined} />
-      <Stat k="Lead lavorati oggi" v={workedToday} accent="#b88725" />
-      <Stat k="Lead lavorati ultimi 7 gg" v={workedWeek} />
-      <Stat k="Valore chiuso" v={eur(closed.reduce((n, l) => n + Number(l.value || 0), 0))} accent="#16a34a" />
-    </div>
-    <div className="control-grid">
-      <section className="panel"><h2>Priorità di oggi</h2>{due.length === 0 ? <p className="muted">Nessun follow-up scaduto.</p> : due.slice(0, 12).map((l) => <LeadRow key={l.id} lead={l} stages={stages} />)}</section>
-      <section className="panel"><h2>Lead fermi da almeno 48 ore</h2>{stale.length === 0 ? <p className="muted">Nessun lead fermo.</p> : stale.slice(0, 12).map((l) => <LeadRow key={l.id} lead={l} stages={stages} />)}</section>
-    </div>
-    <section className="panel"><h2>Squadra · oggi</h2><div className="team-table"><div className="team-head"><span>Venditore</span><span>Attività</span><span>Da lavorare</span><span>Attivi</span><span>Chiusi</span><span>Valore</span></div>{people.map((p) => <div className="team-row" key={p.name}><b>{p.name}</b><span>{p.today}</span><span className={p.due ? "danger-text" : ""}>{p.due}</span><span>{p.open}</span><span>{p.wins}</span><span>{eur(p.value)}</span></div>)}</div></section>
-    </>}
-  </div>;
+  return <div className="page control-page"><div className="overview-intro"><div><h1>{admin ? "Panoramica aziendale" : "Panoramica commerciale"}</h1><p>{admin ? "La situazione che conta oggi: dove intervenire, come sta lavorando la squadra e come si muove la pipeline." : "Il quadro dell'azienda e la tua giornata operativa. I dettagli delle trattative restano in Pipeline e Vendite."}</p></div><span className="overview-date">Aggiornato oggi</span></div>{admin ? <><section className="overview-focus"><div><span className="eyebrow">DA GUARDARE ORA</span><h2>{attentions.length ? `${attentions.length} situazioni richiedono attenzione` : "Tutto sotto controllo"}</h2><p>{attentions.length ? "Lead senza un passo definito, follow-up scaduti o trattative ferme." : "Non risultano follow-up scaduti né lead privi di un prossimo passo."}</p></div><div className="focus-numbers"><span><b>{overdueTasks.length}</b> attività scadute</span><span><b>{missingStep.length}</b> senza prossimo passo</span></div></section><div className="cards-grid overview-kpis"><Stat k="Lead attivi" v={open.length} /><Stat k="Attività di oggi" v={todayTasks.length} accent="#9a2744" /><Stat k="Completate oggi" v={completedToday.length} accent="#24734a" /><Stat k="Lead mossi oggi" v={workedToday} /><Stat k="Valore chiuso" v={eur(closed.reduce((sum, lead) => sum + Number(lead.value || 0), 0))} accent="#24734a" /></div><div className="overview-grid"><section className="panel attention-panel"><header><div><span className="eyebrow">RISCHI</span><h2>Intervieni qui</h2></div><span className="panel-count">{attentions.length}</span></header>{attentions.length === 0 ? <p className="muted">Nessuna criticità aperta.</p> : attentions.map((item) => <LeadRow key={item.lead.id} lead={item.lead} stage={stageName(item.lead)} detail={item.reason} tone={item.urgency} />)}</section><section className="panel team-panel"><header><div><span className="eyebrow">HUDDLE</span><h2>Squadra · oggi</h2></div></header>{people.length === 0 ? <p className="muted">Nessun venditore assegnato.</p> : <div className="team-table"><div className="team-head"><span>Venditore</span><span>Da fare</span><span>Scadute</span><span>Fatte</span><span>Senza passo</span></div>{people.map((person) => <div className="team-row" key={person.name}><b>{person.name}</b><span>{person.today}</span><span className={person.late ? "danger-text" : ""}>{person.late}</span><span>{person.done}</span><span className={person.missing ? "warning-text" : ""}>{person.missing}</span></div>)}</div>}</section></div><section className="panel overview-week"><header><div><span className="eyebrow">ULTIMI 7 GIORNI</span><h2>Ritmo commerciale</h2></div><p>Un controllo del movimento della pipeline, non un report da compilare.</p></header><div className="week-metrics"><Metric value={newThisWeek} label="nuovi lead" /><Metric value={workedWeek} label="lead lavorati" /><Metric value={movesThisWeek} label="cambi di fase" /><Metric value={closed.length} label="trattative chiuse" /></div></section></> : <SellerDashboard overview={companyOverview} error={overviewError} todayTasks={todayTasks} overdueTasks={overdueTasks} completedToday={completedToday} leads={visible} stageName={stageName} />}</div>;
 }
 function Stat({ k, v, accent }: { k: string; v: string | number; accent?: string }) { return <div className="stat"><div className="k">{k}</div><div className="v" style={{ color: accent }}>{v}</div></div>; }
-function SellerOverview({ overview, error }: { overview: CompanyOverview | null; error: string | null }) {
-  if (error) return <section className="panel"><h2>Quadro generale</h2><p className="muted">{error}</p></section>;
-  if (!overview) return <div className="center-msg">Caricamento panoramica generale…</div>;
-  return <>
-    <div className="cards-grid">
-      <Stat k="Lead totali" v={overview.total_leads} />
-      <Stat k="Lead attivi" v={overview.active_leads} />
-      <Stat k="Appuntamenti" v={overview.appointments} accent="#b88725" />
-      <Stat k="Chiusi" v={overview.closed_leads} accent="#16a34a" />
-    </div>
-    <div className="cards-grid">
-      <Stat k="Lavorati oggi" v={overview.worked_today} />
-      <Stat k="Follow-up da lavorare" v={overview.due_today} accent={overview.due_today ? "#dc2626" : undefined} />
-      <Stat k="Conversione" v={`${overview.conversion_rate}%`} accent="#16a34a" />
-    </div>
-    <section className="panel"><h2>Quadro generale</h2><p className="muted">Numeri aggregati dell'azienda: non vengono mostrati dati, contatti o trattative degli altri venditori.</p></section>
-  </>;
-}
-function LeadRow({ lead, stages }: { lead: Lead; stages: Stage[] }) { const stage = stages.find((s) => s.id === lead.stage_id)?.name ?? "—"; return <div className="control-lead"><div><b>{lead.name || "Senza nome"}</b><span>{lead.assigned_to || "Non assegnato"} · {stage}</span></div><div>{lead.next_action_date ? new Date(lead.next_action_date).toLocaleDateString("it-IT") : "Senza prossima azione"}</div></div>; }
+function Metric({ value, label }: { value: number; label: string }) { return <div><b>{value}</b><span>{label}</span></div>; }
+function LeadRow({ lead, stage, detail, tone }: { lead: Lead; stage: string; detail: string; tone: Attention["urgency"] }) { return <div className="control-lead"><div><b>{lead.name || "Lead senza nome"}</b><span>{lead.assigned_to || "Non assegnato"} · {stage}</span></div><em className={`attention-tag ${tone}`}>{detail}</em></div>; }
+function SellerDashboard({ overview, error, todayTasks, overdueTasks, completedToday, leads, stageName }: { overview: CompanyOverview | null; error: string | null; todayTasks: SalesTask[]; overdueTasks: SalesTask[]; completedToday: SalesTask[]; leads: Lead[]; stageName: (lead: Lead) => string }) { const upcoming = [...overdueTasks, ...todayTasks].slice(0, 6); const leadById = new Map(leads.map((lead) => [lead.id, lead])); return <><section className="overview-focus seller-focus"><div><span className="eyebrow">LA TUA GIORNATA</span><h2>{overdueTasks.length ? `${overdueTasks.length} attività sono in ritardo` : todayTasks.length ? `${todayTasks.length} attività da completare oggi` : "Agenda di oggi in ordine"}</h2><p>{overdueTasks.length ? "Parti dalle attività scadute; poi chiudi quelle previste per oggi." : todayTasks.length ? "Apri l'Agenda per lavorarle una alla volta e segnare il prossimo passo." : "Se non hai altro da pianificare, controlla i lead senza una prossima azione."}</p></div><div className="focus-numbers"><span><b>{todayTasks.length}</b> per oggi</span><span><b>{completedToday.length}</b> completate</span></div></section><div className="cards-grid overview-kpis"><Stat k="Scadute" v={overdueTasks.length} accent={overdueTasks.length ? "#b42318" : undefined} /><Stat k="Da fare oggi" v={todayTasks.length} accent="#9a2744" /><Stat k="Completate oggi" v={completedToday.length} accent="#24734a" /><Stat k="Lead personali attivi" v={leads.filter((lead) => !["CLOSED", "LOST"].includes(stageName(lead).toUpperCase())).length} /></div><div className="overview-grid seller-grid"><section className="panel agenda-preview"><header><div><span className="eyebrow">PROSSIME ATTIVITÀ</span><h2>Da fare adesso</h2></div></header>{upcoming.length === 0 ? <p className="muted">Nessuna attività urgente. Vai in Attività per pianificare il prossimo passo dei tuoi lead.</p> : upcoming.map((task) => { const lead = task.lead_id ? leadById.get(task.lead_id) : null; return <div className="seller-task" key={task.id}><time><b>{timeLabel(task.due_at)}</b><span>{taskDay(task.due_at) < romeToday() ? "In ritardo" : dayLabel(task.due_at)}</span></time><div><b>{task.title}</b><span>{lead ? lead.name || "Lead senza nome" : "Task personale"}</span></div></div>; })}</section><CompanySnapshot overview={overview} error={error} /></div></>; }
+function CompanySnapshot({ overview, error }: { overview: CompanyOverview | null; error: string | null }) { return <section className="panel company-snapshot"><header><div><span className="eyebrow">AZIENDA</span><h2>Quadro generale</h2></div></header>{error ? <p className="muted">{error}</p> : !overview ? <p className="muted">Caricamento numeri aziendali…</p> : <><div className="company-numbers"><span><b>{overview.active_leads}</b> lead attivi</span><span><b>{overview.appointments}</b> appuntamenti</span><span><b>{overview.closed_leads}</b> chiusi</span><span><b>{overview.conversion_rate}%</b> conversione</span></div><p className="muted">Numeri aggregati: non mostrano contatti, trattative o dettagli degli altri venditori.</p></>}</section>; }
