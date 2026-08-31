@@ -56,7 +56,7 @@ export default function App() {
   }, [sidebarCollapsed]);
 
   // Il venditore entra direttamente nella sua bacheca: qui lavora i lead.
-  // I numeri e le performance restano nella sezione Vendite.
+  // La Panoramica rimane disponibile dal menu per seguire l'andamento generale.
   useEffect(() => {
     if (auth.profile?.role === "venditore") setTab("board");
   }, [auth.profile?.role]);
@@ -176,7 +176,7 @@ export default function App() {
   const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
   const boardPipeline = currentPipeline;
   const pageTitle: Record<Tab, string> = {
-    control: isAdmin ? "Panoramica" : "Le mie priorità",
+    control: "Panoramica",
     board: "CRM · Pipeline",
     sales: "CRM · Vendite",
     admin: "Impostazioni",
@@ -190,7 +190,8 @@ export default function App() {
         <div className="brand" aria-label="Estetica Premium"><div className="brand-logo">EP</div></div>
         <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed((v) => !v)} aria-label={sidebarCollapsed ? "Espandi barra laterale" : "Riduci barra laterale"} title={sidebarCollapsed ? "Espandi menu" : "Riduci menu"}>{sidebarCollapsed ? "›" : "‹"}</button>
         <nav className="side-nav" aria-label="Navigazione principale">
-          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button></>}
+          <span className="nav-label">{isAdmin ? "Azienda" : "Generale"}</span>
+          <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button>
           <span className="nav-label">CRM</span>
           <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><i>▦</i> Pipeline</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>

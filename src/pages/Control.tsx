@@ -4,6 +4,10 @@ import type { Client, Lead, LeadActivity, Pipeline, Profile, Stage } from "../ty
 import { romeDay, romeLastDays, romeToday } from "../dates";
 
 type StageEvent = { changed_by: string | null; changed_at: string; to_stage_id: string | null };
+type CompanyOverview = {
+  total_leads: number; active_leads: number; appointments: number; closed_leads: number;
+  worked_today: number; due_today: number; conversion_rate: number;
+};
 
 export default function Control({ client, pipelines, meName, admin }: { client: Client; pipelines: Pipeline[]; meName: string; admin: boolean }) {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -11,6 +15,8 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [moves, setMoves] = useState<StageEvent[]>([]);
   const [team, setTeam] = useState<Profile[]>([]);
+  const [companyOverview, setCompanyOverview] = useState<CompanyOverview | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const ids = pipelines.map((p) => p.id);
@@ -37,6 +43,16 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
     }).catch(() => { setError("Errore di connessione durante il caricamento del controllo."); setLoading(false); });
   }, [client.id, idsKey]);
 
+  useEffect(() => {
+    if (admin) return;
+    setCompanyOverview(null);
+    setOverviewError(null);
+    supabase.rpc("seller_company_overview", { p_client_id: client.id }).then(({ data, error }) => {
+      if (error) setOverviewError("La panoramica generale non è ancora disponibile.");
+      else setCompanyOverview(((data as CompanyOverview[] | null)?.[0]) ?? null);
+    });
+  }, [admin, client.id]);
+
   const isMine = (name: string | null) => !admin && (name ?? "").trim().toLowerCase() === meName.trim().toLowerCase();
   const visible = useMemo(() => admin ? leads : leads.filter((l) => isMine(l.assigned_to)), [leads, admin, meName]);
   const today = romeToday(); const week = romeLastDays(7);
@@ -61,10 +77,12 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
   if (error) return <div className="center-msg">{error}<br /><small>Verifica di aver eseguito le migrazioni Supabase del progetto.</small></div>;
   const eur = (n: number) => "€ " + Math.round(n).toLocaleString("it-IT");
   return <div className="page control-page">
-    <h1>{admin ? "Controllo vendite" : "La mia giornata"}</h1>
-    <p className="sub">{admin ? "Priorità, attività e risultati del team in tempo reale." : "Le priorità da chiudere oggi: registra ogni contatto e pianifica il prossimo passo."}</p>
+    <h1>{admin ? "Controllo vendite" : "Panoramica commerciale"}</h1>
+    <p className="sub">{admin ? "Priorità, attività e risultati del team in tempo reale." : "Il quadro generale dell'azienda, aggiornato in tempo reale. I dettagli dei tuoi lead restano in Pipeline e Vendite."}</p>
+    {!admin && <SellerOverview overview={companyOverview} error={overviewError} />}
+    {admin && <>
     <div className="cards-grid">
-      <Stat k={admin ? "Lead attivi" : "I miei lead attivi"} v={visible.filter(active).length} />
+      <Stat k="Lead attivi" v={visible.filter(active).length} />
       <Stat k="Da lavorare oggi" v={due.length} accent={due.length ? "#dc2626" : undefined} />
       <Stat k="Lead lavorati oggi" v={workedToday} accent="#b88725" />
       <Stat k="Lead lavorati ultimi 7 gg" v={workedWeek} />
@@ -74,8 +92,27 @@ export default function Control({ client, pipelines, meName, admin }: { client: 
       <section className="panel"><h2>Priorità di oggi</h2>{due.length === 0 ? <p className="muted">Nessun follow-up scaduto.</p> : due.slice(0, 12).map((l) => <LeadRow key={l.id} lead={l} stages={stages} />)}</section>
       <section className="panel"><h2>Lead fermi da almeno 48 ore</h2>{stale.length === 0 ? <p className="muted">Nessun lead fermo.</p> : stale.slice(0, 12).map((l) => <LeadRow key={l.id} lead={l} stages={stages} />)}</section>
     </div>
-    {admin && <section className="panel"><h2>Squadra · oggi</h2><div className="team-table"><div className="team-head"><span>Venditore</span><span>Attività</span><span>Da lavorare</span><span>Attivi</span><span>Chiusi</span><span>Valore</span></div>{people.map((p) => <div className="team-row" key={p.name}><b>{p.name}</b><span>{p.today}</span><span className={p.due ? "danger-text" : ""}>{p.due}</span><span>{p.open}</span><span>{p.wins}</span><span>{eur(p.value)}</span></div>)}</div></section>}
+    <section className="panel"><h2>Squadra · oggi</h2><div className="team-table"><div className="team-head"><span>Venditore</span><span>Attività</span><span>Da lavorare</span><span>Attivi</span><span>Chiusi</span><span>Valore</span></div>{people.map((p) => <div className="team-row" key={p.name}><b>{p.name}</b><span>{p.today}</span><span className={p.due ? "danger-text" : ""}>{p.due}</span><span>{p.open}</span><span>{p.wins}</span><span>{eur(p.value)}</span></div>)}</div></section>
+    </>}
   </div>;
 }
 function Stat({ k, v, accent }: { k: string; v: string | number; accent?: string }) { return <div className="stat"><div className="k">{k}</div><div className="v" style={{ color: accent }}>{v}</div></div>; }
+function SellerOverview({ overview, error }: { overview: CompanyOverview | null; error: string | null }) {
+  if (error) return <section className="panel"><h2>Quadro generale</h2><p className="muted">{error}</p></section>;
+  if (!overview) return <div className="center-msg">Caricamento panoramica generale…</div>;
+  return <>
+    <div className="cards-grid">
+      <Stat k="Lead totali" v={overview.total_leads} />
+      <Stat k="Lead attivi" v={overview.active_leads} />
+      <Stat k="Appuntamenti" v={overview.appointments} accent="#b88725" />
+      <Stat k="Chiusi" v={overview.closed_leads} accent="#16a34a" />
+    </div>
+    <div className="cards-grid">
+      <Stat k="Lavorati oggi" v={overview.worked_today} />
+      <Stat k="Follow-up da lavorare" v={overview.due_today} accent={overview.due_today ? "#dc2626" : undefined} />
+      <Stat k="Conversione" v={`${overview.conversion_rate}%`} accent="#16a34a" />
+    </div>
+    <section className="panel"><h2>Quadro generale</h2><p className="muted">Numeri aggregati dell'azienda: non vengono mostrati dati, contatti o trattative degli altri venditori.</p></section>
+  </>;
+}
 function LeadRow({ lead, stages }: { lead: Lead; stages: Stage[] }) { const stage = stages.find((s) => s.id === lead.stage_id)?.name ?? "—"; return <div className="control-lead"><div><b>{lead.name || "Senza nome"}</b><span>{lead.assigned_to || "Non assegnato"} · {stage}</span></div><div>{lead.next_action_date ? new Date(lead.next_action_date).toLocaleDateString("it-IT") : "Senza prossima azione"}</div></div>; }
