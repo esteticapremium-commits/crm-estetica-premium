@@ -42,6 +42,7 @@ export default function LeadModal({
   const [stageId, setStageId] = useState(
     lead?.stage_id ?? newInStage?.id ?? stages[0]?.id
   );
+  // Lo storico non si riscrive: ogni nuovo aggiornamento viene aggiunto sopra.
   const [notes, setNotes] = useState(lead?.notes ?? "");
   const [quickNote, setQuickNote] = useState("");
   const [nextAction, setNextAction] = useState(lead?.next_action_date ?? "");
@@ -436,25 +437,23 @@ export default function LeadModal({
             />
           </div>
           {!isNew && (
-            <div className="field">
-              <label>Aggiungi nota (con data e ora automatiche)</label>
-              <input
+            <div className="field new-lead-note">
+              <label>Aggiungi una nuova nota</label>
+              <textarea
                 value={quickNote}
                 onChange={(e) => setQuickNote(e.target.value)}
-                placeholder="es. richiamato: vuole essere ricontattato venerdì"
+                placeholder="Es. Richiamato: vuole essere ricontattato venerdì dopo le 16."
+                rows={3}
               />
-              <small style={{ color: "var(--muted)" }}>
-                Finisce in cima allo storico qui sotto, con data e ora, e la card
-                conta come lead lavorato oggi.
+              <small>
+                Viene salvata come aggiornamento separato con data e ora. La card
+                si aggiorna e il lead conta come lavorato oggi.
               </small>
             </div>
           )}
-          <div className="field">
-            <label>Note (storico chiamate, esito, ecc.)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+          <div className="field lead-note-history">
+            <label>Storico note</label>
+            {notes.trim() ? <div className="note-history-list">{notes.split("\n").filter(Boolean).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
           </div>
 
           {!isNew && canDelete && (

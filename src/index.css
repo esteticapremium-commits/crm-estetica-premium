@@ -1409,6 +1409,14 @@ a {
 .settings-nav small { margin-top: 3px; font-size: 11px; font-weight: 600; opacity: .8; }
 .settings-content > .panel:first-child { margin-top: 0; }
 .theme-premium.platform-shell .activity-box { background: #fff6f1; border-color: #e7c9c3; }
+.new-lead-note { margin-top: 14px; padding: 13px; border: 1px solid #e7d1cc; border-radius: 10px; background: #fff8f4; }
+.new-lead-note label { color: #5b102a !important; }.new-lead-note textarea { min-height: 74px; resize: vertical; }
+.new-lead-note small { display: block; margin-top: 7px; color: #806f74; font-size: 11.5px; line-height: 1.4; }
+.lead-note-history { margin-top: 14px; }.lead-note-history > label { display: block; margin-bottom: 7px; }
+.note-history-list { display: grid; gap: 7px; max-height: 260px; overflow-y: auto; padding-right: 3px; }
+.note-history-item { padding: 10px 11px; border: 1px solid #eaded8; border-radius: 9px; background: #fffdfa; color: #4b2531; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; }
+.note-history-item:first-child { border-left: 3px solid #7a1834; background: #fff8f5; }
+.note-history-empty { padding: 12px; border: 1px dashed #d9c4bd; border-radius: 9px; color: #806f74; font-size: 12px; }
 
 /* ---------- Attività commerciali ---------- */
 .tasks-page { max-width: 1160px; }
