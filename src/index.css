@@ -1286,8 +1286,8 @@ a {
 .sidebar-toggle:hover { background: var(--gold-soft); }
 .side-nav { display: flex; flex-direction: column; gap: 3px; }
 .nav-label { margin: 14px 9px 5px; color: #777d89; font-size: 9px; font-weight: 800; letter-spacing: 1.15px; text-transform: uppercase; }
-.side-nav button, .side-item { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; color: #bdc1c9; font-size: 12.5px; font-weight: 620; text-align: left; }
-.side-nav button i, .side-item i { width: 16px; color: #8d94a0; font-size: 15px; font-style: normal; text-align: center; }
+.side-nav button, .side-item { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; color: #bdc1c9; font-size: 13px; font-weight: 620; text-align: left; }
+.side-nav button i, .side-item i { width: 16px; color: #8d94a0; font-size: 16px; font-style: normal; text-align: center; }
 .side-nav button:hover { background: rgba(255,255,255,.055); color: #fff; }
 .side-nav button.active { background: rgba(225, 188, 103, .13); color: #f0d78d; }
 .side-nav button.active i { color: #f0d78d; }
@@ -1308,7 +1308,7 @@ a {
 .sidebar-collapsed .side-nav { align-items: center; }.sidebar-collapsed .side-nav button { width: 46px; justify-content: center; padding: 11px; font-size: 0; }.sidebar-collapsed .side-nav button i { width: auto; font-size: 17px; }.sidebar-collapsed .sidebar-user { justify-content: center; padding-left: 0; padding-right: 0; }.sidebar-collapsed .sidebar-user div:nth-child(2), .sidebar-collapsed .sidebar-user button { display: none; }
 .app-main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: var(--bg); }
 .platform-shell .app-header { min-height: 64px; justify-content: space-between; flex-wrap: nowrap; padding: 10px 22px; background: rgba(16,18,23,.9); border-color: rgba(255,255,255,.07); }
-.app-header h1 { margin: 1px 0 0; color: #f4f1eb; font-family: system-ui, -apple-system, sans-serif; font-size: 18px; letter-spacing: -.45px; }
+.app-header h1 { margin: 1px 0 0; color: #f4f1eb; font-family: system-ui, -apple-system, sans-serif; font-size: 20px; letter-spacing: -.45px; }
 .eyebrow { color: #8e94a1; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: 1.05px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .platform-shell .search { min-width: 220px; border-color: rgba(255,255,255,.1); border-radius: 8px; }
