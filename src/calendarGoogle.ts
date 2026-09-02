@@ -16,7 +16,7 @@ export async function connectGoogleCalendar() {
   if (!CLIENT_ID) throw new Error("Configurazione Google Calendar mancante.");
   await loadScript();
   return new Promise<void>((resolve, reject) => {
-    const client = (window as any).google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: "https://www.googleapis.com/auth/calendar.events", callback: (r: any) => {
+    const client = (window as any).google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.events.freebusy", callback: (r: any) => {
       if (r.error) return reject(new Error(r.error));
       sessionStorage.setItem(KEY, JSON.stringify({ accessToken: r.access_token, expiresAt: Date.now() + Number(r.expires_in || 3600) * 1000 })); resolve();
     }});
@@ -35,4 +35,8 @@ export async function createGoogleCalendarEvent(input: { title: string; start: s
 export async function listGoogleCalendarEvents(from: Date, to: Date): Promise<GoogleEvent[]> {
   const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime" });
   const result = await googleFetch(`/calendars/primary/events?${q}`); return result.items || [];
+}
+export async function googleFreeBusy(from: Date, to: Date): Promise<Array<{ start: string; end: string }>> {
+  const result = await googleFetch("/freeBusy", { method: "POST", body: JSON.stringify({ timeMin: from.toISOString(), timeMax: to.toISOString(), timeZone: "Europe/Rome", items: [{ id: "primary" }] }) });
+  return result.calendars?.primary?.busy || [];
 }

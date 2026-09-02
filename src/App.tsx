@@ -247,7 +247,7 @@ export default function App() {
       )}
 
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} />
+        <Calendar client={currentClient} meName={meName} />
       )}
 
       {tab === "control" && currentClient && (
