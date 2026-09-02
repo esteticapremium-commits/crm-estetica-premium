@@ -247,7 +247,7 @@ export default function App() {
       )}
 
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} meName={meName} onOpenLead={(lead) => { setClientId(lead.client_id); setPipelineId(lead.pipeline_id); setFocusLeadId(lead.id); setTab("board"); }} />
+        <Calendar client={currentClient} />
       )}
 
       {tab === "control" && currentClient && (

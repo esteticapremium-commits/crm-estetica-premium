@@ -1,7 +1,7 @@
 const KEY = "ep-google-calendar-token";
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
 
-type GoogleEvent = { id: string; summary?: string; start?: { dateTime?: string }; end?: { dateTime?: string } };
+export type GoogleEvent = { id: string; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 type Token = { accessToken: string; expiresAt: number };
 
 export function googleCalendarConfigured() { return Boolean(CLIENT_ID); }
