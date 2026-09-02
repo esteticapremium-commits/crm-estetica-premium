@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
+import { createGoogleCalendarEvent, googleCalendarConnected } from "../calendarGoogle";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -70,6 +71,10 @@ export default function LeadModal({
   const [activityType, setActivityType] = useState("call");
   const [activityOutcome, setActivityOutcome] = useState("");
   const [activityNote, setActivityNote] = useState("");
+  const [planKind, setPlanKind] = useState<"task" | "appointment">("task");
+  const [planTitle, setPlanTitle] = useState("");
+  const [planDue, setPlanDue] = useState("");
+  const [planNote, setPlanNote] = useState("");
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -296,6 +301,20 @@ export default function LeadModal({
     onSaved();
   }
 
+  async function savePlan() {
+    if (!lead || !planDue) return setErr("Scegli data e orario.");
+    const base = planTitle.trim() || (planKind === "appointment" ? `Appuntamento — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: base, description: planNote.trim() || null, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
+    if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
+    if (!error && planKind === "appointment" && googleCalendarConnected()) {
+      try { const end = new Date(new Date(planDue).getTime() + 60 * 60 * 1000).toISOString(); await createGoogleCalendarEvent({ title: base, start: new Date(planDue).toISOString(), end, description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}` }); } catch { /* L'appuntamento CRM resta comunque salvato. */ }
+    }
+    setBusy(false);
+    if (error) return setErr("Pianificazione non salvata: " + error.message);
+    setPlanTitle(""); setPlanDue(""); setPlanNote(""); onSaved();
+  }
+
   async function remove() {
     if (!lead) return;
     if (!confirm("Eliminare definitivamente questo lead?")) return;
@@ -357,6 +376,15 @@ export default function LeadModal({
                   <input value={activityNote} onChange={(e) => setActivityNote(e.target.value)} placeholder="es. richiamare dopo le 18" />
                 </div>
               )}
+            </div>
+          )}
+          {!isNew && (
+            <div className="activity-box lead-plan-box">
+              <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
+              <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
+              <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
+              <button type="button" className="btn small primary" disabled={busy || !planDue} onClick={() => void savePlan()}>{planKind === "appointment" ? "Fissa appuntamento" : "Aggiungi attività"}</button>
             </div>
           )}
           <div className="modal-row">
