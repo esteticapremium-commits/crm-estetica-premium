@@ -1,5 +1,6 @@
 const KEY = "ep-google-calendar-token";
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
+export const OWNER_CALENDAR_ID = "ettoreandrosoni@estetica-premium.it";
 
 export type GoogleEvent = { id: string; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 type Token = { accessToken: string; expiresAt: number };
@@ -30,8 +31,9 @@ async function googleFetch(path: string, init?: RequestInit) {
   if (response.status === 204) return null;
   return response.json();
 }
-export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string }) {
-  return googleFetch("/calendars/primary/events", { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
+export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[] }) {
+  const q = input.attendees?.length ? "?sendUpdates=all" : "";
+  return googleFetch(`/calendars/primary/events${q}`, { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" }, attendees: input.attendees?.map((email) => ({ email })) }) });
 }
 export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
@@ -43,7 +45,7 @@ export async function listGoogleCalendarEvents(from: Date, to: Date): Promise<Go
   const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime" });
   const result = await googleFetch(`/calendars/primary/events?${q}`); return result.items || [];
 }
-export async function googleFreeBusy(from: Date, to: Date): Promise<Array<{ start: string; end: string }>> {
-  const result = await googleFetch("/freeBusy", { method: "POST", body: JSON.stringify({ timeMin: from.toISOString(), timeMax: to.toISOString(), timeZone: "Europe/Rome", items: [{ id: "primary" }] }) });
-  return result.calendars?.primary?.busy || [];
+export async function googleFreeBusy(from: Date, to: Date, calendarId = "primary"): Promise<Array<{ start: string; end: string }>> {
+  const result = await googleFetch("/freeBusy", { method: "POST", body: JSON.stringify({ timeMin: from.toISOString(), timeMax: to.toISOString(), timeZone: "Europe/Rome", items: [{ id: calendarId }] }) });
+  return result.calendars?.[calendarId]?.busy || [];
 }
