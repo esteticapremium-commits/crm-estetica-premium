@@ -6,9 +6,9 @@ type Token = { accessToken: string; expiresAt: number };
 
 export function googleCalendarConfigured() { return Boolean(CLIENT_ID); }
 export function googleCalendarConnected() {
-  try { const token = JSON.parse(sessionStorage.getItem(KEY) || "null") as Token | null; return Boolean(token && token.expiresAt > Date.now()); } catch { return false; }
+  try { const stored = localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || "null"; const token = JSON.parse(stored) as Token | null; return Boolean(token && token.expiresAt > Date.now()); } catch { return false; }
 }
-function token() { try { return JSON.parse(sessionStorage.getItem(KEY) || "null") as Token | null; } catch { return null; } }
+function token() { try { return JSON.parse(localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || "null") as Token | null; } catch { return null; } }
 function loadScript() { return new Promise<void>((resolve, reject) => { if ((window as any).google?.accounts?.oauth2) return resolve(); const s = document.createElement("script"); s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.onload = () => resolve(); s.onerror = () => reject(new Error("Non riesco a caricare Google.")); document.head.appendChild(s); }); }
 
 /** Il venditore autorizza solo il proprio calendario Google, nel suo browser. */
@@ -18,7 +18,7 @@ export async function connectGoogleCalendar() {
   return new Promise<void>((resolve, reject) => {
     const client = (window as any).google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.events.freebusy", callback: (r: any) => {
       if (r.error) return reject(new Error(r.error));
-      sessionStorage.setItem(KEY, JSON.stringify({ accessToken: r.access_token, expiresAt: Date.now() + Number(r.expires_in || 3600) * 1000 })); resolve();
+      localStorage.setItem(KEY, JSON.stringify({ accessToken: r.access_token, expiresAt: Date.now() + Number(r.expires_in || 3600) * 1000 })); sessionStorage.removeItem(KEY); resolve();
     }});
     client.requestAccessToken({ prompt: "consent" });
   });
