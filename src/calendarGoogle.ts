@@ -27,10 +27,17 @@ async function googleFetch(path: string, init?: RequestInit) {
   const t = token(); if (!t || t.expiresAt <= Date.now()) throw new Error("Ricollega Google Calendar per continuare.");
   const response = await fetch(`https://www.googleapis.com/calendar/v3${path}`, { ...init, headers: { Authorization: `Bearer ${t.accessToken}`, "Content-Type": "application/json", ...(init?.headers || {}) } });
   if (!response.ok) throw new Error("Google Calendar non ha accettato la richiesta.");
+  if (response.status === 204) return null;
   return response.json();
 }
 export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string }) {
   return googleFetch("/calendars/primary/events", { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
+}
+export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
+  return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
+}
+export async function deleteGoogleCalendarEvent(id: string) {
+  return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 export async function listGoogleCalendarEvents(from: Date, to: Date): Promise<GoogleEvent[]> {
   const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime" });
