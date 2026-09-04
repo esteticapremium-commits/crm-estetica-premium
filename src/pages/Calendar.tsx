@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask } from "../types";
-import { connectGoogleCalendar, createGoogleCalendarEvent, deleteGoogleCalendarEvent, googleCalendarConfigured, googleCalendarConnected, googleFreeBusy, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
+import { connectGoogleCalendar, createGoogleCalendarEvent, deleteGoogleCalendarEvent, googleCalendarConfigured, googleCalendarConnected, googleFreeBusy, listGoogleCalendarEvents, OWNER_CALENDAR_ID, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 
 const romeDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const formatTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
@@ -64,7 +64,7 @@ export default function Calendar({ client, meName }: { client: Client; meName: s
     const { error: insertError } = await supabase.from("sales_tasks").insert({ client_id: client.id, lead_id: leadId || null, title: cleanTitle, description: description || null, due_at: start.toISOString(), assigned_to: linkedLead?.assigned_to || meName || "Venditore", created_by: meName || null });
     if (!insertError && leadId) await supabase.from("leads").update({ next_action_date: startsAt.slice(0, 10) }).eq("id", leadId);
     if (insertError) { setBusy(false); return setFormError("Appuntamento non salvato: " + insertError.message); }
-    try { await createGoogleCalendarEvent({ title: cleanTitle, start: start.toISOString(), end: end.toISOString(), description }); } catch { setBusy(false); await load(); return setFormError("Appuntamento salvato nel CRM, ma Google non lo ha ricevuto. Ricollega Google Calendar e riprova."); }
+    try { await createGoogleCalendarEvent({ title: cleanTitle, start: start.toISOString(), end: end.toISOString(), description, attendees: [OWNER_CALENDAR_ID] }); } catch { setBusy(false); await load(); return setFormError("Appuntamento salvato nel CRM, ma Google non lo ha ricevuto. Ricollega Google Calendar e riprova."); }
     setBusy(false); setCreateOpen(false); await load();
   }
   const googleMatch = (task: SalesTask) => google.find((event) => event.summary === task.title && event.start?.dateTime && Math.abs(new Date(event.start.dateTime).getTime() - new Date(task.due_at).getTime()) < 60_000);

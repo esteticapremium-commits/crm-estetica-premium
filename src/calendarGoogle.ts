@@ -32,8 +32,9 @@ async function googleFetch(path: string, init?: RequestInit) {
   return response.json();
 }
 export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[] }) {
-  const q = input.attendees?.length ? "?sendUpdates=all" : "";
-  return googleFetch(`/calendars/primary/events${q}`, { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" }, attendees: input.attendees?.map((email) => ({ email })) }) });
+  const query = new URLSearchParams({ sendUpdates: "all", conferenceDataVersion: "1" });
+  const requestId = `ep-${crypto.randomUUID()}`;
+  return googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" }, attendees: input.attendees?.map((email) => ({ email })), conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } }) });
 }
 export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
