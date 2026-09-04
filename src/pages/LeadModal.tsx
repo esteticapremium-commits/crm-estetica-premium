@@ -226,7 +226,7 @@ export default function LeadModal({
   };
 
   async function save() {
-    if (!isNew && activityOutcome && !nextAction && stages.find((s) => s.id === stageId)?.name !== "CLOSED" && stages.find((s) => s.id === stageId)?.name !== "LOST") {
+    if (!isNew && activityOutcome && !nextAction && !planDue && stages.find((s) => s.id === stageId)?.name !== "CLOSED" && stages.find((s) => s.id === stageId)?.name !== "LOST") {
       return setErr("Dopo un'attività scegli la prossima azione: così nessun lead resta senza seguito.");
     }
     setBusy(true);
@@ -284,6 +284,12 @@ export default function LeadModal({
           return;
         }
       }
+      // Se è stato compilato il prossimo passo, il Salva generale crea anche
+      // la task/appuntamento: il venditore non deve fare un secondo passaggio.
+      if (!isNew && planDue) {
+        const planned = await savePlan(false);
+        if (!planned) return;
+      }
       // L'autore dell'eventuale cambio fase lo registra il database stesso
       // (trigger record_stage_event): niente aggiornamento manuale qui.
       onSaved();
@@ -306,18 +312,18 @@ export default function LeadModal({
     onSaved();
   }
 
-  async function savePlan() {
-    if (!lead || !planDue) return setErr("Scegli data e orario.");
+  async function savePlan(closeAfterSave = true): Promise<boolean> {
+    if (!lead || !planDue) { setErr("Scegli data e orario."); return false; }
     const base = planTitle.trim() || (planKind === "appointment" ? `Appuntamento — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
-    if (planKind === "appointment" && !googleCalendarConnected()) return setErr("Collega prima Google Calendar dalla sezione Calendario: così l'appuntamento viene salvato sia nel CRM sia nel tuo Google Calendar.");
+    if (planKind === "appointment" && !googleCalendarConnected()) { setErr("Collega prima Google Calendar dalla sezione Calendario: così l'appuntamento viene salvato sia nel CRM sia nel tuo Google Calendar."); return false; }
     if (includeEttore && planKind === "appointment") {
-      if (!googleCalendarConnected()) return setErr("Per coinvolgere Ettore, collega prima Google Calendar dalla sezione Calendario.");
+      if (!googleCalendarConnected()) { setErr("Per coinvolgere Ettore, collega prima Google Calendar dalla sezione Calendario."); return false; }
       try {
         const start = new Date(planDue); const end = new Date(start.getTime() + 60 * 60 * 1000);
         const busySlots = await googleFreeBusy(start, end, OWNER_CALENDAR_ID);
-        if (busySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) return setErr("Ettore è già impegnato in questo orario. Scegli uno degli slot liberi proposti.");
+        if (busySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) { setErr("Ettore è già impegnato in questo orario. Scegli uno degli slot liberi proposti."); return false; }
       } catch {
-        return setErr("Non posso verificare la disponibilità di Ettore. Controlla che il suo calendario sia condiviso solo come libero/occupato.");
+        setErr("Non posso verificare la disponibilità di Ettore. Controlla che il suo calendario sia condiviso solo come libero/occupato."); return false;
       }
     }
     setBusy(true); setErr(null);
@@ -328,19 +334,21 @@ export default function LeadModal({
       try {
         const start = new Date(planDue); const end = new Date(start.getTime() + 60 * 60 * 1000);
         const ownBusySlots = await googleFreeBusy(start, end);
-        if (ownBusySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) { setBusy(false); return setErr("Quell'orario è già occupato nel tuo Google Calendar. Scegline un altro."); }
+        if (ownBusySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) { setBusy(false); setErr("Quell'orario è già occupato nel tuo Google Calendar. Scegline un altro."); return false; }
         const event = await createGoogleCalendarEvent({ title: finalTitle, start: start.toISOString(), end: end.toISOString(), description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}`, attendees: includeEttore ? [OWNER_CALENDAR_ID] : undefined });
         googleEventId = event.id || null;
       } catch {
-        setBusy(false); return setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova.");
+        setBusy(false); setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova."); return false;
       }
     }
     const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
     if (error && googleEventId) { try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* l'errore principale resta quello del CRM */ } }
     if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
     setBusy(false);
-    if (error) return setErr("Pianificazione non salvata: " + error.message);
-    setPlanTitle(""); setPlanDue(""); setPlanNote(""); setIncludeEttore(false); setEttoreSlots([]); onSaved();
+    if (error) { setErr("Pianificazione non salvata: " + error.message); return false; }
+    setPlanTitle(""); setPlanDue(""); setPlanNote(""); setIncludeEttore(false); setEttoreSlots([]);
+    if (closeAfterSave) onSaved();
+    return true;
   }
 
   async function loadEttoreSlots() {
@@ -426,7 +434,7 @@ export default function LeadModal({
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
               {planKind === "appointment" && <div className="ettore-support"><label><input type="checkbox" checked={includeEttore} onChange={(event) => { const next = event.target.checked; setIncludeEttore(next); if (next) void loadEttoreSlots(); else { setEttoreSlots([]); setSlotsError(null); } }} /> <span><b>Coinvolgi Ettore nella call</b><small>Vedi solo i suoi orari liberi e l’invito arriva anche nel suo Google Calendar.</small></span></label>{includeEttore && <div className="ettore-availability"><div><b>Disponibilità Ettore</b><button type="button" className="link-btn" disabled={slotsLoading} onClick={() => void loadEttoreSlots()}>{slotsLoading ? "Aggiorno…" : "Aggiorna"}</button></div>{slotsError && <p>{slotsError}</p>}{!slotsError && <div className="ettore-slots">{slotsLoading ? <span>Controllo gli spazi liberi…</span> : ettoreSlots.length ? ettoreSlots.map((slot) => <button type="button" key={slot} className={new Date(planDue).getTime() === new Date(slot).getTime() ? "active" : ""} onClick={() => setPlanDue(localInput(slot))}>{new Intl.DateTimeFormat("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(slot))}</button>) : <span>Nessuno slot libero nei prossimi giorni.</span>}</div>}</div>}</div>}
-              <button type="button" className="btn small primary" disabled={busy || !planDue} onClick={() => void savePlan()}>{planKind === "appointment" ? "Fissa appuntamento" : "Aggiungi attività"}</button>
+              <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: l’appuntamento verrà creato insieme alle modifiche della scheda.</p>
             </div>
           )}
           <div className="modal-row">
