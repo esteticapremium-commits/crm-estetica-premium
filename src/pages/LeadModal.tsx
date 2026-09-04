@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
-import { createGoogleCalendarEvent, googleCalendarConnected, googleFreeBusy, OWNER_CALENDAR_ID } from "../calendarGoogle";
+import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, googleCalendarConnected, googleFreeBusy, OWNER_CALENDAR_ID } from "../calendarGoogle";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -309,6 +309,7 @@ export default function LeadModal({
   async function savePlan() {
     if (!lead || !planDue) return setErr("Scegli data e orario.");
     const base = planTitle.trim() || (planKind === "appointment" ? `Appuntamento — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
+    if (planKind === "appointment" && !googleCalendarConnected()) return setErr("Collega prima Google Calendar dalla sezione Calendario: così l'appuntamento viene salvato sia nel CRM sia nel tuo Google Calendar.");
     if (includeEttore && planKind === "appointment") {
       if (!googleCalendarConnected()) return setErr("Per coinvolgere Ettore, collega prima Google Calendar dalla sezione Calendario.");
       try {
@@ -322,11 +323,21 @@ export default function LeadModal({
     setBusy(true); setErr(null);
     const finalTitle = includeEttore && planKind === "appointment" ? `Appuntamento con Ettore — ${planTitle.trim() || lead.name || "Lead"}` : base;
     const finalNote = [includeEttore && planKind === "appointment" ? "[supporto-ettore]" : "", planNote.trim()].filter(Boolean).join("\n");
-    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
-    if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
-    if (!error && planKind === "appointment" && googleCalendarConnected()) {
-      try { const end = new Date(new Date(planDue).getTime() + 60 * 60 * 1000).toISOString(); await createGoogleCalendarEvent({ title: finalTitle, start: new Date(planDue).toISOString(), end, description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}`, attendees: includeEttore ? [OWNER_CALENDAR_ID] : undefined }); } catch { /* L'appuntamento CRM resta comunque salvato. */ }
+    let googleEventId: string | null = null;
+    if (planKind === "appointment") {
+      try {
+        const start = new Date(planDue); const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const ownBusySlots = await googleFreeBusy(start, end);
+        if (ownBusySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) { setBusy(false); return setErr("Quell'orario è già occupato nel tuo Google Calendar. Scegline un altro."); }
+        const event = await createGoogleCalendarEvent({ title: finalTitle, start: start.toISOString(), end: end.toISOString(), description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}`, attendees: includeEttore ? [OWNER_CALENDAR_ID] : undefined });
+        googleEventId = event.id || null;
+      } catch {
+        setBusy(false); return setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova.");
+      }
     }
+    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
+    if (error && googleEventId) { try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* l'errore principale resta quello del CRM */ } }
+    if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
     setBusy(false);
     if (error) return setErr("Pianificazione non salvata: " + error.message);
     setPlanTitle(""); setPlanDue(""); setPlanNote(""); setIncludeEttore(false); setEttoreSlots([]); onSaved();
