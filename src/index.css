@@ -1436,6 +1436,7 @@ a {
 .theme-premium.platform-shell .control-lead > div:last-child { color: #b45309; }
 .theme-premium.platform-shell .board-wrap.premium { background: #f7f2ec; }
 .theme-premium.platform-shell .board-header { padding: 18px 30px 16px; background: #fffdfa; border-color: var(--line); }
+.theme-premium.platform-shell .board-wrap.premium .board-header { position: sticky; left: 0; z-index: 4; width: 100%; box-sizing: border-box; }
 .theme-premium.platform-shell .board-title { font-family: Georgia, serif; font-size: 24px; color: #4b1025; font-weight: 650; letter-spacing: -.3px; }
 .theme-premium.platform-shell .board-sub { color: #806f74; }
 .theme-premium.platform-shell .board-wrap.premium .board { padding: 14px 30px 24px; }
