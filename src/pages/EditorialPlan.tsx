@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { supabase } from "../supabaseClient";
 import type { EditorialContent, EditorialStatus } from "../types";
 import { romeToday } from "../dates";
@@ -57,18 +58,28 @@ export default function EditorialPlan({ clientId, meName }: { clientId: string; 
     if (slots.length > 0) { const { error } = await supabase.from("editorial_contents").insert(slots); if (error) setLoadError(error.message); }
     setGenerating(false); load();
   };
+  const moveKanbanCard = async (item: EditorialContent, status: EditorialStatus) => {
+    if (item.status === status) return;
+    setLoadError(null);
+    setItems((current) => current.map((content) => content.id === item.id ? { ...content, status } : content));
+    const { error } = await supabase.from("editorial_contents").update({ status }).eq("id", item.id).eq("client_id", clientId);
+    if (error) {
+      setItems((current) => current.map((content) => content.id === item.id ? item : content));
+      setLoadError(`Non sono riuscito ad aggiornare il contenuto: ${error.message}`);
+    }
+  };
 
   return <div className="page editorial-page">
     <div className="editorial-intro"><div><h1>Piano editoriale</h1><p>Apri qui ogni mattina: sai subito cosa scrivere, registrare, controllare e pubblicare.</p></div><div className="editorial-intro-actions"><button className="btn" disabled={generating} onClick={() => void generateThirtyDays()}>{generating ? "Genero…" : "Genera prossimi 30 giorni"}</button><button className="btn primary" onClick={() => setEditing("new")}>+ Nuovo contenuto</button></div></div>
     <div className="cards-grid editorial-kpis"><Kpi label="Da fare oggi" value={todayWork.length + todayItems.length} /><Kpi label="Da registrare" value={items.filter((x) => x.status === "in_production").length} /><Kpi label="Da editare" value={items.filter((x) => x.status === "review").length} /><Kpi label="Buffer contenuti" value={`${buffer} giorni`} /></div>
     <section className="panel editorial-workspace">
       <div className="editorial-toolbar"><div className="editorial-views"><button className={view === "today" ? "active" : ""} onClick={() => setView("today")}>Oggi</button><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>Calendario</button><button className={view === "kanban" ? "active" : ""} onClick={() => setView("kanban")}>Kanban</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>Elenco</button></div><div className="editorial-day"><button onClick={() => { const d = asDate(selectedDay); d.setDate(d.getDate() - 1); setSelectedDay(isoDate(d)); }}>‹</button><input type="date" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value || today)} /><button onClick={() => { const d = asDate(selectedDay); d.setDate(d.getDate() + 1); setSelectedDay(isoDate(d)); }}>›</button><button className="today-jump" onClick={() => setSelectedDay(today)}>Oggi</button></div></div>
-      {loading ? <p className="muted editorial-loading">Caricamento piano editoriale…</p> : loadError ? <div className="empty-editorial"><b>Il piano editoriale non è ancora attivo.</b><span>Nel database manca la relativa migrazione: {loadError}</span></div> : items.length === 0 ? <Empty onNew={() => setEditing("new")} /> : <>
+      {loading ? <p className="muted editorial-loading">Caricamento piano editoriale…</p> : loadError && items.length === 0 ? <div className="empty-editorial"><b>Il piano editoriale non è ancora attivo.</b><span>Nel database manca la relativa migrazione: {loadError}</span></div> : <>{loadError && <div className="notice err editorial-save-error">{loadError}</div>}{items.length === 0 ? <Empty onNew={() => setEditing("new")} /> : <>
         {view === "today" && <TodayView day={selectedDay} items={todayItems} work={todayWork} routine={routine} routineChecks={routineChecks} overdue={overdue} hasFridayOffer={hasFridayOffer} buffer={buffer} onToggleRoutine={toggleRoutine} onEdit={setEditing} onNew={() => setEditing("new")} />}
         {view === "calendar" && <CalendarView days={days} items={items} selectedDay={selectedDay} onSelectDay={setSelectedDay} onEdit={setEditing} />}
-        {view === "kanban" && <KanbanView items={items} onEdit={setEditing} />}
+        {view === "kanban" && <KanbanView items={items} onEdit={setEditing} onStatusChange={moveKanbanCard} />}
         {view === "list" && <ListView items={items} onEdit={setEditing} />}
-      </>}
+      </>}</>}
     </section>
     {editing && <ContentForm item={editing === "new" ? null : editing} clientId={clientId} meName={meName} initialDate={selectedDay} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
   </div>;
@@ -85,7 +96,28 @@ function TodayView({ day, items, work, routine, routineChecks, overdue, hasFrida
 }
 
 function CalendarView({ days, items, selectedDay, onSelectDay, onEdit }: { days: string[]; items: EditorialContent[]; selectedDay: string; onSelectDay: (day: string) => void; onEdit: (item: EditorialContent) => void }) { return <div className="editorial-calendar">{days.map((day) => { const current = items.filter((x) => x.scheduled_for === day && x.status !== "published"); return <section key={day} className={`calendar-day${day === selectedDay ? " selected" : ""}`}><button className="calendar-day-title" onClick={() => onSelectDay(day)}><b>{asDate(day).toLocaleDateString("it-IT", { weekday: "short" })}</b><span>{asDate(day).getDate()}</span></button><div className="calendar-items">{current.map((item) => <ContentCard key={item.id} item={item} onEdit={onEdit} />)}{current.length === 0 && <button className="calendar-empty" onClick={() => onSelectDay(day)}>Libero</button>}</div></section>; })}</div>; }
-function KanbanView({ items, onEdit }: { items: EditorialContent[]; onEdit: (item: EditorialContent) => void }) { return <div className="editorial-kanban">{KANBAN.map((status) => <section className={`kanban-column ${status}`} key={status}><header><h3>{STATUS[status]}</h3><span>{items.filter((x) => x.status === status).length}</span></header>{items.filter((x) => x.status === status).map((item) => <ContentCard key={item.id} item={item} onEdit={onEdit} />)}</section>)}</div>; }
+function KanbanCard({ item, onEdit }: { item: EditorialContent; onEdit: (item: EditorialContent) => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: item.id });
+  return <div ref={setNodeRef} className={`editorial-draggable${isDragging ? " dragging" : ""}`} {...attributes} {...listeners}><ContentCard item={item} onEdit={onEdit} /></div>;
+}
+function KanbanColumn({ status, items, onEdit }: { status: EditorialStatus; items: EditorialContent[]; onEdit: (item: EditorialContent) => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `editorial-status-${status}` });
+  return <section ref={setNodeRef} className={`kanban-column ${status}${isOver ? " drop-hint" : ""}`}><header><h3>{STATUS[status]}</h3><span>{items.length}</span></header>{items.map((item) => <KanbanCard key={item.id} item={item} onEdit={onEdit} />)}</section>;
+}
+function KanbanView({ items, onEdit, onStatusChange }: { items: EditorialContent[]; onEdit: (item: EditorialContent) => void; onStatusChange: (item: EditorialContent, status: EditorialStatus) => void }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeItem = activeId ? items.find((item) => item.id === activeId) : null;
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    setActiveId(null);
+    const target = String(over?.id || "");
+    if (!target.startsWith("editorial-status-")) return;
+    const item = items.find((content) => content.id === String(active.id));
+    const status = target.replace("editorial-status-", "") as EditorialStatus;
+    if (item && KANBAN.includes(status)) onStatusChange(item, status);
+  };
+  return <DndContext sensors={sensors} onDragStart={({ active }: DragStartEvent) => setActiveId(String(active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={handleDragEnd}><div className="editorial-kanban">{KANBAN.map((status) => <KanbanColumn key={status} status={status} items={items.filter((item) => item.status === status)} onEdit={onEdit} />)}</div><DragOverlay>{activeItem ? <div className="editorial-drag-overlay"><ContentCard item={activeItem} onEdit={onEdit} /></div> : null}</DragOverlay></DndContext>;
+}
 function ListView({ items, onEdit }: { items: EditorialContent[]; onEdit: (item: EditorialContent) => void }) { return <div className="editorial-table"><div className="editorial-head"><span>Contenuto</span><span>Prossima azione</span><span>Canale</span><span>Giorno</span><span>Responsabile</span></div>{items.map((item) => <button className="editorial-row" key={item.id} onClick={() => onEdit(item)}><span><b>{item.title}</b><small>{item.format || item.pillar || "Contenuto"}</small></span><span>{STATUS[item.status]}</span><span><em className={`status ${item.status}`}>{item.channel}</em></span><span>{item.scheduled_for ? formatDate(item.scheduled_for) : "Da assegnare"}</span><span>{item.owner || "—"}</span></button>)}</div>; }
 
 function ContentForm({ item, clientId, meName, initialDate, onClose, onSaved }: { item: EditorialContent | null; clientId: string; meName: string; initialDate: string; onClose: () => void; onSaved: () => void }) {
