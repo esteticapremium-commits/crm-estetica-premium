@@ -210,6 +210,11 @@ export default function Board({
                   Lavora i lead e aggiorna la fase quando necessario.
                 </div>
               </div>
+              {canEdit && (
+                <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(stages[0])}>
+                  + Nuovo lead
+                </button>
+              )}
             </div>
           )}
           <div className="board">
