@@ -88,6 +88,18 @@ export interface SalesTask {
   updated_at: string;
 }
 
+export type PersonalTaskStatus = "backlog" | "next" | "doing" | "waiting" | "done";
+export interface PersonalTask {
+  id: string;
+  owner_id: string;
+  title: string;
+  notes: string | null;
+  status: PersonalTaskStatus;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export type EditorialStatus = "idea" | "in_production" | "review" | "scheduled" | "published";
 
 export interface EditorialContent {

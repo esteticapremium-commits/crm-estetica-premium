@@ -12,8 +12,9 @@ const EditorialPlan = lazy(() => import("./pages/EditorialPlan"));
 const Contracts = lazy(() => import("./pages/Contracts"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Calendar = lazy(() => import("./pages/Calendar"));
+const PersonalTasks = lazy(() => import("./pages/PersonalTasks"));
 
-type Tab = "board" | "sales" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts";
+type Tab = "board" | "sales" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal";
 
 /** Evita lo schermo bianco se una pagina aperta prova a caricare un file
  * JavaScript della versione precedente subito dopo una nuova pubblicazione. */
@@ -186,6 +187,7 @@ export default function App() {
     admin: "Impostazioni",
     editorial: "Piano editoriale",
     contracts: "Contratti",
+    personal: "Le mie priorità",
   };
 
   return (
@@ -202,7 +204,7 @@ export default function App() {
           <button className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><i>□</i> Calendario</button>
           <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
           <button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button>
-          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
+          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><i>◫</i> Le mie priorità</button><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
         </nav>
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
       </aside>
@@ -257,6 +259,8 @@ export default function App() {
       {tab === "editorial" && isAdmin && currentClient && (
         <EditorialPlan clientId={currentClient.id} meName={meName} />
       )}
+
+      {tab === "personal" && isAdmin && <PersonalTasks />}
 
       {tab === "contracts" && <Contracts canManageLinks={isAdmin} />}
 
