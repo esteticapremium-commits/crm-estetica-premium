@@ -262,6 +262,7 @@ export default function Board({
           pipelineId={pipeline.id}
           stages={stages}
           meName={meName}
+          canReassign={canReassign}
           onClose={() => setCreatingInStage(null)}
           onSaved={() => {
             setCreatingInStage(null);
