@@ -34,7 +34,7 @@ export default function PersonalTasks() {
   };
 
   return <div className="page personal-tasks-page">
-    <div className="personal-tasks-intro"><div><span className="eyebrow">SPAZIO PERSONALE</span><h1>Le mie priorità</h1><p>Le attività aziendali che vuoi tenere sotto controllo, senza mescolarle ai lead e alle attività di vendita.</p></div><button className="btn primary" onClick={() => setEditing("new")}>+ Nuova task</button></div>
+    <div className="personal-tasks-intro"><div><span className="eyebrow">SPAZIO PERSONALE</span><h1>Task Aziendali</h1><p>Le attività aziendali che vuoi tenere sotto controllo, senza mescolarle ai lead e alle attività di vendita.</p></div><button className="btn primary" onClick={() => setEditing("new")}>+ Nuova task</button></div>
     <div className="personal-task-summary"><b>{items.filter((task) => task.status === "next").length} priorità prossime</b><span>Trascina le card per aggiornare lo stato.</span></div>
     {loading ? <p className="muted editorial-loading">Caricamento delle tue task…</p> : error && items.length === 0 ? <div className="empty-editorial"><b>La sezione personale non è ancora attiva.</b><span>Serve l’aggiornamento del database: {error}</span></div> : <>{error && <div className="notice err">{error}</div>}<TaskKanban items={items} onEdit={setEditing} onMove={move} /></>}
     {editing && <TaskForm item={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
