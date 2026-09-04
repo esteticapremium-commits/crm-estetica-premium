@@ -2143,7 +2143,7 @@ a {
 .calendar-column header b { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 50%; color: #5b102a; font: 18px Georgia, serif; }
 .calendar-column.today header b { color: #fff; background: #721a35; }
 .calendar-all-day { padding: 7px 7px 0; border-bottom: 1px solid #eee3df; }
-.calendar-day-events { padding: 8px 7px; }
+.calendar-day-events { padding: 8px 7px; }.calendar-event-row { display: grid; gap: 5px; margin-bottom: 7px; }.calendar-event-row .calendar-event { min-width: 0; margin: 0; }.calendar-event-row.overlapping .calendar-event { padding: 8px 6px; }.calendar-event-row.overlapping .calendar-event b, .calendar-event-row.overlapping .calendar-event small { font-size: 10px; }
 .calendar-event { display: block; width: 100%; margin: 0 0 7px; padding: 8px 8px 8px 9px; border: 1px solid #e6d9d3; border-left: 3px solid #9b7a35; border-radius: 7px; background: #fff; color: var(--ink); text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .calendar-event:hover { border-color: #cba0ab; box-shadow: 0 3px 9px rgba(69,16,35,.09); transform: translateY(-1px); }
 .calendar-event.crm.appointment { border-left-color: #7a1834; background: #fff7f5; }
