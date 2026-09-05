@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleFreeBusy, OWNER_CALENDAR_ID } from "../calendarGoogle";
+import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, OWNER_CALENDAR_ID } from "../calendarGoogle";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -318,8 +318,6 @@ export default function LeadModal({
     if (planKind === "appointment") {
       try {
         const start = new Date(planDue); const end = new Date(start.getTime() + 60 * 60 * 1000);
-        const ownBusySlots = await googleFreeBusy(start, end);
-        if (ownBusySlots.some((busy) => new Date(busy.start) < end && new Date(busy.end) > start)) { setBusy(false); setErr("Quell'orario è già occupato nel tuo Google Calendar. Scegline un altro."); return false; }
         const event = await createGoogleCalendarEvent({ title: finalTitle, start: start.toISOString(), end: end.toISOString(), description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}`, attendees: [OWNER_CALENDAR_ID] });
         googleEventId = event.id || null;
       } catch {
