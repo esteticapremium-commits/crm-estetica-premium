@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask } from "../types";
-import { connectGoogleCalendar, createGoogleCalendarEvent, deleteGoogleCalendarEvent, googleCalendarConfigured, googleCalendarConnected, googleFreeBusy, listGoogleCalendarEvents, OWNER_CALENDAR_ID, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
+import { connectGoogleCalendar, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, googleFreeBusy, listGoogleCalendarEvents, OWNER_CALENDAR_ID, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 
 const romeDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const formatTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
@@ -32,7 +32,7 @@ export default function Calendar({ client, meName }: { client: Client; meName: s
   const load = useCallback(async () => {
     const [taskResult, leadResult] = await Promise.all([supabase.from("sales_tasks").select("*").eq("client_id", client.id).gte("due_at", weekStart.toISOString()).lt("due_at", weekEnd.toISOString()).order("due_at"), supabase.from("leads").select("*").eq("client_id", client.id)]);
     setTasks((taskResult.data as SalesTask[]) || []); setLeads((leadResult.data as Lead[]) || []);
-    if (googleCalendarConnected()) { try { setGoogle(await listGoogleCalendarEvents(weekStart, weekEnd)); } catch { setGoogle([]); } } else setGoogle([]);
+    if (await ensureGoogleCalendarConnection()) { try { setGoogle(await listGoogleCalendarEvents(weekStart, weekEnd)); } catch { setGoogle([]); } } else setGoogle([]);
   }, [client.id, weekEnd, weekStart]);
   useEffect(() => { void load(); }, [load]);
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);

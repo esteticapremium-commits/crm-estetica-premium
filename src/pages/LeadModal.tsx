@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, googleCalendarConnected, googleFreeBusy, OWNER_CALENDAR_ID } from "../calendarGoogle";
+import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleFreeBusy, OWNER_CALENDAR_ID } from "../calendarGoogle";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -310,7 +310,7 @@ export default function LeadModal({
   async function savePlan(closeAfterSave = true): Promise<boolean> {
     if (!lead || !planDue) { setErr("Scegli data e orario."); return false; }
     const base = planTitle.trim() || (planKind === "appointment" ? `Appuntamento — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
-    if (planKind === "appointment" && !googleCalendarConnected()) { setErr("Collega prima Google Calendar dalla sezione Calendario: così l'appuntamento viene salvato sia nel CRM sia nel tuo Google Calendar."); return false; }
+    if (planKind === "appointment" && !await ensureGoogleCalendarConnection()) { setErr("Google Calendar richiede di nuovo il consenso. Apri Calendario e premi “Collega Google Calendar”, poi riprova."); return false; }
     setBusy(true); setErr(null);
     const finalTitle = base;
     const finalNote = planNote.trim();

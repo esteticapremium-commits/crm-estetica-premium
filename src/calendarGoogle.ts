@@ -12,6 +12,23 @@ export function googleCalendarConnected() {
 function token() { try { return JSON.parse(localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || "null") as Token | null; } catch { return null; } }
 function loadScript() { return new Promise<void>((resolve, reject) => { if ((window as any).google?.accounts?.oauth2) return resolve(); const s = document.createElement("script"); s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.onload = () => resolve(); s.onerror = () => reject(new Error("Non riesco a caricare Google.")); document.head.appendChild(s); }); }
 
+/** Rinnova in silenzio il token quando l'utente ha già dato il consenso a Google.
+ * L'utente deve intervenire solo se ha revocato il consenso o è uscito da Google. */
+export async function ensureGoogleCalendarConnection() {
+  if (googleCalendarConnected()) return true;
+  if (!CLIENT_ID) return false;
+  try {
+    await loadScript();
+    return await new Promise<boolean>((resolve) => {
+      const client = (window as any).google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.events.freebusy", callback: (r: any) => {
+        if (r.error || !r.access_token) return resolve(false);
+        localStorage.setItem(KEY, JSON.stringify({ accessToken: r.access_token, expiresAt: Date.now() + Number(r.expires_in || 3600) * 1000 })); sessionStorage.removeItem(KEY); resolve(true);
+      }});
+      client.requestAccessToken({ prompt: "" });
+    });
+  } catch { return false; }
+}
+
 /** Il venditore autorizza solo il proprio calendario Google, nel suo browser. */
 export async function connectGoogleCalendar() {
   if (!CLIENT_ID) throw new Error("Configurazione Google Calendar mancante.");
