@@ -8,6 +8,71 @@ import type { Contract, ContractTemplate, Lead, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 const NOTE_SEPARATOR = "\n\n---\n\n";
+const AUTOMATIC_CONTRACT_FIELDS = new Set([
+  "data_oggi",
+  "data_firma",
+  "data_inizio",
+  "data_decorrenza",
+  "data_inizio_servizio",
+]);
+
+function formatContractDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
+/**
+ * I vecchi modelli usano {{data_oggi}} sia per la firma sia nella clausola
+ * di durata. Quando viene scelta una decorrenza futura, cambiamo il
+ * segnaposto soltanto nella clausola di durata, lasciando la data di firma
+ * alla data in cui il contratto viene generato/sottoscritto.
+ */
+function separateServiceStartDate(body: string) {
+  if (body.includes("{{data_inizio_servizio}}")) return body;
+
+  const lines = body.split("\n");
+  const headingPattern = /\b(durata|decorrenza)\b/i;
+  const nextArticlePattern = /^\s*(?:art(?:icolo)?\.?\s*\d+|\d+[.)-])\s*/i;
+  let changed = false;
+
+  for (let index = 0; index < lines.length && !changed; index += 1) {
+    if (!headingPattern.test(lines[index])) continue;
+
+    for (let cursor = index; cursor < lines.length; cursor += 1) {
+      if (cursor > index && nextArticlePattern.test(lines[cursor])) break;
+      if (
+        lines[cursor].includes("{{data_oggi}}") &&
+        /(inizio|inizier|decorre|durata|sottoscrizione)/i.test(lines[cursor])
+      ) {
+        lines[cursor] = lines[cursor]
+          .split("{{data_oggi}}")
+          .join("{{data_inizio_servizio}}");
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) {
+    const fallback = lines.findIndex(
+      (line) =>
+        line.includes("{{data_oggi}}") &&
+        /(avrà inizio|avvio|decorre|decorrenza|durata)/i.test(line)
+    );
+    if (fallback >= 0) {
+      lines[fallback] = lines[fallback]
+        .split("{{data_oggi}}")
+        .join("{{data_inizio_servizio}}");
+      changed = true;
+    }
+  }
+
+  return changed ? lines.join("\n") : body;
+}
 
 function appendNote(history: string, note: string) {
   const entry = `${romeStamp()} — ${note.trim()}`;
@@ -83,6 +148,8 @@ export default function LeadModal({
   const [ctTitle, setCtTitle] = useState("");
   const [ctTo, setCtTo] = useState(lead?.email ?? "");
   const [ctVals, setCtVals] = useState<Record<string, string>>({});
+  const [ctStartMode, setCtStartMode] = useState<"automatic" | "custom">("automatic");
+  const [ctStartDate, setCtStartDate] = useState("");
 
   useEffect(() => {
     if (!lead) return;
@@ -130,6 +197,8 @@ export default function LeadModal({
     setCtVals(defaults);
     setCtTitle(`Contratto — ${lead?.name ?? "lead"}`);
     setCtTo(lead?.email ?? "");
+    setCtStartMode("automatic");
+    setCtStartDate("");
     setCtForm(true);
   }
 
@@ -137,18 +206,50 @@ export default function LeadModal({
     const cid = clientId ?? lead?.client_id;
     if (!lead || !cid) return setErr("Cliente mancante: riapri la scheda del lead.");
     if (!ctTpl) return setErr("Scegli un modello.");
+    if (ctStartMode === "custom" && !ctStartDate) {
+      return setErr("Seleziona la data di inizio del servizio.");
+    }
     setErr(null);
     let body = tpl?.body ?? "";
+    const today = new Date().toLocaleDateString("it-IT");
+    const serviceStart =
+      ctStartMode === "custom" ? formatContractDate(ctStartDate) : today;
+
+    if (ctStartMode === "custom") {
+      const updatedBody = separateServiceStartDate(body);
+      if (
+        updatedBody === body &&
+        !body.includes("{{data_inizio_servizio}}") &&
+        !body.includes("{{data_inizio}}") &&
+        !body.includes("{{data_decorrenza}}")
+      ) {
+        return setErr(
+          "Nel modello non trovo una data nella clausola di durata. Aggiungi {{data_inizio_servizio}} nel punto dedicato alla durata."
+        );
+      }
+      body = updatedBody;
+    }
     // sostituisci i segnaposto "normali" (valore, data...) ma lascia quelli
     // dei campi cliente: li riempirà il cliente nella pagina di firma.
     const clientSlugs = (tpl?.client_fields ?? "")
       .split("\n")
       .map((f) => f.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
       .filter(Boolean);
-    const vals: Record<string, string> = { ...ctVals, data_oggi: new Date().toLocaleDateString("it-IT") };
+    const vals: Record<string, string> = {
+      ...ctVals,
+      data_oggi: today,
+      data_firma: today,
+      data_inizio: serviceStart,
+      data_decorrenza: serviceStart,
+      data_inizio_servizio: serviceStart,
+    };
     for (const ph of placeholders) {
       if (clientSlugs.includes(ph)) continue;
       body = body.split(`{{${ph}}}`).join(vals[ph] ?? "");
+    }
+    // Sostituisce anche il segnaposto introdotto al volo nei modelli legacy.
+    for (const field of AUTOMATIC_CONTRACT_FIELDS) {
+      body = body.split(`{{${field}}}`).join(vals[field] ?? "");
     }
     const { data: created, error } = await supabase
       .from("contracts")
@@ -655,8 +756,34 @@ Grazie!`
                     <label>Email del cliente</label>
                     <input value={ctTo} onChange={(e) => setCtTo(e.target.value)} />
                   </div>
+                  <div className="field">
+                    <label>Inizio del servizio</label>
+                    <select
+                      value={ctStartMode}
+                      onChange={(e) =>
+                        setCtStartMode(e.target.value as "automatic" | "custom")
+                      }
+                    >
+                      <option value="automatic">Automatico — dalla data di firma</option>
+                      <option value="custom">Data di inizio personalizzata</option>
+                    </select>
+                    <small style={{ color: "var(--muted)" }}>
+                      La data della firma resta quella effettiva. La durata decorre
+                      dalla data di inizio scelta.
+                    </small>
+                  </div>
+                  {ctStartMode === "custom" && (
+                    <div className="field">
+                      <label>Data di inizio del servizio</label>
+                      <input
+                        type="date"
+                        value={ctStartDate}
+                        onChange={(e) => setCtStartDate(e.target.value)}
+                      />
+                    </div>
+                  )}
                   {placeholders
-                    .filter((ph) => ph !== "data_oggi")
+                    .filter((ph) => !AUTOMATIC_CONTRACT_FIELDS.has(ph))
                     .map((ph) => (
                       <div className="field" key={ph}>
                         <label>{ph.replace(/_/g, " ")}</label>

@@ -715,6 +715,7 @@ const PLACEHOLDERS: [string, string][] = [
   ["{{servizio}}", "Servizio venduto"],
   ["{{valore}}", "Valore del contratto (€)"],
   ["{{data_oggi}}", "Data odierna (automatica)"],
+  ["{{data_inizio_servizio}}", "Data di inizio scelta prima dell'invio"],
   ["{{nome_venditore}}", "Nome del venditore"],
   ["{{email_lead}}", "Email del lead"],
   ["{{telefono_lead}}", "Telefono del lead"],

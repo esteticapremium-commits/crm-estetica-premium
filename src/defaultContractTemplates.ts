@@ -75,7 +75,7 @@ Il collaboratore ha facoltà di sospendere o interrompere in qualsiasi momento, 
 In tale ipotesi il periodo di prova si intende concluso e nulla è dovuto dal collaboratore al committente ad alcun titolo.
 
 Art. 6 - Durata
-Il presente contratto avrà inizio in data {{data_oggi}} e avrà una durata di 30 giorni decorrenti dalla sottoscrizione dello stesso, indipendentemente dalla data di effettivo avvio delle campagne pubblicitarie e da eventuali periodi di sospensione delle stesse.
+Il presente contratto avrà inizio in data {{data_inizio_servizio}} e avrà una durata di 30 giorni decorrenti da tale data, indipendentemente dalla data di effettivo avvio delle campagne pubblicitarie e da eventuali periodi di sospensione delle stesse.
 
 Alla scadenza il contratto cessa automaticamente, senza necessità di disdetta, senza rinnovo tacito e senza alcun obbligo di prosecuzione per le parti. Al termine le parti si confronteranno per valutare liberamente l'eventuale prosecuzione della collaborazione, che potrà avvenire esclusivamente mediante nuovo accordo scritto, alle condizioni economiche e contrattuali che verranno concordate tra le stesse.
 
