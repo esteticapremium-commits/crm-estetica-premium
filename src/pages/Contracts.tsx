@@ -5,6 +5,52 @@ import type { Contract, ContractEvent, Lead } from "../types";
 
 type Filter = "all" | "pending" | "signed" | "expired" | "revoked";
 
+function italianDateToInput(value: string) {
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return match ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}` : "";
+}
+
+function inputDateToItalian(value: string) {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : "";
+}
+
+function durationLineRange(body: string) {
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => /\b(durata|decorrenza)\b/i.test(line));
+  if (start < 0) return { lines, start: -1, end: -1 };
+  const nextArticle = /^\s*(?:art(?:icolo)?\.?\s*\d+|\d+[.)-])\s*/i;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (nextArticle.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return { lines, start, end };
+}
+
+function contractServiceStart(body: string) {
+  const { lines, start, end } = durationLineRange(body);
+  if (start < 0) return "";
+  const section = lines.slice(start, end).join("\n");
+  const match = section.match(/(?:inizio\s+in\s+data|decorre(?:rà)?\s+(?:dal|dalla data))\s+(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  return match ? italianDateToInput(match[1]) : "";
+}
+
+function replaceContractServiceStart(body: string, value: string) {
+  const formatted = inputDateToItalian(value);
+  const { lines, start, end } = durationLineRange(body);
+  if (start < 0 || !formatted) return null;
+  const datePattern = /((?:inizio\s+in\s+data|decorre(?:rà)?\s+(?:dal|dalla data))\s+)(\d{1,2}\/\d{1,2}\/\d{4})/i;
+  for (let index = start; index < end; index += 1) {
+    if (!datePattern.test(lines[index])) continue;
+    lines[index] = lines[index].replace(datePattern, `$1${formatted}`);
+    return lines.join("\n");
+  }
+  return null;
+}
+
 export default function Contracts({ canManageLinks = false }: { canManageLinks?: boolean }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -58,14 +104,29 @@ export default function Contracts({ canManageLinks = false }: { canManageLinks?:
     <section className="panel contracts-list"><div className="contracts-toolbar"><div className="status-filters">{(["all", "pending", "signed", "expired", "revoked"] as Filter[]).map((f) => <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>{label(f)} <small>{count(f)}</small></button>)}</div><div className="contract-search">⌕<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca contratto o lead" /></div></div>
       {list.length === 0 ? <div className="empty-editorial"><b>Nessun contratto trovato.</b><span>I contratti vengono creati dalla scheda del lead.</span></div> : <div className="contracts-table"><div className="contracts-head"><span>Contratto</span><span>Lead</span><span>Stato</span><span>Scadenza / firma</span><span></span></div>{list.map((c) => <div className="contracts-row" key={c.id}><span><b>{c.title}</b><small>Creato da {c.created_by || "—"} · {new Date(c.created_at).toLocaleDateString("it-IT")}</small></span><span>{leadName(c)}<small>{c.sent_to || "Nessuna email"}</small></span><span><em className={`contract-status ${state(c)}`}>{label(state(c))}</em><small>{c.viewed_at ? `Aperto ${c.view_count ?? 1} ${c.view_count === 1 ? "volta" : "volte"}` : "Non ancora aperto"}</small></span><span>{c.status === "signed" ? `Firmato il ${new Date(c.signed_at!).toLocaleDateString("it-IT")}` : c.revoked_at ? `Revocato il ${new Date(c.revoked_at).toLocaleDateString("it-IT")}` : c.expires_at ? `Scade il ${new Date(c.expires_at).toLocaleDateString("it-IT")}` : "—"}</span><span><button className="btn small" onClick={() => setSelected(c)}>Dettagli</button></span></div>)}</div>}
     </section>
-    {selected && <ContractDetail contract={selected} events={events.filter((e) => e.contract_id === selected.id)} professionalFeatures={hasProfessionalUpgrade} canManageLinks={canManageLinks} onClose={() => setSelected(null)} onRenew={renew} onRevoke={revoke} />}
+    {selected && <ContractDetail contract={selected} events={events.filter((e) => e.contract_id === selected.id)} professionalFeatures={hasProfessionalUpgrade} canManageLinks={canManageLinks} onClose={() => setSelected(null)} onRenew={renew} onRevoke={revoke} onUpdated={(updated) => { setContracts((current) => current.map((item) => item.id === updated.id ? updated : item)); setSelected(updated); }} />}
   </div>;
 }
 
 function label(s: Filter) { return ({ all: "Tutti", pending: "Da firmare", signed: "Firmati", expired: "Scaduti", revoked: "Revocati" } as Record<Filter, string>)[s]; }
 function Kpi({ label, value, good, warn }: { label: string; value: number; good?: boolean; warn?: boolean }) { return <div className="stat"><div className="k">{label}</div><div className="v" style={{ color: good ? "#15803d" : warn ? "#b45309" : undefined }}>{value}</div></div>; }
-function ContractDetail({ contract: c, events, professionalFeatures, canManageLinks, onClose, onRenew, onRevoke }: { contract: Contract; events: ContractEvent[]; professionalFeatures: boolean; canManageLinks: boolean; onClose: () => void; onRenew: (c: Contract) => void; onRevoke: (c: Contract) => void }) {
+function ContractDetail({ contract: c, events, professionalFeatures, canManageLinks, onClose, onRenew, onRevoke, onUpdated }: { contract: Contract; events: ContractEvent[]; professionalFeatures: boolean; canManageLinks: boolean; onClose: () => void; onRenew: (c: Contract) => void; onRevoke: (c: Contract) => void; onUpdated: (c: Contract) => void }) {
   const link = `${window.location.origin}/#/firma/${c.sign_token}`; const canChange = c.status !== "signed";
-  return <div className="overlay" onClick={onClose}><div className="modal contract-detail" onClick={(e) => e.stopPropagation()}><header><h3>{c.title}</h3><button className="x" onClick={onClose}>×</button></header><div className="content"><div className="contract-detail-state"><em className={`contract-status ${c.revoked_at ? "revoked" : c.status === "signed" ? "signed" : "pending"}`}>{c.revoked_at ? "Revocato" : c.status === "signed" ? "Firmato" : "Da firmare"}</em>{c.signed_document_hash && <span>Documento sigillato · SHA-256</span>}</div>{c.viewed_at && <div className="readonly">Ultima apertura: {new Date(c.viewed_at).toLocaleString("it-IT")} · {c.view_count ?? 1} {(c.view_count ?? 1) === 1 ? "apertura" : "aperture"}</div>}{c.status === "signed" ? <><div className="field"><label>Firmato da</label><div className="readonly">{c.signed_name} · {c.signed_at && new Date(c.signed_at).toLocaleString("it-IT")}</div></div><button className="btn primary" onClick={() => openSignedContractPdf(c)}>Scarica PDF firmato</button></> : <><div className="field"><label>Link di firma</label><div className="copy-row"><input readOnly value={link} /><button className="btn" onClick={() => { navigator.clipboard.writeText(link); alert("Link copiato."); }}>Copia</button></div></div><div className="field"><label>Scadenza</label><div className="readonly">{c.expires_at ? new Date(c.expires_at).toLocaleString("it-IT") : "Nessuna scadenza"}</div></div></>}<div className="contract-audit"><b>Storico</b>{professionalFeatures ? (events.length === 0 ? <p className="muted">Nessun evento registrato.</p> : events.map((e) => <div key={e.id}><span>{eventLabel(e.action)}</span><small>{e.actor || "Sistema"} · {new Date(e.created_at).toLocaleString("it-IT")}</small></div>)) : <p className="muted">Lo storico avanzato sarà disponibile dopo l’aggiornamento del database.</p>}</div></div><footer>{canManageLinks && professionalFeatures && canChange && !c.revoked_at && <button className="btn danger" onClick={() => onRevoke(c)} style={{ marginRight: "auto" }}>Revoca link</button>}{canManageLinks && professionalFeatures && canChange && <button className="btn" onClick={() => onRenew(c)}>Genera nuovo link</button>}<button className="btn primary" onClick={onClose}>Chiudi</button></footer></div></div>;
+  const [startDate, setStartDate] = useState(() => contractServiceStart(c.body ?? ""));
+  const [savingDate, setSavingDate] = useState(false);
+  const saveStartDate = async () => {
+    if (!startDate) return alert("Seleziona la data di inizio del servizio.");
+    const body = replaceContractServiceStart(c.body ?? "", startDate);
+    if (!body) return alert("Non trovo la data nella clausola di durata di questo contratto.");
+    setSavingDate(true);
+    const { data, error } = await supabase.from("contracts").update({ body }).eq("id", c.id).neq("status", "signed").select("*").single();
+    setSavingDate(false);
+    if (error) return alert("Data non aggiornata: " + error.message);
+    const updated = data as Contract;
+    onUpdated(updated);
+    void supabase.from("contract_events").insert({ contract_id: c.id, action: "service_start_updated", actor: "CRM", details: { service_start: startDate } }).then(() => undefined);
+    alert("Data di inizio aggiornata. Anche il link già inviato mostra ora la nuova data.");
+  };
+  return <div className="overlay" onClick={onClose}><div className="modal contract-detail" onClick={(e) => e.stopPropagation()}><header><h3>{c.title}</h3><button className="x" onClick={onClose}>×</button></header><div className="content"><div className="contract-detail-state"><em className={`contract-status ${c.revoked_at ? "revoked" : c.status === "signed" ? "signed" : "pending"}`}>{c.revoked_at ? "Revocato" : c.status === "signed" ? "Firmato" : "Da firmare"}</em>{c.signed_document_hash && <span>Documento sigillato · SHA-256</span>}</div>{c.viewed_at && <div className="readonly">Ultima apertura: {new Date(c.viewed_at).toLocaleString("it-IT")} · {c.view_count ?? 1} {(c.view_count ?? 1) === 1 ? "apertura" : "aperture"}</div>}{c.status === "signed" ? <><div className="field"><label>Firmato da</label><div className="readonly">{c.signed_name} · {c.signed_at && new Date(c.signed_at).toLocaleString("it-IT")}</div></div><button className="btn primary" onClick={() => openSignedContractPdf(c)}>Scarica PDF firmato</button></> : <><div className="field"><label>Link di firma</label><div className="copy-row"><input readOnly value={link} /><button className="btn" onClick={() => { navigator.clipboard.writeText(link); alert("Link copiato."); }}>Copia</button></div></div><div className="field"><label>Data di inizio del servizio</label><div className="copy-row"><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /><button className="btn" disabled={savingDate} onClick={saveStartDate}>{savingDate ? "Salvo…" : "Aggiorna data"}</button></div><small style={{ color: "var(--muted)" }}>Puoi correggerla finché il contratto non è firmato. Il link resta lo stesso.</small></div><div className="field"><label>Scadenza</label><div className="readonly">{c.expires_at ? new Date(c.expires_at).toLocaleString("it-IT") : "Nessuna scadenza"}</div></div></>}<div className="contract-audit"><b>Storico</b>{professionalFeatures ? (events.length === 0 ? <p className="muted">Nessun evento registrato.</p> : events.map((e) => <div key={e.id}><span>{eventLabel(e.action)}</span><small>{e.actor || "Sistema"} · {new Date(e.created_at).toLocaleString("it-IT")}</small></div>)) : <p className="muted">Lo storico avanzato sarà disponibile dopo l’aggiornamento del database.</p>}</div></div><footer>{canManageLinks && professionalFeatures && canChange && !c.revoked_at && <button className="btn danger" onClick={() => onRevoke(c)} style={{ marginRight: "auto" }}>Revoca link</button>}{canManageLinks && professionalFeatures && canChange && <button className="btn" onClick={() => onRenew(c)}>Genera nuovo link</button>}<button className="btn primary" onClick={onClose}>Chiudi</button></footer></div></div>;
 }
-function eventLabel(action: string) { return ({ created: "Contratto creato", sent: "Link inviato", viewed: "Link aperto", signed: "Contratto firmato", revoked: "Link revocato", link_renewed: "Nuovo link generato" } as Record<string, string>)[action] || action; }
+function eventLabel(action: string) { return ({ created: "Contratto creato", sent: "Link inviato", viewed: "Link aperto", signed: "Contratto firmato", revoked: "Link revocato", link_renewed: "Nuovo link generato", service_start_updated: "Data di inizio aggiornata" } as Record<string, string>)[action] || action; }
