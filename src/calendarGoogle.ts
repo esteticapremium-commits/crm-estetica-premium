@@ -44,19 +44,6 @@ export async function ensureGoogleCalendarConnection() {
   return false;
 }
 
-async function legacyConnectGoogleCalendar() {
-  try {
-    await loadScript();
-    await new Promise<void>((resolve, reject) => {
-      const client = (window as any).google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.events.freebusy", callback: (r: any) => {
-        if (r.error || !r.access_token) return reject(new Error(r.error || "Collegamento non riuscito"));
-        saveToken(r.access_token, Number(r.expires_in || 3600)); resolve();
-      }});
-      client.requestAccessToken({ prompt: "consent" });
-    });
-  } catch (error) { throw error; }
-}
-
 /** Il venditore autorizza solo il proprio calendario Google, nel suo browser. */
 export async function connectGoogleCalendar() {
   if (!CLIENT_ID) throw new Error("Configurazione Google Calendar mancante.");
@@ -76,9 +63,7 @@ export async function connectGoogleCalendar() {
           headers: { "X-Requested-With": "XmlHttpRequest" },
         });
         if (error || !data?.accessToken) {
-          // Compatibilità temporanea durante l'attivazione del backend.
-          try { await legacyConnectGoogleCalendar(); return resolve(); }
-          catch { return reject(new Error(data?.error || "Collegamento permanente non disponibile.")); }
+          return reject(new Error(data?.error || "Collegamento permanente non disponibile."));
         }
         saveToken(data.accessToken, Number(data.expiresIn || 3600));
         resolve();
