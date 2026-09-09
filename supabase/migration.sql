@@ -223,7 +223,7 @@ begin
   if p_phone is null or length(trim(p_phone)) = 0 then return null; end if;
   select id into v_pipe from pipelines where client_id = v_client limit 1;
   select id into v_stage from stages
-    where pipeline_id = v_pipe and name = 'NO ANSWER' order by position limit 1;
+    where pipeline_id = v_pipe and name = 'SETTING' order by position limit 1;
   insert into leads (client_id, pipeline_id, stage_id, name, phone, email, source, assigned_to, position)
   values (v_client, v_pipe, v_stage, trim(p_name), trim(p_phone),
           nullif(trim(coalesce(p_email,'')),''), coalesce(nullif(trim(p_source),''),'Instantly'),

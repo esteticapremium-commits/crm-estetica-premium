@@ -54,8 +54,7 @@ begin
 end
 $$;
 
--- Mantiene funzionante l'ingresso automatico: ogni nuovo lead parte dal
--- primo gruppo di tentativi senza risposta.
+-- Mantiene funzionante l'ingresso automatico: ogni nuovo lead parte da SETTING.
 create or replace function public.upsert_lead(
   p_name text, p_phone text, p_email text, p_source text, p_assigned text
 ) returns uuid language plpgsql security definer set search_path = public
@@ -68,9 +67,8 @@ begin
   if p_phone is null or length(trim(p_phone)) = 0 then return null; end if;
   select id into v_pipe from pipelines where client_id = v_client limit 1;
   select id into v_stage from stages
-    where pipeline_id = v_pipe and name in ('NO ANSWER 1-3', 'NO ANSWER')
-    order by case when name = 'NO ANSWER 1-3' then 0 else 1 end, position
-    limit 1;
+    where pipeline_id = v_pipe and name = 'SETTING'
+    order by position limit 1;
   insert into leads (client_id, pipeline_id, stage_id, name, phone, email, source, assigned_to, position)
   values (v_client, v_pipe, v_stage, trim(p_name), trim(p_phone),
           nullif(trim(coalesce(p_email,'')),''), coalesce(nullif(trim(p_source),''),'Instantly'),

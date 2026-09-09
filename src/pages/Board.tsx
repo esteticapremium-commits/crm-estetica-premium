@@ -196,6 +196,7 @@ export default function Board({
     );
 
   const isPremium = client.name.startsWith("Estetica");
+  const settingStage = stages.find((stage) => stage.name === "SETTING") ?? stages[0];
   return (
     <>
       <DndContext
@@ -213,7 +214,7 @@ export default function Board({
                 </div>
               </div>
               {canEdit && (
-                <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(stages[0])}>
+                <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(settingStage)}>
                   + Nuovo lead
                 </button>
               )}
@@ -226,7 +227,7 @@ export default function Board({
                 stage={s}
                 leads={leadsByStage[s.id] ?? []}
                 onOpen={(l) => setEditing(l)}
-                onAdd={canEdit ? () => setCreatingInStage(s) : undefined}
+                onAdd={canEdit && s.id === settingStage.id ? () => setCreatingInStage(settingStage) : undefined}
                 leadStageNames={leadStageNames}
               />
             ))}

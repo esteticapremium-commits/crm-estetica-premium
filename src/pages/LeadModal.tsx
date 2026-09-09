@@ -121,8 +121,9 @@ export default function LeadModal({
   const [source, setSource] = useState(lead?.source ?? "Facebook");
   const [assigned, setAssigned] = useState(lead?.assigned_to ?? "");
   const [value, setValue] = useState(String(lead?.value ?? 0));
+  const settingStageId = stages.find((stage) => stage.name === "SETTING")?.id ?? newInStage?.id ?? stages[0]?.id;
   const [stageId, setStageId] = useState(
-    lead?.stage_id ?? newInStage?.id ?? stages[0]?.id
+    lead?.stage_id ?? settingStageId
   );
   // Lo storico non si riscrive: ogni nuovo aggiornamento viene aggiunto sopra.
   const [notes, setNotes] = useState(lead?.notes ?? "");
@@ -337,7 +338,7 @@ export default function LeadModal({
       source: source.trim() || null,
       assigned_to: canReassign ? assigned.trim() || null : meName?.trim() || assigned.trim() || null,
       value: Number(value) || 0,
-      stage_id: stageId,
+      stage_id: isNew ? settingStageId : stageId,
       notes: finalNotes.trim() || null,
       next_action_date: nextAction.trim() || null,
       closing_date: closingDate.trim() || null,
@@ -521,16 +522,20 @@ export default function LeadModal({
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Fase</label>
-              <select
-                value={stageId}
-                onChange={(e) => setStageId(e.target.value)}
-              >
-                {stages.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              {isNew ? (
+                <input value="SETTING" readOnly />
+              ) : (
+                <select
+                  value={stageId}
+                  onChange={(e) => setStageId(e.target.value)}
+                >
+                  {stages.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="field" style={{ flex: 1 }}>
               <label>
