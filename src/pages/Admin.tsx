@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { normalizeSpecificApprovalSignature } from "../contractPdf";
 import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
 
 /* Chiamata alla funzione protetta che gestisce gli utenti */
@@ -738,7 +739,7 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
       supabase.from("contract_templates").select("*").order("created_at", { ascending: false }),
       supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").order("created_at", { ascending: false }).limit(50),
     ]);
-    setTemplates((tp as ContractTemplate[]) ?? []);
+    setTemplates(((tp as ContractTemplate[]) ?? []).map((template) => ({ ...template, body: normalizeSpecificApprovalSignature(template.body ?? "") })));
     setContracts((ct as Contract[]) ?? []);
     setLoading(false);
   }
@@ -751,7 +752,7 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
       .insert({
         client_id: clientId,
         name: newName.trim(),
-        body: newBody,
+        body: normalizeSpecificApprovalSignature(newBody),
         client_fields: newFields.trim() || null,
       });
     if (error) return alert(error.message);
@@ -765,7 +766,7 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
     if (!editing) return;
     const { error } = await supabase
       .from("contract_templates")
-      .update({ name: editing.name, body: editing.body, client_fields: editing.client_fields })
+      .update({ name: editing.name, body: normalizeSpecificApprovalSignature(editing.body ?? ""), client_fields: editing.client_fields })
       .eq("id", editing.id);
     if (error) return alert(error.message);
     setEditing(null);

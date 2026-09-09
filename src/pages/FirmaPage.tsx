@@ -29,6 +29,7 @@ export default function FirmaPage({ token }: { token: string }) {
   const [name, setName] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [specificApproval, setSpecificApproval] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   // Una pressione sul riquadro non e una firma: registriamo almeno un tratto
@@ -141,6 +142,9 @@ export default function FirmaPage({ token }: { token: string }) {
     if (!hasInk.current) {
       return setErr("Disegna la firma nel riquadro prima di confermare il contratto.");
     }
+    if (draftParts.approval && !specificApproval) {
+      return setErr("Conferma anche l'approvazione specifica delle clausole indicate nel contratto.");
+    }
     const c = canvasRef.current;
     if (!c) return;
     setBusy(true);
@@ -150,7 +154,7 @@ export default function FirmaPage({ token }: { token: string }) {
       p_token: token,
       p_name: name.trim(),
       p_sig: data,
-      p_data: JSON.stringify(values),
+      p_data: JSON.stringify({ ...values, __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
     });
     if (error) {
       setBusy(false);
@@ -263,7 +267,7 @@ export default function FirmaPage({ token }: { token: string }) {
               </b>
               <Document body={signedParts.main} />
               <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
-              {signedParts.approval && <Document body={signedParts.approval} plain />}
+              {signedParts.approval && <><Document body={signedParts.approval} plain /><SpecificApprovalSignature signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} /></>}
             </div>
           )}
 
@@ -304,7 +308,7 @@ export default function FirmaPage({ token }: { token: string }) {
                 <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
                 <Document body={draftParts.main} />
                 <ContractSignatureBox values={values} />
-                {draftParts.approval && <Document body={draftParts.approval} plain />}
+                {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature /></>}
 
                 {/* 3) infine la firma */}
                 <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
@@ -335,6 +339,7 @@ export default function FirmaPage({ token }: { token: string }) {
                     Cancella firma
                   </button>
                 </div>
+                {draftParts.approval && <label className="specific-approval-check"><input type="checkbox" checked={specificApproval} onChange={(event) => setSpecificApproval(event.target.checked)} /><span>Dichiaro di approvare specificamente le clausole richiamate ai sensi degli artt. 1341 e 1342 c.c. La firma disegnata sopra sarà applicata anche al relativo riquadro.</span></label>}
                 {err && <div className="notice err">{err}</div>}
                 <button
                   className="btn primary"
@@ -375,6 +380,11 @@ function ContractSignatureBox({ values, signedName, signature, signedAt }: { val
       <div className="signature-cell collaborator"><b>Collaboratore</b><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" /><span>Data</span><strong>{date}</strong></div>
     </div>
   );
+}
+
+function SpecificApprovalSignature({ signedName, signature, signedAt }: { signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
+  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "____________________________";
+  return <div className="specific-approval-signature"><div><b>Approvazione specifica del Committente</b><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><span>Firmato da</span><strong>{signedName || "____________________________"}</strong><span>Data</span><strong>{date}</strong></div>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente per approvazione specifica" /> : <i>La firma sarà riportata qui dopo la conferma.</i>}</div>;
 }
 
 /** Il contratto in stile documento (carta bianca, intestazione serif). */

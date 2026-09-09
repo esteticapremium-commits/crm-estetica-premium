@@ -1819,7 +1819,16 @@ a {
 .signature-cell i { display: block; min-height: 62px; border-bottom: 1px solid #334155; }
 .signature-cell img { width: 205px; max-width: 100%; height: 58px; object-fit: contain; object-position: left center; border-bottom: 1px solid #334155; mix-blend-mode: multiply; }
 .signature-cell .firma-preview { background: transparent; border-radius: 0; padding: 0; margin: 0; }
-@media (max-width: 640px) { .contract-signature-box { grid-template-columns: 1fr; }.signature-cell { border-right: 0; border-bottom: 1px solid #1f2937; }.signature-cell:last-child { border-bottom: 0; } }
+.specific-approval-signature { margin: 14px 28px 20px; padding: 15px 17px; border: 1px solid #8f6973; border-radius: 8px; background: #fffdf9; color: #20171a; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 20px; break-inside: avoid; }
+.specific-approval-signature p { margin: 4px 0 10px !important; color: #654f55 !important; font-size: 12px; }
+.specific-approval-signature span, .specific-approval-signature strong { display: block; }
+.specific-approval-signature span { margin-top: 5px; color: #735861; font-size: 11px; font-weight: 700; }
+.specific-approval-signature strong { min-height: 20px; font-family: Georgia, 'Times New Roman', serif; font-size: 13px; }
+.specific-approval-signature .firma-preview { width: 220px; max-width: 100%; max-height: 90px; object-fit: contain; mix-blend-mode: multiply; }
+.specific-approval-signature > i { max-width: 220px; color: #7b666b; font-size: 12px; }
+.specific-approval-check { display: flex; align-items: flex-start; gap: 10px; margin: 14px 18px; padding: 12px 14px; border: 1px solid #d8c1c7; border-radius: 8px; background: #fff8f6; color: #4b3038; font-size: 12px; line-height: 1.45; cursor: pointer; }
+.specific-approval-check input { width: 18px; height: 18px; margin: 1px 0 0; flex: 0 0 auto; accent-color: var(--brand); }
+@media (max-width: 640px) { .contract-signature-box { grid-template-columns: 1fr; }.signature-cell { border-right: 0; border-bottom: 1px solid #1f2937; }.signature-cell:last-child { border-bottom: 0; }.specific-approval-signature { grid-template-columns: 1fr; margin-left: 16px; margin-right: 16px; }.specific-approval-signature .firma-preview { width: 100%; } }
 .theme-premium .firma-doc p {
   color: #d8d4c8;
 }

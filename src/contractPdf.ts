@@ -37,6 +37,17 @@ export function fillBody(
   });
 }
 
+export function normalizeSpecificApprovalSignature(body: string) {
+  return body
+    .replace(/^Firma specifica del Committente\s*:.*$/gim, "")
+    .replace(
+      /^La firma del Committente apposta nel presente documento si riferisce anche alla presente approvazione specifica\.\s*$/gim,
+      ""
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
+}
+
 /** Separa il testo principale dalla tabella firme finale del modello.
  * La tabella viene resa come elemento strutturato, non come righe di testo. */
 export function splitContractClosing(body: string) {
@@ -46,7 +57,11 @@ export function splitContractClosing(body: string) {
   const approvalAt = body.indexOf(approvalMarker);
   return {
     main: signatureAt >= 0 ? body.slice(0, signatureAt) : body,
-    approval: approvalAt >= 0 ? body.slice(approvalAt + 1) : "",
+    approval: approvalAt >= 0
+      ? normalizeSpecificApprovalSignature(body.slice(approvalAt + 1))
+          .replace(/\n{3,}/g, "\n\n")
+          .trim()
+      : "",
   };
 }
 
@@ -120,6 +135,14 @@ export function openSignedContractPdf(c: SignedContract) {
   .signature-cell:last-child { border-right: 0; }.signature-cell h3 { margin: -14px -16px 10px; padding: 11px 16px; border-bottom: 1px solid #111; font-size: 16px; }.signature-cell span { margin-top: 4px; font-size: 12px; font-weight: 700; }.signature-cell strong { min-height: 22px; padding-bottom: 4px; border-bottom: 1px solid #333; font-size: 14px; font-weight: 500; }
   .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
   .collaborator-sig { width: 210px; height: auto; border: 0; padding: 0; }
+  .approval-signature { margin-top: 14px; padding: 14px 16px; border: 1px solid #111; break-inside: avoid; }
+  .approval-signature h3 { margin: 0 0 5px; font-size: 14px; }
+  .approval-signature p { margin: 0 0 10px; color: #444; font-size: 12px; }
+  .approval-signature .approval-data { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 18px; }
+  .approval-signature .approval-person { display: grid; gap: 3px; }
+  .approval-signature .approval-person span { font-size: 11px; font-weight: 700; }
+  .approval-signature .approval-person strong { font-size: 13px; }
+  .approval-signature .sig-img { max-width: 260px; max-height: 100px; }
 </style></head><body>
   <div class="company">ESTETICA PREMIUM</div>
   <div class="type">Contratto di collaborazione professionale</div>
@@ -134,7 +157,7 @@ export function openSignedContractPdf(c: SignedContract) {
   </div>
   <div class="doc">${contractParts.main.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
   <div class="signature-grid"><div class="signature-cell"><h3>Committente</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong><span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong><span>Firma</span>${c.signature_data ? `<img class="sig-img" src="${c.signature_data}"/>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>Collaboratore</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/><span>Data</span><strong>${dataShort}</strong></div></div>
-  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>` : ""}
+  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div><div class="approval-signature"><h3>Approvazione specifica del Committente</h3><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><div class="approval-data"><div class="approval-person"><span>Firmato da</span><strong>${escapeHtml(c.signed_name)}</strong><span>Data</span><strong>${dataShort}</strong></div>${c.signature_data ? `<img class="sig-img" src="${c.signature_data}" alt="Firma del committente per approvazione specifica"/>` : ""}</div></div>` : ""}
   <script>window.onload = function(){ window.print(); }<\/script>
 </body></html>`;
   const w = window.open("", "_blank");

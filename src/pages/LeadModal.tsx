@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
-import { openSignedContractPdf } from "../contractPdf";
+import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, OWNER_CALENDAR_ID } from "../calendarGoogle";
 import type { Contract, ContractTemplate, Lead, Stage } from "../types";
@@ -210,7 +210,7 @@ export default function LeadModal({
       return setErr("Seleziona la data di inizio del servizio.");
     }
     setErr(null);
-    let body = tpl?.body ?? "";
+    let body = normalizeSpecificApprovalSignature(tpl?.body ?? "");
     const today = new Date().toLocaleDateString("it-IT");
     const serviceStart =
       ctStartMode === "custom" ? formatContractDate(ctStartDate) : today;
