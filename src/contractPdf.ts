@@ -48,20 +48,27 @@ export function normalizeSpecificApprovalSignature(body: string) {
     .trimEnd();
 }
 
-/** Separa il testo principale dalla tabella firme finale del modello.
- * La tabella viene resa come elemento strutturato, non come righe di testo. */
+/** Separa testo, approvazione specifica e vecchia tabella firme del modello.
+ * I modelli usano formulazioni diverse: riconosciamo il richiamo giuridico
+ * dal contenuto, non da una singola frase fissa. */
 export function splitContractClosing(body: string) {
+  const normalized = normalizeSpecificApprovalSignature(body);
+  const blocks = normalized.split(/\n{2,}/);
+  const approvalIndex = blocks.findIndex(
+    (block) => /\b1341\b/i.test(block) && /approv\w*\s+specific/i.test(block)
+  );
+  const approval = approvalIndex >= 0 ? blocks[approvalIndex].trim() : "";
+  if (approvalIndex >= 0) blocks.splice(approvalIndex, 1);
+
+  const withoutApproval = blocks.join("\n\n");
   const signatureMarker = "\nCommittente\n";
-  const approvalMarker = "\nIl Committente dichiara";
-  const signatureAt = body.indexOf(signatureMarker);
-  const approvalAt = body.indexOf(approvalMarker);
+  const signatureAt = withoutApproval.indexOf(signatureMarker);
   return {
-    main: signatureAt >= 0 ? body.slice(0, signatureAt) : body,
-    approval: approvalAt >= 0
-      ? normalizeSpecificApprovalSignature(body.slice(approvalAt + 1))
-          .replace(/\n{3,}/g, "\n\n")
-          .trim()
-      : "",
+    main: (signatureAt >= 0
+      ? withoutApproval.slice(0, signatureAt)
+      : withoutApproval
+    ).trimEnd(),
+    approval,
   };
 }
 
