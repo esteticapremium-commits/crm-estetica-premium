@@ -104,7 +104,7 @@ export default function Vendite({
       row.movimenti++;
       // "chiamate" = spostamenti verso NO ANSWER o RECALL
       const to = name(e.to_stage_id);
-      if (to === "NO ANSWER" || to === "RECALL") row.chiamate++;
+      if (to.startsWith("NO ANSWER") || to === "RECALL") row.chiamate++;
       if (to === "DISCOVERY") row.discovery++;
       if (to === "CLOSING") row.closing++;
       if (to === "CLOSED") row.chiusi++;

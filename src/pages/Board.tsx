@@ -19,6 +19,8 @@ import { romeToday } from "../dates";
 // della pipeline si pondera per la probabilità della fase in cui si trova).
 export const STAGE_PROBABILITY: Record<string, number> = {
   "NO ANSWER": 5,
+  "NO ANSWER 1-3": 5,
+  "NO ANSWER 4-5": 5,
   "RECALL": 15,
   "DISCOVERY": 30,
   "SETTING": 50,
