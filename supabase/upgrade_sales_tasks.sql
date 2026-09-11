@@ -6,6 +6,7 @@ create table if not exists public.sales_tasks (
   lead_id uuid references public.leads(id) on delete cascade,
   title text not null,
   description text,
+  is_priority boolean not null default false,
   due_at timestamptz not null,
   assigned_to text not null,
   created_by text,
@@ -14,6 +15,7 @@ create table if not exists public.sales_tasks (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.sales_tasks add column if not exists is_priority boolean not null default false;
 create index if not exists sales_tasks_agenda_idx on public.sales_tasks(client_id, assigned_to, due_at) where completed_at is null;
 create index if not exists sales_tasks_lead_idx on public.sales_tasks(lead_id) where completed_at is null;
 alter table public.sales_tasks enable row level security;

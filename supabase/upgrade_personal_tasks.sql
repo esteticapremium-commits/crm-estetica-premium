@@ -4,11 +4,13 @@ create table if not exists public.personal_tasks (
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   title text not null,
   notes text,
+  is_priority boolean not null default false,
   status text not null default 'backlog' check (status in ('backlog', 'next', 'doing', 'waiting', 'done')),
   position integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.personal_tasks add column if not exists is_priority boolean not null default false;
 create index if not exists personal_tasks_owner_status_idx on public.personal_tasks(owner_id, status, position);
 alter table public.personal_tasks enable row level security;
 create policy personal_tasks_owner_only on public.personal_tasks for all to authenticated

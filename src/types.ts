@@ -79,6 +79,7 @@ export interface SalesTask {
   lead_id: string | null;
   title: string;
   description: string | null;
+  is_priority: boolean;
   due_at: string;
   assigned_to: string;
   created_by: string | null;
@@ -94,6 +95,7 @@ export interface PersonalTask {
   owner_id: string;
   title: string;
   notes: string | null;
+  is_priority: boolean;
   status: PersonalTaskStatus;
   position: number;
   created_at: string;

@@ -141,6 +141,7 @@ export default function LeadModal({
   const [planTitle, setPlanTitle] = useState("");
   const [planDue, setPlanDue] = useState("");
   const [planNote, setPlanNote] = useState("");
+  const [planPriority, setPlanPriority] = useState(false);
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -426,12 +427,12 @@ export default function LeadModal({
         setBusy(false); setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova."); return false;
       }
     }
-    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
+    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, is_priority: planKind === "task" && planPriority, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
     if (error && googleEventId) { try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* l'errore principale resta quello del CRM */ } }
     if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
     setBusy(false);
     if (error) { setErr("Pianificazione non salvata: " + error.message); return false; }
-    setPlanTitle(""); setPlanDue(""); setPlanNote("");
+    setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
     if (closeAfterSave) onSaved();
     return true;
   }
@@ -504,6 +505,7 @@ export default function LeadModal({
               <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
+              {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenziala nell’Agenda e mostrala prima delle altre.</small></span></label>}
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
               {planKind === "appointment" && <p className="ettore-auto-invite"><b>Ettore viene invitato automaticamente.</b> L’appuntamento comparirà anche nel suo calendario con link Google Meet, così potrà entrare se serve supporto.</p>}
               <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: l’appuntamento verrà creato insieme alle modifiche della scheda.</p>
