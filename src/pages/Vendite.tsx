@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import { STAGE_PROBABILITY } from "./Board";
@@ -31,9 +31,11 @@ interface DayRow {
 export default function Vendite({
   client,
   pipeline,
+  headerTools,
 }: {
   client: Client;
   pipeline: Pipeline;
+  headerTools?: ReactNode;
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -160,11 +162,16 @@ export default function Vendite({
 
   return (
     <div className="page vendite">
-      <h1>Vendite · {client.name}</h1>
-      <p className="sub">
-        Pipeline: <b>{pipeline.name}</b> · attività del team vendita giorno per giorno
-        e tasso di passaggio tra le fasi.
-      </p>
+      <div className="vendite-intro">
+        <div>
+          <h1>Vendite</h1>
+          <p className="sub">
+            {client.name} · Pipeline: <b>{pipeline.name}</b> · attività del team vendita giorno per giorno
+            e tasso di passaggio tra le fasi.
+          </p>
+        </div>
+        <div className="section-header-actions">{headerTools}</div>
+      </div>
 
       <div className="cards-grid">
         <div className="stat">

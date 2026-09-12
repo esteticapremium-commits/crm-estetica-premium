@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -40,6 +40,7 @@ export default function Board({
   onFocusConsumed,
   canDelete = false,
   canReassign = false,
+  headerTools,
 }: {
   client: Client;
   pipeline: Pipeline;
@@ -53,6 +54,7 @@ export default function Board({
   onFocusConsumed?: () => void;
   canDelete?: boolean;
   canReassign?: boolean;
+  headerTools?: ReactNode;
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -208,16 +210,19 @@ export default function Board({
           {isPremium && (
             <div className="board-header">
               <div>
-                <div className="board-title">{pipeline.name}</div>
+                <div className="board-title">Pipeline</div>
                 <div className="board-sub">
-                  Lavora i lead e aggiorna la fase quando necessario.
+                  {pipeline.name} · Lavora i lead e aggiorna la fase quando necessario.
                 </div>
               </div>
-              {canEdit && (
-                <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(settingStage)}>
-                  + Nuovo lead
-                </button>
-              )}
+              <div className="section-header-actions">
+                {headerTools}
+                {canEdit && (
+                  <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(settingStage)}>
+                    + Nuovo lead
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div className="board">

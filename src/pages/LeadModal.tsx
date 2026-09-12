@@ -448,8 +448,8 @@ export default function LeadModal({
   }
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="overlay lead-drawer-overlay" onClick={onClose}>
+      <div className="modal lead-drawer" onClick={(e) => e.stopPropagation()}>
         <header>
           <h3>{isNew ? "Nuovo lead" : name || "Lead"}</h3>
           <button className="x" onClick={onClose}>

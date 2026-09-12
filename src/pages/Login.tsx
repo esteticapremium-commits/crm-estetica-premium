@@ -97,6 +97,7 @@ export default function Login() {
     return (
       <div className="login-wrap">
         <form className="login-box" onSubmit={setNewPassword}>
+          <div className="login-monogram" aria-hidden="true">EP</div>
           <h1>Nuova password</h1>
           <p>Scegli la nuova password per il tuo account.</p>
 
@@ -135,6 +136,7 @@ export default function Login() {
     return (
       <div className="login-wrap">
         <div className="login-box">
+          <div className="login-monogram" aria-hidden="true">EP</div>
           <h1>Password cambiata ✓</h1>
           <p>Ora puoi entrare con la nuova password.</p>
           <button
@@ -152,6 +154,7 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <form className="login-box" onSubmit={mode === "forgot" ? sendReset : submit}>
+        <div className="login-monogram" aria-hidden="true">EP</div>
         <h1>Estetica Premium</h1>
         <p>
           {mode === "forgot"

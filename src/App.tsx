@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import { useAuth } from "./useAuth";
 import type { Client, Lead, Pipeline } from "./types";
@@ -15,6 +15,24 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const PersonalTasks = lazy(() => import("./pages/PersonalTasks"));
 
 type Tab = "board" | "sales" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal";
+type NavIconName = "home" | "pipeline" | "tasks" | "calendar" | "sales" | "contracts" | "company" | "editorial" | "revenue" | "comp" | "settings";
+
+function NavIcon({ name }: { name: NavIconName }) {
+  const paths: Record<NavIconName, ReactNode> = {
+    home: <><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/><path d="M9.5 21v-7h5v7"/></>,
+    pipeline: <><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="4" width="6" height="6" rx="1.5"/><rect x="9" y="14" width="6" height="6" rx="1.5"/><path d="M6 10v2h6m6-2v2h-6v2"/></>,
+    tasks: <><path d="m4 6 2 2 4-4"/><path d="M12 6h8"/><path d="m4 13 2 2 4-4"/><path d="M12 13h8"/><path d="m4 20 2 2 4-4"/><path d="M12 20h8"/></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
+    sales: <><path d="M4 18 10 12l4 4 6-9"/><path d="M15 7h5v5"/></>,
+    contracts: <><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></>,
+    company: <><path d="M4 21V8l8-4v17M12 10l8-3v14M2 21h20"/><path d="M8 11h.01M8 15h.01M8 19h.01M16 11h.01M16 15h.01M16 19h.01"/></>,
+    editorial: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 9h18M8 13h3M8 17h7"/></>,
+    revenue: <><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5c-.8-.7-1.9-1-3.1-1-1.8 0-3 .8-3 2s1 1.8 3 2.2c2.1.4 3.2 1 3.2 2.4 0 1.3-1.2 2.4-3.3 2.4-1.4 0-2.7-.4-3.7-1.2M12 5.5v13"/></>,
+    comp: <><circle cx="12" cy="8" r="4"/><path d="M4.5 21c.7-4.2 3.2-6.5 7.5-6.5s6.8 2.3 7.5 6.5"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
+  };
+  return <i aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg></i>;
+}
 
 /** Evita lo schermo bianco se una pagina aperta prova a caricare un file
  * JavaScript della versione precedente subito dopo una nuova pubblicazione. */
@@ -50,6 +68,7 @@ export default function App() {
   const [q, setQ] = useState("");
   const [qResults, setQResults] = useState<Lead[]>([]);
   const [focusLeadId, setFocusLeadId] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.localStorage.getItem("ep-sidebar-collapsed") === "true"
   );
@@ -57,6 +76,24 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem("ep-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  // Ogni modulo parte dalla propria intestazione. Senza questo reset la
+  // posizione verticale del modulo precedente veniva mantenuta, facendo
+  // sembrare troncati titoli e controlli dopo un cambio sezione.
+  useLayoutEffect(() => {
+    const resetScroll = () => {
+      if (!contentRef.current) return;
+      contentRef.current.scrollTop = 0;
+      contentRef.current.scrollLeft = 0;
+    };
+    resetScroll();
+    const frame = window.requestAnimationFrame(resetScroll);
+    const afterModuleMount = window.setTimeout(resetScroll, 180);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(afterModuleMount);
+    };
+  }, [tab]);
 
   // Il venditore entra direttamente nella sua bacheca: qui lavora i lead.
   // La Panoramica rimane disponibile dal menu per seguire l'andamento generale.
@@ -178,17 +215,18 @@ export default function App() {
   const currentClient = clients.find((c) => c.id === clientId) ?? null;
   const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
   const boardPipeline = currentPipeline;
-  const pageTitle: Record<Tab, string> = {
-    control: "Panoramica",
-    board: "CRM · Pipeline",
-    sales: "CRM · Vendite",
-    tasks: "CRM · Attività",
-    calendar: "CRM · Calendario",
-    admin: "Impostazioni",
-    editorial: "Piano editoriale",
-    contracts: "Contratti",
-    personal: "Task Aziendali",
-  };
+  const headerTools = tab !== "editorial" && tab !== "contracts" ? (
+    <div className="section-global-tools">
+      {pipelines.length > 1 && tab !== "admin" && (
+        <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
+          {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      )}
+      <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
+        {qResults.length > 0 && <div className="search-results">{qResults.map((l) => <div className="sr" key={l.id} onClick={() => selectLead(l)}><span><b>{l.name || "(senza nome)"}</b>{l.phone}</span><span>{clients.find((c) => c.id === l.client_id)?.name ?? ""}</span></div>)}</div>}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className={`app theme-premium platform-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
@@ -197,32 +235,19 @@ export default function App() {
         <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed((v) => !v)} aria-label={sidebarCollapsed ? "Espandi barra laterale" : "Riduci barra laterale"} title={sidebarCollapsed ? "Espandi menu" : "Riduci menu"}>{sidebarCollapsed ? "›" : "‹"}</button>
         <nav className="side-nav" aria-label="Navigazione principale">
           <span className="nav-label">{isAdmin ? "Azienda" : "Generale"}</span>
-          <button className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><i>⌂</i> Panoramica</button>
+          <button title="Panoramica" className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><NavIcon name="home" /> Panoramica</button>
           <span className="nav-label">CRM</span>
-          <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><i>▦</i> Pipeline</button>
-          <button className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}><i>✓</i> Attività</button>
-          <button className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><i>□</i> Calendario</button>
-          <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><i>↗</i> Vendite</button>
-          <button className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><i>▤</i> Contratti</button>
-          {isAdmin && <><span className="nav-label">Azienda</span><button className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><i>◫</i> Task Aziendali</button><button className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><i>□</i> Piano editoriale</button><span className="side-item disabled"><i>€</i> Fatturato</span><span className="side-item disabled"><i>◌</i> Compensi</span><span className="nav-label">Sistema</span><button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><i>⚙</i> Impostazioni</button></>}
+          <button title="Pipeline" className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><NavIcon name="pipeline" /> Pipeline</button>
+          <button title="Attività" className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}><NavIcon name="tasks" /> Attività</button>
+          <button title="Calendario" className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><NavIcon name="calendar" /> Calendario</button>
+          <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
+          <button title="Contratti" className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><NavIcon name="contracts" /> Contratti</button>
+          {isAdmin && <><span className="nav-label">Azienda</span><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="side-item disabled"><NavIcon name="revenue" /> Fatturato</span><span className="side-item disabled"><NavIcon name="comp" /> Compensi</span><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
         </nav>
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
       </aside>
       <main className="app-main">
-        <header className="topbar app-header">
-          <div><div className="eyebrow">{isAdmin ? "Estetica Premium · Azienda" : "Estetica Premium · CRM"}</div><h1>{pageTitle[tab]}</h1></div>
-          <div className="header-actions">
-            {pipelines.length > 1 && tab !== "admin" && tab !== "editorial" && tab !== "contracts" && (
-              <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
-                {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            )}
-            {tab !== "editorial" && tab !== "contracts" && <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
-              {qResults.length > 0 && <div className="search-results">{qResults.map((l) => <div className="sr" key={l.id} onClick={() => selectLead(l)}><span><b>{l.name || "(senza nome)"}</b>{l.phone}</span><span>{clients.find((c) => c.id === l.client_id)?.name ?? ""}</span></div>)}</div>}
-            </div>}
-          </div>
-        </header>
-        <div className="app-content"><ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
+        <div className="app-content" ref={contentRef}><ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
@@ -235,36 +260,37 @@ export default function App() {
             onFocusConsumed={() => setFocusLeadId(null)}
             canDelete={isAdmin}
             canReassign={isAdmin}
+            headerTools={headerTools}
           />
         ) : (
           <div className="center-msg">Nessuna pipeline disponibile.</div>
         ))}
 
       {tab === "sales" && currentClient && currentPipeline && (
-        <Vendite client={currentClient} pipeline={currentPipeline} />
+        <Vendite client={currentClient} pipeline={currentPipeline} headerTools={headerTools} />
       )}
 
       {tab === "tasks" && currentClient && (
-        <Tasks client={currentClient} pipeline={currentPipeline} meName={meName} admin={isAdmin} onOpenLead={(lead) => { setClientId(lead.client_id); setPipelineId(lead.pipeline_id); setFocusLeadId(lead.id); setTab("board"); }} />
+        <Tasks client={currentClient} pipeline={currentPipeline} meName={meName} admin={isAdmin} headerTools={headerTools} onOpenLead={(lead) => { setClientId(lead.client_id); setPipelineId(lead.pipeline_id); setFocusLeadId(lead.id); setTab("board"); }} />
       )}
 
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} meName={meName} />
+        <Calendar client={currentClient} meName={meName} headerTools={headerTools} />
       )}
 
       {tab === "control" && currentClient && (
-        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} />
+        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "editorial" && isAdmin && currentClient && (
         <EditorialPlan clientId={currentClient.id} meName={meName} />
       )}
 
-      {tab === "personal" && isAdmin && <PersonalTasks />}
+      {tab === "personal" && isAdmin && <PersonalTasks headerTools={headerTools} />}
 
       {tab === "contracts" && <Contracts canManageLinks={isAdmin} />}
 
-      {tab === "admin" && isAdmin && <Admin clients={clients} />}
+      {tab === "admin" && isAdmin && <Admin clients={clients} headerTools={headerTools} />}
         </Suspense></ModuleBoundary></div>
       </main>
     </div>

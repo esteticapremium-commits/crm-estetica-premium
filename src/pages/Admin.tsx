@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import { normalizeSpecificApprovalSignature } from "../contractPdf";
 import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
@@ -35,8 +35,10 @@ interface SecretaryRow {
 
 export default function Admin({
   clients,
+  headerTools,
 }: {
   clients: Client[];
+  headerTools?: ReactNode;
 }) {
   const [selClient, setSelClient] = useState<string | null>(
     clients[0]?.id ?? null
@@ -84,10 +86,13 @@ export default function Admin({
           <h2>Impostazioni</h2>
           <p>Gestisci solo ciò che serve al lavoro quotidiano del team: accessi, pipeline, modelli e controllo attività.</p>
         </div>
-        <div className="settings-context">
-          <span>Area di lavoro</span>
-          <b>{current?.name ?? "Estetica Premium"}</b>
-          <small>{pipelines.length} {pipelines.length === 1 ? "pipeline attiva" : "pipeline attive"}</small>
+        <div className="section-header-actions">
+          {headerTools}
+          <div className="settings-context">
+            <span>Area di lavoro</span>
+            <b>{current?.name ?? "Estetica Premium"}</b>
+            <small>{pipelines.length} {pipelines.length === 1 ? "pipeline attiva" : "pipeline attive"}</small>
+          </div>
         </div>
       </section>
 
