@@ -1,0 +1,283 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { supabase } from "../supabaseClient";
+import { activityTimestamp, formatPct, normalizedLeadSource, pct } from "../salesKpi";
+import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesOutreachEvent, SalesRevenueEvent } from "../types";
+
+type ChannelFilter = "all" | "instantly" | "dm";
+type RangePreset = "7" | "30" | "month" | "custom";
+
+interface DailyKpi {
+  day: string;
+  leads: number;
+  instantlySent: number;
+  dmSent: number;
+  replies: number;
+  positiveReplies: number;
+  contactActions: number;
+  discoveryAttempts: number;
+  discoveryAnswered: number;
+  reachedLeads: number;
+  callMinutes: number;
+  discoveryBooked: number;
+  discoveryHeld: number;
+  qualified: number;
+  demoBooked: number;
+  demoHeld: number;
+  demoNoShow: number;
+  proposals: number;
+  signed: number;
+  renewals: number;
+  upsells: number;
+  collectedNew: number;
+  collectedRenewal: number;
+  collectedUpsell: number;
+  contractValue: number;
+  costs: number;
+}
+
+const dayInRome = (value: string | Date) => new Date(value).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+const today = () => dayInRome(new Date());
+const dateFromIso = (iso: string) => new Date(`${iso}T00:00:00`);
+const addDays = (iso: string, amount: number) => { const date = dateFromIso(iso); date.setDate(date.getDate() + amount); return dayInRome(date); };
+const eur = (value: number) => `€ ${value.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const number = (value: unknown) => Number(value) || 0;
+const emptyDay = (day: string): DailyKpi => ({ day, leads: 0, instantlySent: 0, dmSent: 0, replies: 0, positiveReplies: 0, contactActions: 0, discoveryAttempts: 0, discoveryAnswered: 0, reachedLeads: 0, callMinutes: 0, discoveryBooked: 0, discoveryHeld: 0, qualified: 0, demoBooked: 0, demoHeld: 0, demoNoShow: 0, proposals: 0, signed: 0, renewals: 0, upsells: 0, collectedNew: 0, collectedRenewal: 0, collectedUpsell: 0, contractValue: 0, costs: 0 });
+const sumRows = (rows: DailyKpi[]) => rows.reduce((total, row) => { (Object.keys(total) as Array<keyof DailyKpi>).forEach((key) => { if (key !== "day") (total[key] as number) += row[key] as number; }); return total; }, emptyDay("totale"));
+const isHeldDiscovery = (outcome?: string | null) => ["qualified", "not_qualified"].includes(outcome || "");
+
+export default function Kpi({ client, meName, admin, headerTools }: { client: Client; meName: string; admin: boolean; headerTools?: ReactNode }) {
+  const [activities, setActivities] = useState<LeadActivity[]>([]);
+  const [outreach, setOutreach] = useState<SalesOutreachEvent[]>([]);
+  const [outreachReady, setOutreachReady] = useState(false);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [revenue, setRevenue] = useState<SalesRevenueEvent[]>([]);
+  const [costs, setCosts] = useState<SalesCost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [setupWarning, setSetupWarning] = useState(false);
+  const [preset, setPreset] = useState<RangePreset>("30");
+  const [customFrom, setCustomFrom] = useState(addDays(today(), -29));
+  const [customTo, setCustomTo] = useState(today());
+  const [seller, setSeller] = useState(admin ? "all" : meName);
+  const [channel, setChannel] = useState<ChannelFilter>("all");
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [costOpen, setCostOpen] = useState(false);
+
+  const range = useMemo(() => {
+    const end = today();
+    if (preset === "custom") return { from: customFrom, to: customTo };
+    if (preset === "month") return { from: `${end.slice(0, 7)}-01`, to: end };
+    return { from: addDays(end, -(Number(preset) - 1)), to: end };
+  }, [preset, customFrom, customTo]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null); setSetupWarning(false);
+    const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult] = await Promise.all([
+      supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
+      supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
+      supabase.from("leads").select("*").eq("client_id", client.id),
+      supabase.from("contracts").select("*").eq("client_id", client.id),
+      supabase.from("sales_revenue_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }),
+      admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    ]);
+    const coreError = activityResult.error || leadResult.error || contractResult.error;
+    if (coreError) setError(`KPI non caricati: ${coreError.message}`);
+    if (outreachResult.error || revenueResult.error || costResult.error || !activityResult.data?.some((row) => "event_type" in row)) setSetupWarning(true);
+    setActivities((activityResult.data as LeadActivity[]) || []);
+    setOutreach((outreachResult.data as SalesOutreachEvent[]) || []);
+    setOutreachReady(!outreachResult.error);
+    setLeads((leadResult.data as Lead[]) || []);
+    setContracts((contractResult.data as Contract[]) || []);
+    setRevenue((revenueResult.data as SalesRevenueEvent[]) || []);
+    setCosts((costResult.data as SalesCost[]) || []);
+    setLoading(false);
+  }, [admin, client.id]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!admin) setSeller(meName); }, [admin, meName]);
+
+  const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
+  const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map((activity) => activity.created_by), ...outreach.map((event) => event.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leads, outreach]);
+
+  const sourceMatches = (leadId: string | null | undefined, explicit?: string | null) => {
+    if (channel === "all") return true;
+    const source = explicit === "instantly" || explicit === "dm" ? explicit : normalizedLeadSource(leadId ? leadById.get(leadId)?.source : null);
+    return source === channel;
+  };
+  const sellerMatches = (name: string | null | undefined) => seller === "all" || (name || "").trim().toLowerCase() === seller.trim().toLowerCase();
+  const inRange = (day: string) => day >= range.from && day <= range.to;
+
+  const rows = useMemo(() => {
+    const result = new Map<string, DailyKpi>();
+    const reachedByDay = new Map<string, Set<string>>();
+    for (let day = range.from; day <= range.to; day = addDays(day, 1)) result.set(day, emptyDay(day));
+    const rowOf = (day: string) => { if (!result.has(day)) result.set(day, emptyDay(day)); return result.get(day)!; };
+
+    leads.forEach((lead) => {
+      const day = dayInRome(lead.created_at);
+      if (inRange(day) && sellerMatches(lead.assigned_to) && sourceMatches(lead.id)) rowOf(day).leads += 1;
+    });
+
+    if (outreachReady) outreach.forEach((event) => {
+      const day = dayInRome(event.occurred_at);
+      if (!inRange(day) || !sellerMatches(event.assigned_to) || !sourceMatches(event.lead_id, event.channel)) return;
+      const row = rowOf(day);
+      const quantity = number(event.quantity) || 1;
+      if (event.event_type === "sent") {
+        if (event.channel === "instantly") row.instantlySent += quantity;
+        if (event.channel === "dm") row.dmSent += quantity;
+        row.contactActions += quantity;
+      }
+      if (event.event_type === "reply") {
+        row.replies += quantity;
+        if (event.outcome === "positive") row.positiveReplies += quantity;
+      }
+      if (event.event_type === "positive_reply") row.positiveReplies += quantity;
+      if (event.event_type === "booking") {
+        const alreadyInCrm = Boolean(event.lead_id && activities.some((activity) => activity.lead_id === event.lead_id && activity.event_type === "discovery_booked" && dayInRome(activityTimestamp(activity)) === day));
+        if (!alreadyInCrm) row.discoveryBooked += 1;
+      }
+    });
+
+    activities.forEach((activity) => {
+      const day = dayInRome(activityTimestamp(activity));
+      if (!inRange(day) || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      const row = rowOf(day); const type = activity.event_type || ""; const outcome = activity.outcome || "";
+      if (!outreachReady && type === "outreach_sent") {
+        if (activity.channel === "instantly") row.instantlySent += 1;
+        if (activity.channel === "dm") row.dmSent += 1;
+      }
+      if (!outreachReady && type === "outreach_reply") { row.replies += 1; if (outcome === "positive") row.positiveReplies += 1; }
+      if ((type === "follow_up" || type === "discovery_call") || (!outreachReady && type === "outreach_sent")) row.contactActions += 1;
+      if (type === "discovery_call" || (!type && activity.activity_type === "call")) {
+        row.discoveryAttempts += 1;
+        if (outcome !== "no_answer" && outcome !== "Non risponde") {
+          row.discoveryAnswered += 1;
+          const reached = reachedByDay.get(day) || new Set<string>();
+          reached.add(activity.lead_id);
+          reachedByDay.set(day, reached);
+          row.reachedLeads = reached.size;
+        }
+        row.callMinutes += number(activity.duration_minutes);
+        if (isHeldDiscovery(outcome)) row.discoveryHeld += 1;
+        if (outcome === "qualified") row.qualified += 1;
+      }
+      if (type === "discovery_booked") row.discoveryBooked += 1;
+      if (type === "demo_booked") row.demoBooked += 1;
+      if (type === "demo_call") {
+        row.callMinutes += number(activity.duration_minutes);
+        if (outcome === "held") row.demoHeld += 1;
+        if (outcome === "no_show") row.demoNoShow += 1;
+      }
+      if (type === "proposal_sent") row.proposals += 1;
+    });
+
+    // Il contratto è la fonte autorevole per proposte e firme. Se nello stesso
+    // giorno esiste già l'evento manuale della proposta, non viene duplicato.
+    contracts.forEach((contract) => {
+      const lead = contract.lead_id ? leadById.get(contract.lead_id) : null;
+      if (!sellerMatches(lead?.assigned_to || contract.created_by) || !sourceMatches(contract.lead_id)) return;
+      // I vecchi contratti firmati non hanno sempre sent_at valorizzato: in quel
+      // caso created_at è il miglior dato certo disponibile per la proposta.
+      const proposalAt = contract.sent_at || (contract.status === "signed" ? contract.created_at : null);
+      if (proposalAt) {
+        const day = dayInRome(proposalAt);
+        if (inRange(day)) {
+          const hasManual = activities.some((activity) => activity.lead_id === contract.lead_id && activity.event_type === "proposal_sent" && dayInRome(activityTimestamp(activity)) === day);
+          if (!hasManual) rowOf(day).proposals += 1;
+        }
+      }
+      if (contract.signed_at) {
+        const day = dayInRome(contract.signed_at);
+        if (inRange(day)) { rowOf(day).signed += 1; rowOf(day).contractValue += number(lead?.value); }
+      }
+    });
+
+    revenue.forEach((entry) => {
+      const day = dayInRome(entry.occurred_at);
+      if (!inRange(day) || entry.status !== "collected" || !sellerMatches(entry.assigned_to) || !sourceMatches(entry.lead_id)) return;
+      const row = rowOf(day);
+      if (entry.revenue_type === "new") row.collectedNew += number(entry.amount);
+      if (entry.revenue_type === "renewal") { row.renewals += 1; row.collectedRenewal += number(entry.amount); }
+      if (entry.revenue_type === "upsell") { row.upsells += 1; row.collectedUpsell += number(entry.amount); }
+    });
+    costs.forEach((entry) => {
+      const channelMatches = channel === "all" || (channel === "instantly" && entry.cost_type === "instantly") || (channel === "dm" && entry.cost_type === "dm_tools");
+      if (inRange(entry.cost_date) && channelMatches) rowOf(entry.cost_date).costs += number(entry.amount);
+    });
+    return [...result.values()].sort((a, b) => b.day.localeCompare(a.day));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, channel, contracts, costs, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller]);
+
+  const total = useMemo(() => sumRows(rows), [rows]);
+  const sent = (row: DailyKpi) => row.instantlySent + row.dmSent;
+  const collected = (row: DailyKpi) => row.collectedNew + row.collectedRenewal + row.collectedUpsell;
+  const bookingRate = (row: DailyKpi) => pct(row.discoveryBooked, row.replies);
+  const bookingOnSentRate = (row: DailyKpi) => pct(row.discoveryBooked, sent(row));
+  const responseRate = (row: DailyKpi) => pct(row.replies, sent(row));
+  const phoneContactRate = (row: DailyKpi) => pct(row.discoveryAnswered, row.discoveryAttempts);
+  const qualificationRate = (row: DailyKpi) => pct(row.qualified, row.discoveryHeld);
+  const showRate = (row: DailyKpi) => pct(row.demoHeld, row.demoBooked);
+  const discoveryToDemo = (row: DailyKpi) => pct(row.demoBooked, row.qualified);
+  const proposalRate = (row: DailyKpi) => pct(row.proposals, row.discoveryHeld);
+  const discoveryDemoDrop = (row: DailyKpi) => row.discoveryHeld > 0 ? (Math.max(row.discoveryHeld - row.demoBooked, 0) / row.discoveryHeld) * 100 : null;
+  const attemptsPerReached = (row: DailyKpi) => row.reachedLeads > 0 ? row.discoveryAttempts / row.reachedLeads : null;
+  const winRate = (row: DailyKpi) => pct(row.signed, row.proposals);
+  const cpl = (row: DailyKpi) => row.discoveryBooked > 0 ? row.costs / row.discoveryBooked : null;
+  const cac = (row: DailyKpi) => row.signed > 0 ? row.costs / row.signed : null;
+  const roi = (row: DailyKpi) => row.costs > 0 ? collected(row) / row.costs : null;
+
+  if (loading) return <div className="center-msg">Calcolo KPI commerciali…</div>;
+
+  return <div className="page kpi-page">
+    <div className="kpi-intro"><div><span className="eyebrow">CONTROLLO COMMERCIALE</span><h1>KPI vendite</h1><p>Outreach Instantly e DM → discovery telefonica → demo in videochiamata → contratto e incasso.</p></div><div className="section-header-actions">{headerTools}<button className="btn" onClick={() => void load()}>Aggiorna</button><button className="btn" onClick={() => setOutreachOpen(true)}>+ Dati outreach</button>{admin && <button className="btn primary" onClick={() => setCostOpen(true)}>+ Registra costo</button>}</div></div>
+    {error && <div className="notice err">{error}</div>}
+    {setupWarning && <div className="notice warn"><b>Tracciamento KPI da attivare nel database.</b> La pagina mostra i dati già disponibili, ma incassi, costi e nuovi eventi strutturati saranno completi dopo la migrazione <code>upgrade_sales_kpis.sql</code>.</div>}
+
+    <section className="kpi-filters panel"><div><label>Periodo</label><div className="segmented"><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>{preset === "custom" && <div className="kpi-date-range"><label>Dal<input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>Al<input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label></div>}<label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Instantly + DM</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option></select></label>{admin && <label>Venditore<select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutto il team</option>{sellers.map((name) => <option value={name} key={name}>{name}</option>)}</select></label>}</section>
+
+    <div className="kpi-summary-grid"><Summary label="Messaggi inviati" value={sent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} /><Summary label="Tasso di risposta" value={formatPct(responseRate(total))} detail={`${total.replies} risposte / ${sent(total)} invii`} /><Summary label="% PRENOT" value={formatPct(bookingOnSentRate(total))} detail={`${total.discoveryBooked} discovery / ${sent(total)} invii`} /><Summary label="% PREN RIS" value={formatPct(bookingRate(total))} detail={`${total.discoveryBooked} discovery / ${total.replies} risposte`} /><Summary label="Contatto telefonico" value={formatPct(phoneContactRate(total))} detail={`${total.discoveryAnswered} risposte / ${total.discoveryAttempts} tentativi`} /><Summary label="T/M" value={attemptsPerReached(total)?.toLocaleString("it-IT", { maximumFractionDigits: 1 }) || "—"} detail={`${total.discoveryAttempts} tentativi / ${total.reachedLeads} lead raggiunti`} /><Summary label="Qualificazione" value={formatPct(qualificationRate(total))} detail={`${total.qualified} in target / ${total.discoveryHeld} discovery`} /><Summary label="Discovery → demo" value={formatPct(discoveryToDemo(total))} detail={`${total.demoBooked} demo / ${total.qualified} qualificati`} /><Summary label="DROP D/DE" value={formatPct(discoveryDemoDrop(total))} detail={`${Math.max(total.discoveryHeld - total.demoBooked, 0)} persi / ${total.discoveryHeld} discovery`} /><Summary label="Show-up demo" value={formatPct(showRate(total))} detail={`${total.demoHeld} svolte / ${total.demoBooked} fissate`} /><Summary label="Discovery → proposta" value={formatPct(proposalRate(total))} detail={`${total.proposals} proposte / ${total.discoveryHeld} discovery`} /><Summary label="Win rate" value={formatPct(winRate(total))} detail={`${total.signed} contratti / ${total.proposals} proposte`} /><Summary label="€ SALES" value={eur(total.contractValue)} detail={`${total.signed} contratti firmati`} /><Summary label="Incassato" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo`} positive /><Summary label="VAL TOT M" value={total.signed ? eur(total.contractValue / total.signed) : "—"} detail="Valore medio per contratto firmato" /></div>
+
+    <section className="panel kpi-table-panel"><header><div><span className="eyebrow">GIORNO PER GIORNO</span><h2>Registro KPI</h2></div><span>Fuso orario: Europa/Roma</span></header><div className="kpi-table-scroll"><table className="kpi-table"><thead><tr><th className="sticky-col">Data</th><th>Lead</th><th>Instantly</th><th>DM</th><th>Risposte</th><th>Positive</th><th>% risposta</th><th>Azioni contatto</th><th>Discovery fissate</th><th>% PRENOT</th><th>% PREN RIS</th><th>Tentativi tel.</th><th>Lead raggiunti</th><th>T/M</th><th>% contatto tel.</th><th>Minuti call</th><th>Discovery svolte</th><th>In target</th><th>% in target</th><th>Demo fissate</th><th>DROP D/DE</th><th>Demo svolte</th><th>No-show demo</th><th>% show-up demo</th><th>% disco→demo</th><th>Proposte</th><th>% discovery→proposta</th><th>Contratti firmati</th><th>% chiusura</th><th>Rinnovi</th><th>Upsell</th><th>Incassato nuovo</th><th>Incassato rinnovi</th><th>Incassato upsell</th><th>Incassato totale</th><th>€ SALES</th><th>VAL TOT M</th>{admin && <><th>Costi outreach</th><th>CPL</th><th>CAC</th><th>ROI</th></>}</tr></thead><tbody><KpiRow row={total} total admin={admin} />{rows.map((row) => <KpiRow key={row.day} row={row} admin={admin} />)}</tbody></table></div></section>
+
+    <details className="panel kpi-definitions"><summary>Come vengono calcolati i numeri</summary><div><p><b>% PRENOT:</b> discovery fissate ÷ messaggi inviati. <b>% PREN RIS:</b> discovery fissate ÷ risposte.</p><p><b>T/M:</b> tentativi telefonici ÷ lead raggiunti. <b>DROP D/DE:</b> discovery che non arrivano alla demo ÷ discovery svolte.</p><p><b>Risposta:</b> risposta Instantly o DM ÷ messaggi inviati nello stesso periodo.</p><p><b>Contatto telefonico:</b> telefonate con risposta ÷ tentativi di discovery.</p><p><b>Qualificazione:</b> prospect in target ÷ discovery telefoniche svolte.</p><p><b>Discovery → demo:</b> demo fissate ÷ prospect qualificati. <b>Show-up demo:</b> demo svolte ÷ demo fissate.</p><p><b>Avanzamento:</b> proposte inviate ÷ discovery svolte. <b>Chiusura:</b> contratti firmati ÷ proposte inviate. La firma non viene trattata come incasso.</p><p><b>€ SALES:</b> valore totale dei contratti firmati. <b>VAL TOT M:</b> valore medio per contratto firmato.</p><p><b>CPL:</b> costi outreach ÷ discovery fissate. <b>CAC:</b> costi outreach ÷ contratti firmati. <b>ROI:</b> incassato ÷ costi outreach.</p></div></details>
+    {outreachOpen && <OutreachModal client={client} meName={meName} admin={admin} sellers={sellers} onClose={() => setOutreachOpen(false)} onSaved={() => { setOutreachOpen(false); void load(); }} />}
+    {costOpen && <CostModal client={client} meName={meName} onClose={() => setCostOpen(false)} onSaved={() => { setCostOpen(false); void load(); }} />}
+  </div>;
+}
+
+function Summary({ label, value, detail, positive }: { label: string; value: string | number; detail: string; positive?: boolean }) { return <article className={`kpi-summary${positive ? " positive" : ""}`}><span>{label}</span><b>{value}</b><small>{detail}</small></article>; }
+
+function KpiRow({ row, total, admin }: { row: DailyKpi; total?: boolean; admin: boolean }) {
+  const sent = row.instantlySent + row.dmSent; const collected = row.collectedNew + row.collectedRenewal + row.collectedUpsell;
+  const label = total ? "Totale periodo" : new Date(`${row.day}T12:00:00`).toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short" });
+  const tpm = row.reachedLeads > 0 ? row.discoveryAttempts / row.reachedLeads : null;
+  const drop = row.discoveryHeld > 0 ? (Math.max(row.discoveryHeld - row.demoBooked, 0) / row.discoveryHeld) * 100 : null;
+  return <tr className={total ? "total" : row.day === today() ? "today" : ""}><th className="sticky-col">{label}</th><td>{row.leads}</td><td>{row.instantlySent}</td><td>{row.dmSent}</td><td>{row.replies}</td><td>{row.positiveReplies}</td><td>{formatPct(pct(row.replies, sent))}</td><td>{row.contactActions}</td><td>{row.discoveryBooked}</td><td>{formatPct(pct(row.discoveryBooked, sent))}</td><td>{formatPct(pct(row.discoveryBooked, row.replies))}</td><td>{row.discoveryAttempts}</td><td>{row.reachedLeads}</td><td>{tpm === null ? "—" : tpm.toLocaleString("it-IT", { maximumFractionDigits: 1 })}</td><td>{formatPct(pct(row.discoveryAnswered, row.discoveryAttempts))}</td><td>{row.callMinutes}</td><td>{row.discoveryHeld}</td><td>{row.qualified}</td><td>{formatPct(pct(row.qualified, row.discoveryHeld))}</td><td>{row.demoBooked}</td><td>{formatPct(drop)}</td><td>{row.demoHeld}</td><td>{row.demoNoShow}</td><td>{formatPct(pct(row.demoHeld, row.demoBooked))}</td><td>{formatPct(pct(row.demoBooked, row.qualified))}</td><td>{row.proposals}</td><td>{formatPct(pct(row.proposals, row.discoveryHeld))}</td><td>{row.signed}</td><td>{formatPct(pct(row.signed, row.proposals))}</td><td>{row.renewals}</td><td>{row.upsells}</td><td>{eur(row.collectedNew)}</td><td>{eur(row.collectedRenewal)}</td><td>{eur(row.collectedUpsell)}</td><td className="money">{eur(collected)}</td><td>{eur(row.contractValue)}</td><td>{row.signed ? eur(row.contractValue / row.signed) : "—"}</td>{admin && <><td>{eur(row.costs)}</td><td>{row.discoveryBooked ? eur(row.costs / row.discoveryBooked) : "—"}</td><td>{row.signed ? eur(row.costs / row.signed) : "—"}</td><td>{row.costs ? `${(collected / row.costs).toLocaleString("it-IT", { maximumFractionDigits: 2 })}x` : "—"}</td></>}</tr>;
+}
+
+function OutreachModal({ client, meName, admin, sellers, onClose, onSaved }: { client: Client; meName: string; admin: boolean; sellers: string[]; onClose: () => void; onSaved: () => void }) {
+  const [channel, setChannel] = useState<"instantly" | "dm">("dm"); const [date, setDate] = useState(today()); const [sent, setSent] = useState(""); const [replies, setReplies] = useState(""); const [positive, setPositive] = useState(""); const [assignedTo, setAssignedTo] = useState(meName); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  async function save() {
+    const sentCount = number(sent); const replyCount = number(replies); const positiveCount = number(positive);
+    if (!date || sentCount + replyCount + positiveCount <= 0) return setError("Inserisci almeno un valore maggiore di zero.");
+    if (positiveCount > replyCount) return setError("Le risposte positive non possono superare le risposte totali.");
+    const batchId = crypto.randomUUID(); const occurredAt = new Date(`${date}T12:00:00`).toISOString();
+    const common = { client_id: client.id, lead_id: null, channel, occurred_at: occurredAt, assigned_to: assignedTo || meName, created_by: meName, campaign_name: "Inserimento giornaliero", details: { aggregate: true, batch_id: batchId } };
+    const records: Record<string, unknown>[] = [];
+    if (sentCount > 0) records.push({ ...common, event_type: "sent", quantity: sentCount, external_id: `manual:${batchId}:sent` });
+    if (replyCount > 0) records.push({ ...common, event_type: "reply", quantity: replyCount, external_id: `manual:${batchId}:reply` });
+    if (positiveCount > 0) records.push({ ...common, event_type: "positive_reply", quantity: positiveCount, external_id: `manual:${batchId}:positive` });
+    setBusy(true); const result = await supabase.from("sales_outreach_events").insert(records); setBusy(false);
+    if (result.error) setError(result.error.message); else onSaved();
+  }
+  const people = [...new Set([meName, ...sellers].filter(Boolean))];
+  return <div className="overlay" onClick={onClose}><div className="modal kpi-cost-modal" onClick={(event) => event.stopPropagation()}><header><div><h3>Registra outreach giornaliero</h3><p>Un solo inserimento per i volumi DM o per eventuali dati Instantly mancanti.</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}<div className="modal-row"><div className="field"><label>Canale</label><select value={channel} onChange={(event) => setChannel(event.target.value as "instantly" | "dm")}><option value="dm">DM</option><option value="instantly">Instantly · recupero manuale</option></select></div><div className="field"><label>Data</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div></div>{admin && <div className="field"><label>Responsabile</label><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}>{people.map((person) => <option key={person} value={person}>{person}</option>)}</select></div>}<div className="modal-row"><div className="field"><label>Messaggi inviati</label><input type="number" min="0" step="1" value={sent} onChange={(event) => setSent(event.target.value)} /></div><div className="field"><label>Risposte</label><input type="number" min="0" step="1" value={replies} onChange={(event) => setReplies(event.target.value)} /></div></div><div className="field"><label>Risposte positive</label><input type="number" min="0" step="1" value={positive} onChange={(event) => setPositive(event.target.value)} /></div></div><footer><button className="btn" onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Registra dati"}</button></footer></div></div>;
+}
+
+function CostModal({ client, meName, onClose, onSaved }: { client: Client; meName: string; onClose: () => void; onSaved: () => void }) {
+  const [type, setType] = useState<SalesCost["cost_type"]>("instantly"); const [amount, setAmount] = useState(""); const [date, setDate] = useState(today()); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  async function save() { if (number(amount) <= 0 || !date) return setError("Inserisci un importo e una data validi."); setBusy(true); const result = await supabase.from("sales_costs").insert({ client_id: client.id, cost_type: type, amount: number(amount), cost_date: date, note: note.trim() || null, created_by: meName }); setBusy(false); if (result.error) setError(result.error.message); else onSaved(); }
+  return <div className="overlay" onClick={onClose}><div className="modal kpi-cost-modal" onClick={(event) => event.stopPropagation()}><header><div><h3>Registra costo outreach</h3><p>Serve per CPL, CAC e ROI.</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}<div className="field"><label>Tipo di costo</label><select value={type} onChange={(event) => setType(event.target.value as SalesCost["cost_type"])}><option value="instantly">Instantly / email</option><option value="dm_tools">Strumenti DM</option><option value="personnel">Personale outreach</option><option value="other">Altro</option></select></div><div className="modal-row"><div className="field"><label>Importo (€)</label><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></div><div className="field"><label>Data</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div></div><div className="field"><label>Nota</label><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Es. abbonamento mensile" /></div></div><footer><button className="btn" onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Registra costo"}</button></footer></div></div>;
+}

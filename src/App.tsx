@@ -13,9 +13,10 @@ const Contracts = lazy(() => import("./pages/Contracts"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Calendar = lazy(() => import("./pages/Calendar"));
 const PersonalTasks = lazy(() => import("./pages/PersonalTasks"));
+const Kpi = lazy(() => import("./pages/Kpi"));
 
-type Tab = "board" | "sales" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal";
-type NavIconName = "home" | "pipeline" | "tasks" | "calendar" | "sales" | "contracts" | "company" | "editorial" | "revenue" | "comp" | "settings";
+type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal";
+type NavIconName = "home" | "pipeline" | "tasks" | "calendar" | "sales" | "kpi" | "contracts" | "company" | "editorial" | "revenue" | "comp" | "settings";
 
 function NavIcon({ name }: { name: NavIconName }) {
   const paths: Record<NavIconName, ReactNode> = {
@@ -24,6 +25,7 @@ function NavIcon({ name }: { name: NavIconName }) {
     tasks: <><path d="m4 6 2 2 4-4"/><path d="M12 6h8"/><path d="m4 13 2 2 4-4"/><path d="M12 13h8"/><path d="m4 20 2 2 4-4"/><path d="M12 20h8"/></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
     sales: <><path d="M4 18 10 12l4 4 6-9"/><path d="M15 7h5v5"/></>,
+    kpi: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/><path d="m3 7 6-4 6 6 6-5"/></>,
     contracts: <><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></>,
     company: <><path d="M4 21V8l8-4v17M12 10l8-3v14M2 21h20"/><path d="M8 11h.01M8 15h.01M8 19h.01M16 11h.01M16 15h.01M16 19h.01"/></>,
     editorial: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 9h18M8 13h3M8 17h7"/></>,
@@ -241,6 +243,7 @@ export default function App() {
           <button title="Attività" className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}><NavIcon name="tasks" /> Attività</button>
           <button title="Calendario" className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><NavIcon name="calendar" /> Calendario</button>
           <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
+          <button title="KPI vendite" className={tab === "kpi" ? "active" : ""} onClick={() => setTab("kpi")}><NavIcon name="kpi" /> KPI vendite</button>
           <button title="Contratti" className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><NavIcon name="contracts" /> Contratti</button>
           {isAdmin && <><span className="nav-label">Azienda</span><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="side-item disabled"><NavIcon name="revenue" /> Fatturato</span><span className="side-item disabled"><NavIcon name="comp" /> Compensi</span><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
         </nav>
@@ -268,6 +271,10 @@ export default function App() {
 
       {tab === "sales" && currentClient && currentPipeline && (
         <Vendite client={currentClient} pipeline={currentPipeline} headerTools={headerTools} />
+      )}
+
+      {tab === "kpi" && currentClient && (
+        <Kpi client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "tasks" && currentClient && (

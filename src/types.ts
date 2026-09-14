@@ -71,6 +71,14 @@ export interface LeadActivity {
   next_action_date: string | null;
   created_by: string | null;
   created_at: string;
+  pipeline_id?: string | null;
+  event_type?: string | null;
+  channel?: string | null;
+  duration_minutes?: number | null;
+  occurred_at?: string | null;
+  scheduled_at?: string | null;
+  amount?: number | null;
+  details?: Record<string, unknown> | null;
 }
 
 export interface SalesTask {
@@ -87,6 +95,56 @@ export interface SalesTask {
   completed_by: string | null;
   created_at: string;
   updated_at: string;
+  appointment_type?: "discovery" | "demo" | null;
+  appointment_status?: "scheduled" | "held" | "no_show" | "cancelled" | "rescheduled" | null;
+  duration_minutes?: number | null;
+  google_event_id?: string | null;
+}
+
+export interface SalesRevenueEvent {
+  id: string;
+  client_id: string;
+  pipeline_id: string | null;
+  lead_id: string | null;
+  revenue_type: "new" | "renewal" | "upsell";
+  amount: number;
+  contract_value: number | null;
+  status: "expected" | "collected" | "cancelled";
+  occurred_at: string;
+  assigned_to: string | null;
+  created_by: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface SalesOutreachEvent {
+  id: string;
+  client_id: string;
+  lead_id: string | null;
+  channel: "instantly" | "dm";
+  event_type: "sent" | "reply" | "positive_reply" | "opened" | "bounced" | "unsubscribed" | "booking";
+  quantity: number;
+  outcome: string | null;
+  contact_key: string | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  external_id: string;
+  occurred_at: string;
+  assigned_to: string | null;
+  created_by: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SalesCost {
+  id: string;
+  client_id: string;
+  cost_type: "instantly" | "dm_tools" | "personnel" | "other";
+  amount: number;
+  cost_date: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 export type PersonalTaskStatus = "backlog" | "next" | "doing" | "waiting" | "done";

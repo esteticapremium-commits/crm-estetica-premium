@@ -4,10 +4,12 @@ import { romeStamp } from "../dates";
 import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, OWNER_CALENDAR_ID } from "../calendarGoogle";
-import type { Contract, ContractTemplate, Lead, Stage } from "../types";
+import { CHANNEL_LABELS, EVENT_LABELS, OUTCOME_LABELS } from "../salesKpi";
+import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 const NOTE_SEPARATOR = "\n\n---\n\n";
+const localDateTime = (date: Date) => { const pad = (value: number) => String(value).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
 const AUTOMATIC_CONTRACT_FIELDS = new Set([
   "data_oggi",
   "data_firma",
@@ -118,7 +120,7 @@ export default function LeadModal({
   const [name, setName] = useState(lead?.name ?? "");
   const [phone, setPhone] = useState(lead?.phone ?? "");
   const [email, setEmail] = useState(lead?.email ?? "");
-  const [source, setSource] = useState(lead?.source ?? "Facebook");
+  const [source, setSource] = useState(lead?.source ?? "Instantly");
   const [assigned, setAssigned] = useState(lead?.assigned_to ?? "");
   const [value, setValue] = useState(String(lead?.value ?? 0));
   const settingStageId = stages.find((stage) => stage.name === "SETTING")?.id ?? newInStage?.id ?? stages[0]?.id;
@@ -134,14 +136,24 @@ export default function LeadModal({
   const [tags, setTags] = useState(lead?.tags ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [activityType, setActivityType] = useState("call");
-  const [activityOutcome, setActivityOutcome] = useState("");
+  const [activityType, setActivityType] = useState("discovery_call");
+  const [activityChannel, setActivityChannel] = useState("phone");
+  const [activityOutcome, setActivityOutcome] = useState("no_answer");
   const [activityNote, setActivityNote] = useState("");
+  const [activityMinutes, setActivityMinutes] = useState("");
+  const [activityAt, setActivityAt] = useState(() => localDateTime(new Date()));
+  const [activityHistory, setActivityHistory] = useState<LeadActivity[]>([]);
   const [planKind, setPlanKind] = useState<"task" | "appointment">("task");
+  const [planAppointmentType, setPlanAppointmentType] = useState<"discovery" | "demo">("discovery");
   const [planTitle, setPlanTitle] = useState("");
   const [planDue, setPlanDue] = useState("");
   const [planNote, setPlanNote] = useState("");
   const [planPriority, setPlanPriority] = useState(false);
+  const [revenueType, setRevenueType] = useState<SalesRevenueEvent["revenue_type"]>("new");
+  const [revenueAmount, setRevenueAmount] = useState("");
+  const [revenueContractValue, setRevenueContractValue] = useState("");
+  const [revenueAt, setRevenueAt] = useState(() => localDateTime(new Date()));
+  const [revenueNote, setRevenueNote] = useState("");
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -182,6 +194,109 @@ export default function LeadModal({
         setCtTpl(templatesWithTrial[0]?.id ?? "");
       });
   }, [lead?.id]);
+
+  useEffect(() => {
+    if (!lead) return;
+    supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => setActivityHistory((data as LeadActivity[]) ?? []));
+  }, [lead?.id]);
+
+  const outcomeOptions: Record<string, Array<[string, string]>> = {
+    outreach_sent: [["sent", "Inviato"]],
+    outreach_reply: [["positive", "Risposta positiva"], ["neutral", "Risposta neutra"], ["negative", "Risposta negativa"]],
+    follow_up: [["sent", "Inviato"], ["answered", "Ha risposto"], ["no_answer", "Nessuna risposta"]],
+    discovery_call: [["no_answer", "Non risponde"], ["qualified", "Discovery svolta · in target"], ["not_qualified", "Discovery svolta · fuori target"]],
+    demo_call: [["held", "Demo svolta"], ["no_show", "No-show"], ["rescheduled", "Riprogrammata"]],
+    proposal_sent: [["sent", "Proposta inviata"]],
+    sale_outcome: [["won", "Chiuso vinto"], ["lost", "Perso"]],
+  };
+
+  function defaultChannel(eventType: string) {
+    if (eventType === "discovery_call") return "phone";
+    if (eventType === "demo_call") return "video_call";
+    if (["outreach_sent", "outreach_reply", "follow_up"].includes(eventType)) return activityChannel === "instantly" || activityChannel === "dm" ? activityChannel : "instantly";
+    return "other";
+  }
+
+  function changeActivityType(next: string) {
+    setActivityType(next);
+    const channel = next === "discovery_call" ? "phone" : next === "demo_call" ? "video_call" : ["outreach_sent", "outreach_reply", "follow_up"].includes(next) ? "instantly" : "other";
+    setActivityChannel(channel);
+    setActivityOutcome(outcomeOptions[next]?.[0]?.[0] ?? "");
+    setActivityMinutes("");
+  }
+
+  async function recordCommercialActivity() {
+    if (!lead) return;
+    if (!activityAt || !activityOutcome) return setErr("Scegli esito, data e ora dell'attività.");
+    const minutes = Number(activityMinutes) || 0;
+    if ((activityType === "discovery_call" && activityOutcome !== "no_answer" || activityType === "demo_call" && activityOutcome === "held") && minutes <= 0) return setErr("Inserisci la durata della call: serve per calcolare i minuti giornalieri.");
+    const legacyType = activityType === "discovery_call" ? "call" : activityType === "demo_call" ? "meeting" : "follow_up";
+    setBusy(true); setErr(null);
+    const result = await supabase.from("lead_activities").insert({
+      lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id,
+      activity_type: legacyType, event_type: activityType, channel: defaultChannel(activityType),
+      outcome: activityOutcome, duration_minutes: minutes || null,
+      occurred_at: new Date(activityAt).toISOString(), note: activityNote.trim() || null,
+      next_action_date: nextAction.trim() || null, created_by: meName?.trim() || null,
+    }).select("*").single();
+    if (result.error) { setBusy(false); return setErr("Attività non registrata: " + result.error.message); }
+    if (["outreach_sent", "outreach_reply"].includes(activityType)) {
+      const outreachResult = await supabase.from("sales_outreach_events").insert({
+        client_id: lead.client_id, lead_id: lead.id,
+        channel: defaultChannel(activityType),
+        event_type: activityType === "outreach_sent" ? "sent" : "reply",
+        outcome: activityType === "outreach_reply" ? activityOutcome : "sent",
+        contact_key: email.trim().toLowerCase() || phone.trim() || lead.id,
+        external_id: `crm:${result.data.id}`,
+        occurred_at: new Date(activityAt).toISOString(),
+        assigned_to: lead.assigned_to || meName || null,
+        created_by: meName?.trim() || null,
+        details: { lead_activity_id: result.data.id },
+      });
+      if (outreachResult.error) {
+        await supabase.from("lead_activities").delete().eq("id", result.data.id);
+        setBusy(false);
+        return setErr("Attività non registrata: " + outreachResult.error.message);
+      }
+    }
+    setBusy(false);
+    setActivityHistory((current) => [result.data as LeadActivity, ...current]);
+    setActivityNote(""); setActivityMinutes(""); setActivityAt(localDateTime(new Date()));
+  }
+
+  async function removeCommercialActivity(activity: LeadActivity) {
+    if (!confirm("Eliminare questa registrazione dai KPI?")) return;
+    setBusy(true);
+    if (["outreach_sent", "outreach_reply"].includes(activity.event_type || "")) {
+      const outreachResult = await supabase.from("sales_outreach_events").delete().eq("client_id", lead?.client_id).eq("external_id", `crm:${activity.id}`);
+      if (outreachResult.error) { setBusy(false); return setErr("Registrazione non eliminata: " + outreachResult.error.message); }
+    }
+    const result = await supabase.from("lead_activities").delete().eq("id", activity.id); setBusy(false);
+    if (result.error) return setErr("Registrazione non eliminata: " + result.error.message);
+    setActivityHistory((current) => current.filter((item) => item.id !== activity.id));
+  }
+
+  async function recordRevenue() {
+    if (!lead || Number(revenueAmount) <= 0 || !revenueAt) return setErr("Inserisci importo incassato, data e ora.");
+    setBusy(true); setErr(null);
+    const result = await supabase.from("sales_revenue_events").insert({
+      client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
+      revenue_type: revenueType, amount: Number(revenueAmount), contract_value: Number(revenueContractValue) || null,
+      status: "collected", occurred_at: new Date(revenueAt).toISOString(), assigned_to: lead.assigned_to || meName || null,
+      created_by: meName || null, note: revenueNote.trim() || null,
+    });
+    if (result.error) { setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
+    // Il valore del contratto vive sul lead ed entra nei KPI alla data della
+    // firma. Evitiamo così di sommarlo una seconda volta alla data dell'incasso.
+    if (revenueType === "new" && Number(revenueContractValue) > 0) {
+      const valueResult = await supabase.from("leads").update({ value: Number(revenueContractValue) }).eq("id", lead.id);
+      if (valueResult.error) { setBusy(false); return setErr("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
+      setValue(String(Number(revenueContractValue)));
+    }
+    setBusy(false);
+    setRevenueAmount(""); setRevenueContractValue(""); setRevenueNote(""); setRevenueAt(localDateTime(new Date()));
+  }
 
   // placeholders del modello selezionato
   const tpl = templates.find((x) => x.id === ctTpl);
@@ -324,9 +439,6 @@ export default function LeadModal({
   };
 
   async function save() {
-    if (!isNew && activityOutcome && !nextAction && !planDue && stages.find((s) => s.id === stageId)?.name !== "CLOSED" && stages.find((s) => s.id === stageId)?.name !== "LOST") {
-      return setErr("Dopo un'attività scegli la prossima azione: così nessun lead resta senza seguito.");
-    }
     setBusy(true);
     setErr(null);
     // Nota rapida: aggiunta in cima allo storico con data e ora (fuso Roma).
@@ -367,21 +479,6 @@ export default function LeadModal({
     else {
       setNotes(finalNotes);
       setQuickNote("");
-      if (!isNew && activityOutcome) {
-        const { error: activityError } = await supabase.from("lead_activities").insert({
-          lead_id: lead!.id,
-          client_id: lead!.client_id,
-          activity_type: activityType,
-          outcome: activityOutcome,
-          note: activityNote.trim() || null,
-          next_action_date: nextAction.trim() || null,
-          created_by: meName?.trim() || null,
-        });
-        if (activityError) {
-          setErr("Lead salvato, ma lo storico attività non è stato registrato: " + activityError.message);
-          return;
-        }
-      }
       // Se è stato compilato il prossimo passo, il Salva generale crea anche
       // la task/appuntamento: il venditore non deve fare un secondo passaggio.
       if (!isNew && planDue) {
@@ -412,7 +509,8 @@ export default function LeadModal({
 
   async function savePlan(closeAfterSave = true): Promise<boolean> {
     if (!lead || !planDue) { setErr("Scegli data e orario."); return false; }
-    const base = planTitle.trim() || (planKind === "appointment" ? `Appuntamento — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
+    const appointmentLabel = planAppointmentType === "discovery" ? "Discovery telefonica" : "Demo video";
+    const base = planTitle.trim() || (planKind === "appointment" ? `${appointmentLabel} — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
     if (planKind === "appointment" && !await ensureGoogleCalendarConnection()) { setErr("Google Calendar richiede di nuovo il consenso. Apri Calendario e premi “Collega Google Calendar”, poi riprova."); return false; }
     setBusy(true); setErr(null);
     const finalTitle = base;
@@ -427,9 +525,16 @@ export default function LeadModal({
         setBusy(false); setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova."); return false;
       }
     }
-    const { error } = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, is_priority: planKind === "task" && planPriority, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null });
+    const taskResult = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, is_priority: planKind === "task" && planPriority, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null, appointment_type: planKind === "appointment" ? planAppointmentType : null, appointment_status: planKind === "appointment" ? "scheduled" : null, duration_minutes: planKind === "appointment" ? 60 : null, google_event_id: googleEventId }).select("id").single();
+    const error = taskResult.error;
     if (error && googleEventId) { try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* l'errore principale resta quello del CRM */ } }
-    if (!error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
+    if (!error) {
+      await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
+      if (planKind === "appointment") {
+        const eventResult = await supabase.from("lead_activities").insert({ lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id, activity_type: "meeting", event_type: `${planAppointmentType}_booked`, channel: planAppointmentType === "discovery" ? "phone" : "video_call", outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: new Date(planDue).toISOString(), duration_minutes: 60, note: finalNote || null, created_by: meName || null, details: { task_id: taskResult.data?.id || null } });
+        if (eventResult.error) { setBusy(false); setErr("Appuntamento salvato, ma non registrato nei KPI: " + eventResult.error.message); return false; }
+      }
+    }
     setBusy(false);
     if (error) { setErr("Pianificazione non salvata: " + error.message); return false; }
     setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
@@ -465,49 +570,44 @@ export default function LeadModal({
           </div>
 
           {!isNew && (
-            <div className="activity-box">
-              <b>Registra attività</b>
-              <p>Compilala dopo ogni contatto: alimenta il tuo controllo giornaliero.</p>
+            <div className="activity-box commercial-tracker">
+              <div className="tracker-heading"><div><b>Registra il lavoro commerciale</b><p>Un solo aggiornamento alimenta automaticamente i KPI del giorno.</p></div><span>KPI</span></div>
               <div className="modal-row">
                 <div className="field" style={{ flex: 1 }}>
-                  <label>Tipo</label>
-                  <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
-                    <option value="call">Chiamata</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="meeting">Appuntamento</option>
+                  <label>Azione</label>
+                  <select value={activityType} onChange={(e) => changeActivityType(e.target.value)}>
+                    <option value="outreach_sent">Outreach inviato</option>
+                    <option value="outreach_reply">Risposta outreach</option>
                     <option value="follow_up">Follow-up</option>
+                    <option value="discovery_call">Discovery al telefono</option>
+                    <option value="demo_call">Demo in videochiamata</option>
+                    <option value="proposal_sent">Proposta inviata</option>
+                    <option value="sale_outcome">Esito vendita</option>
                   </select>
                 </div>
                 <div className="field" style={{ flex: 1 }}>
                   <label>Esito</label>
                   <select value={activityOutcome} onChange={(e) => setActivityOutcome(e.target.value)}>
-                    <option value="">— non registrare —</option>
-                    <option value="Risposto">Risposto</option>
-                    <option value="Non risponde">Non risponde</option>
-                    <option value="Interessato">Interessato</option>
-                    <option value="Non interessato">Non interessato</option>
-                    <option value="Appuntamento fissato">Appuntamento fissato</option>
-                    <option value="Appuntamento svolto">Appuntamento svolto</option>
-                    <option value="No show">No show</option>
+                    {(outcomeOptions[activityType] ?? []).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
                   </select>
                 </div>
               </div>
-              {activityOutcome && (
-                <div className="field">
-                  <label>Nota sull'attività (facoltativa)</label>
-                  <input value={activityNote} onChange={(e) => setActivityNote(e.target.value)} placeholder="es. richiamare dopo le 18" />
-                </div>
-              )}
+              {["outreach_sent", "outreach_reply", "follow_up"].includes(activityType) && <div className="field"><label>Canale</label><div className="channel-choice"><button type="button" className={activityChannel === "instantly" ? "active" : ""} onClick={() => setActivityChannel("instantly")}>Instantly · email</button><button type="button" className={activityChannel === "dm" ? "active" : ""} onClick={() => setActivityChannel("dm")}>DM</button></div></div>}
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={activityAt} onChange={(e) => setActivityAt(e.target.value)} /></div>{(["discovery_call", "demo_call"].includes(activityType)) && <div className="field" style={{ flex: 1 }}><label>Durata call (minuti)</label><input type="number" min="0" step="1" value={activityMinutes} onChange={(e) => setActivityMinutes(e.target.value)} placeholder={activityOutcome === "no_answer" || activityOutcome === "no_show" ? "0" : "Es. 35"} /></div>}</div>
+              <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={activityNote} onChange={(e) => setActivityNote(e.target.value)} placeholder="Informazione utile sull'esito" /></div>
+              <button className="btn primary tracker-save" type="button" disabled={busy} onClick={() => void recordCommercialActivity()}>{busy ? "Registrazione…" : "Registra nei KPI"}</button>
+              {activityHistory.length > 0 && <details className="tracker-history"><summary>Ultime registrazioni ({activityHistory.length})</summary>{activityHistory.slice(0, 8).map((activity) => <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}</b><small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"} · {CHANNEL_LABELS[activity.channel || ""] || activity.channel || "CRM"} · {new Date(activity.occurred_at || activity.created_at).toLocaleString("it-IT")}</small></span><button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button></div>)}</details>}
             </div>
           )}
           {!isNew && (
             <div className="activity-box lead-plan-box">
               <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
+              {planKind === "appointment" && <div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Demo · video</button></div></div>}
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenziala nell’Agenda e mostrala prima delle altre.</small></span></label>}
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
-              {planKind === "appointment" && <p className="ettore-auto-invite"><b>Ettore viene invitato automaticamente.</b> L’appuntamento comparirà anche nel suo calendario con link Google Meet, così potrà entrare se serve supporto.</p>}
+              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Demo in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
               <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: l’appuntamento verrà creato insieme alle modifiche della scheda.</p>
             </div>
           )}
@@ -563,10 +663,14 @@ export default function LeadModal({
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Fonte</label>
-              <input
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-              />
+              <select value={source} onChange={(e) => setSource(e.target.value)}>
+                {source && !["Instantly", "DM Instagram", "DM Facebook", "DM LinkedIn", "DM Altro"].includes(source) && <option value={source}>{source} · storico</option>}
+                <option value="Instantly">Instantly · email</option>
+                <option value="DM Instagram">DM Instagram</option>
+                <option value="DM Facebook">DM Facebook</option>
+                <option value="DM LinkedIn">DM LinkedIn</option>
+                <option value="DM Altro">DM altro</option>
+              </select>
             </div>
             <div className="field" style={{ flex: 1 }}>
               <label>Valore (€)</label>
@@ -577,6 +681,15 @@ export default function LeadModal({
               />
             </div>
           </div>
+          {!isNew && (
+            <div className="activity-box revenue-tracker">
+              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato.</p></div><span>€</span></div>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
+              <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
+              <button className="btn primary tracker-save" type="button" disabled={busy || !revenueAmount} onClick={() => void recordRevenue()}>{busy ? "Registrazione…" : "Registra incasso"}</button>
+            </div>
+          )}
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Prossima azione</label>
