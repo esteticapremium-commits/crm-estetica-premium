@@ -1520,3 +1520,82 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 .theme-premium.platform-shell .quick-linked-appointment { margin: 0 0 9px; font-size: 10px; line-height: 1.45; }
 .theme-premium.platform-shell .quick-call-type { margin-bottom: 10px; }
 .theme-premium.platform-shell .quick-call-type .channel-choice button { font-size: 10px; padding: 6px 8px; }
+
+/* Riquadri centrati (Attività, costi e outreach KPI, dettaglio contratto).
+   Finora il tema premium vestiva soltanto la scheda lead: tutti gli altri
+   ricadevano sul tema base e stonavano dentro l'interfaccia, con bordi,
+   spaziature e tipografia diversi da tutto il resto. */
+.theme-premium.platform-shell .modal:not(.lead-drawer) {
+  max-width: 560px;
+  border: 1px solid var(--ep-border);
+  border-radius: 18px;
+  background: var(--ep-surface);
+  box-shadow: 0 24px 60px rgba(36, 16, 24, .18);
+}
+.theme-premium.platform-shell .modal:not(.lead-drawer) > header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 22px;
+  border-color: var(--ep-border);
+  background: rgba(255, 253, 249, .96);
+  backdrop-filter: blur(12px);
+}
+.theme-premium.platform-shell .modal:not(.lead-drawer) > header h3 { color: var(--ep-ink-strong); font-size: 17px; font-weight: 760; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) > header p { margin: 4px 0 0; color: var(--ep-muted); font-size: 12px; line-height: 1.45; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) > .content { display: grid; gap: 14px; padding: 20px 22px 24px; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) > .content > .field { margin: 0; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) > footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  gap: 9px;
+  justify-content: flex-end;
+  padding: 14px 22px;
+  border-color: var(--ep-border);
+  background: rgba(255, 253, 249, .96);
+  backdrop-filter: blur(12px);
+}
+/* Le righe a due campi collassano invece di stringersi fino a diventare
+   inutilizzabili sugli schermi stretti. */
+/* Griglia invece di flex: le due colonne diventano una sola quando non ci
+   stanno, senza che le righe si stirino in altezza come faceva il flex con
+   il ritorno a capo attivo. */
+.theme-premium.platform-shell .modal:not(.lead-drawer) .modal-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: start; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) .modal-row > .field { min-width: 0; margin: 0; }
+.theme-premium.platform-shell .modal:not(.lead-drawer) .notice { margin: 0; }
+
+@media (max-width: 560px) {
+  .theme-premium.platform-shell .modal:not(.lead-drawer) { max-width: none; border-radius: 16px; }
+  .theme-premium.platform-shell .modal:not(.lead-drawer) > header,
+  .theme-premium.platform-shell .modal:not(.lead-drawer) > footer { padding-inline: 16px; }
+  .theme-premium.platform-shell .modal:not(.lead-drawer) > .content { padding: 16px; }
+  .theme-premium.platform-shell .modal:not(.lead-drawer) > footer { flex-wrap: wrap; }
+  .theme-premium.platform-shell .modal:not(.lead-drawer) > footer .btn { flex: 1 1 auto; }
+}
+
+/* Un elemento in griglia o in flex non si restringe sotto la larghezza del suo
+   contenuto finche' non gli si dice esplicitamente che puo' farlo: senza queste
+   due righe l'opzione "Segna come prioritaria" sfondava il bordo del riquadro e
+   il testo finiva tagliato fuori. */
+.theme-premium.platform-shell .modal:not(.lead-drawer) > .content > * { min-width: 0; }
+.theme-premium.platform-shell .task-priority-option > span { flex: 1 1 auto; min-width: 0; }
+
+/* Le regole dei riquadri allargano ogni input al 100% per i campi di testo, ma
+   così facendo gonfiavano anche le caselle di spunta: nella card dell'attività
+   la spunta "Segna come prioritaria" diventava larga quanto il riquadro e
+   spingeva la sua etichetta fuori dal bordo, dove veniva tagliata. */
+.theme-premium.platform-shell .modal input[type="checkbox"],
+.theme-premium.platform-shell .modal input[type="radio"] {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  accent-color: var(--ep-brand);
+}
