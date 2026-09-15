@@ -105,7 +105,25 @@ export function formatPct(value: number | null) {
 
 export function normalizedLeadSource(source: string | null | undefined): "instantly" | "dm" | "other" {
   const value = (source || "").trim().toLowerCase();
-  if (value.includes("instantly") || value.includes("email") || value.includes("mail")) return "instantly";
+  // I DM vengono caricati a mano scegliendo il canale dal menu; tutto il resto
+  // arriva dall'ingest automatico, che scrive sempre "Instantly".
   if (value.includes("dm") || value.includes("instagram") || value.includes("facebook") || value.includes("linkedin")) return "dm";
+  // "Istantly" e simili refusi esistono già nello storico: senza questa
+  // tolleranza quei lead sparirebbero da entrambi i filtri di canale.
+  if (/inst?a?ntly|e?mail/.test(value)) return "instantly";
   return "other";
+}
+
+/** Tipo di chiamata suggerito dalla fase in cui si trova il lead. Resta
+ *  modificabile a mano: serve solo a non far partire tutto su "Lead". */
+export function defaultCallType(stageName: string | null | undefined): CallType {
+  const stage = (stageName || "").trim().toUpperCase();
+  if (stage === "CLOSED") return "client";
+  if (stage === "SETTING") return "outbound";
+  return "lead";
+}
+
+/** Un appuntamento con un lead già chiuso è un appuntamento con un cliente. */
+export function defaultAudience(stageName: string | null | undefined): "lead" | "client" {
+  return (stageName || "").trim().toUpperCase() === "CLOSED" ? "client" : "lead";
 }

@@ -35,6 +35,12 @@ interface DailyKpi {
   discoveryHeld: number;
   demoHeld: number;
   demoClientHeld: number;
+  // Svolti che provengono da una prenotazione. Servono allo show-up: gli
+  // appuntamenti fatti al volo non erano mai stati fissati, quindi non possono
+  // stare al numeratore di "svolti su fissati".
+  discoveryHeldBooked: number;
+  demoHeldBooked: number;
+  demoClientHeldBooked: number;
   noShow: number;
   qualified: number;
   // Chiusura
@@ -72,7 +78,8 @@ const emptyDay = (day: string): DailyKpi => ({
   day, callLead: 0, callOutbound: 0, callClient: 0, callOther: 0, mexFollowUp: 0, callMinutes: 0,
   callLeadAnswered: 0, reachedLeads: 0, leads: 0, instantlySent: 0, dmSent: 0, replies: 0, positiveReplies: 0,
   discoveryBooked: 0, demoBooked: 0, demoClientBooked: 0, discoverySameDay: 0, demoSameDay: 0, demoClientSameDay: 0,
-  discoveryHeld: 0, demoHeld: 0, demoClientHeld: 0, noShow: 0, qualified: 0, proposals: 0, signed: 0,
+  discoveryHeld: 0, demoHeld: 0, demoClientHeld: 0, discoveryHeldBooked: 0, demoHeldBooked: 0, demoClientHeldBooked: 0,
+  noShow: 0, qualified: 0, proposals: 0, signed: 0,
   renewals: 0, upsells: 0, collectedNew: 0, collectedRenewal: 0, collectedUpsell: 0, contractValue: 0, costs: 0,
 });
 
@@ -108,10 +115,10 @@ const outreachReplyRate = (row: DailyKpi) => pct(row.replies, outreachSent(row))
 const bookingRate = (row: DailyKpi) => pct(row.demoBooked + row.demoClientBooked, row.discoveryHeld);
 // % PREN RIS: quante discovery nascono dalle risposte all'outreach.
 const bookingOnReplies = (row: DailyKpi) => pct(row.discoveryBooked, row.replies);
-const showUpDiscovery = (row: DailyKpi) => pct(row.discoveryHeld, row.discoveryBooked);
-const showUpDemo = (row: DailyKpi) => pct(row.demoHeld, row.demoBooked);
-const showUpDemoClient = (row: DailyKpi) => pct(row.demoClientHeld, row.demoClientBooked);
-const showUpTotal = (row: DailyKpi) => pct(callsHeld(row), booked(row));
+const showUpDiscovery = (row: DailyKpi) => pct(row.discoveryHeldBooked, row.discoveryBooked);
+const showUpDemo = (row: DailyKpi) => pct(row.demoHeldBooked, row.demoBooked);
+const showUpDemoClient = (row: DailyKpi) => pct(row.demoClientHeldBooked, row.demoClientBooked);
+const showUpTotal = (row: DailyKpi) => pct(row.discoveryHeldBooked + row.demoHeldBooked + row.demoClientHeldBooked, booked(row));
 const discoveryDemoDrop = (row: DailyKpi) => (row.discoveryHeld > 0 ? (Math.max(row.discoveryHeld - row.demoBooked, 0) / row.discoveryHeld) * 100 : null);
 const qualificationRate = (row: DailyKpi) => pct(row.qualified, row.discoveryHeld);
 const winRate = (row: DailyKpi) => pct(row.signed, row.proposals);
@@ -255,7 +262,12 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       const outcome = activity.outcome || "";
       const callType = activity.call_type || "lead";
       const fromAppointment = Boolean(taskIdOf(activity));
-      const sameDay = fromAppointment && bookingDayByTask.get(taskIdOf(activity)!) === day;
+      // Le colonne "day" misurano gli appuntamenti svolti senza attesa. Sono due
+      // i casi: quelli fissati e chiusi nella stessa giornata, e quelli fatti al
+      // volo durante la chiamata, che non hanno mai avuto una prenotazione. Il
+      // secondo caso è la norma quando il lead risponde e si riesce a fare la
+      // discovery seduta stante.
+      const sameDay = fromAppointment ? bookingDayByTask.get(taskIdOf(activity)!) === day : true;
 
       // Storico precedente al registro outreach separato.
       if (!outreachReady && type === "outreach_sent") {
@@ -285,6 +297,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         }
         if (isHeldDiscovery(outcome)) {
           row.discoveryHeld += 1;
+          if (fromAppointment) row.discoveryHeldBooked += 1;
           if (sameDay) row.discoverySameDay += 1;
         }
         if (outcome === "qualified") row.qualified += 1;
@@ -297,8 +310,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (type === "demo_call") {
         row.callMinutes += number(activity.duration_minutes);
         if (outcome === "held") {
-          if (callType === "client") { row.demoClientHeld += 1; if (sameDay) row.demoClientSameDay += 1; }
-          else { row.demoHeld += 1; if (sameDay) row.demoSameDay += 1; }
+          if (callType === "client") { row.demoClientHeld += 1; if (fromAppointment) row.demoClientHeldBooked += 1; if (sameDay) row.demoClientSameDay += 1; }
+          else { row.demoHeld += 1; if (fromAppointment) row.demoHeldBooked += 1; if (sameDay) row.demoSameDay += 1; }
         }
         if (outcome === "no_show") row.noShow += 1;
       }
@@ -456,7 +469,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <p><b>Azioni di contatto:</b> call lead + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call lead con risposta ÷ call lead. <b>T/M:</b> call lead ÷ lead raggiunti.</p>
       <p><b>Lead raggiunti:</b> nel totale del periodo ogni lead conta una volta sola anche se richiamato in giorni diversi; nelle righe giornaliere conta in ogni giornata in cui è stato davvero lavorato.</p>
       <p><b>% PRENOT:</b> closing prenotate ÷ discovery svolte — quanti, dopo la discovery, accettano la closing. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
-      <p><b>Colonne “day”:</b> appuntamenti fissati e svolti nella stessa giornata. <b>Show up:</b> svolti ÷ fissati, per fase e complessivo. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
+      <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> svolti ÷ fissati, contando al numeratore solo gli appuntamenti che erano stati davvero prenotati: una discovery fatta seduta stante non gonfia lo show-up. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
       <p><b>In target:</b> discovery chiuse con esito “in target”. Una discovery è svolta solo con esito in target o fuori target; “non risponde” resta un tentativo.</p>
       <p><b>Proposte:</b> contratti creati o inviati. <b>% chiusura:</b> contratti firmati ÷ proposte. <b>CR:</b> contratti firmati ÷ closing svolte.</p>
       <p><b>VAL TOT:</b> fatturato firmato, congelato alla firma. <b>VAL TOT M:</b> valore medio per contratto. <b>€ SALES:</b> incassato reale del periodo. Sono due numeri diversi: un contratto da 4.000 € pagato in due rate vale 4.000 € di VAL TOT subito e 2.000 € di € SALES alla prima rata.</p>

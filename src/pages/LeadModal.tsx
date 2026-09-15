@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
-import { CHANNEL_LABELS, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey } from "../salesKpi";
+import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
 import { createAppointment, pendingAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
@@ -146,11 +146,16 @@ export default function LeadModal({
   const [activitySaved, setActivitySaved] = useState("");
   const [activityHistory, setActivityHistory] = useState<LeadActivity[]>([]);
   const [appointments, setAppointments] = useState<SalesTask[]>([]);
-  const [callType, setCallType] = useState<"lead" | "outbound" | "client" | "other">("lead");
+  const currentStageName = stages.find((stage) => stage.id === stageId)?.name ?? null;
+  // Tipo di chiamata e destinatario si deducono dalla fase del lead: il
+  // venditore li corregge solo quando la deduzione sbaglia, non a ogni azione.
+  const [callTypeOverride, setCallTypeOverride] = useState<CallType | null>(null);
   const commercialActionLock = useRef(false);
   const revenueLock = useRef(false);
   const planLock = useRef(false);
-  const [planAudience, setPlanAudience] = useState<AppointmentAudience>("lead");
+  const [planAudienceOverride, setPlanAudienceOverride] = useState<AppointmentAudience | null>(null);
+  const callType = callTypeOverride ?? defaultCallType(currentStageName);
+  const planAudience = planAudienceOverride ?? defaultAudience(currentStageName);
   const [planKind, setPlanKind] = useState<"task" | "appointment">("task");
   const [planAppointmentType, setPlanAppointmentType] = useState<"discovery" | "demo">("discovery");
   const [planTitle, setPlanTitle] = useState("");
@@ -612,7 +617,7 @@ export default function LeadModal({
               <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
               {openDiscovery && <div className="notice warn quick-linked-appointment">Stai registrando l’esito della discovery del {new Date(openDiscovery.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: conta una volta sola, anche se l’hai già aperta dal Calendario.</div>}
               {openDemo && <div className="notice quick-linked-appointment">C’è una closing in agenda il {new Date(openDemo.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: il suo esito si registra dal Calendario.</div>}
-              {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Lead"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallType(value)}>{label}</button>)}</div></div>}
+              {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Lead"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallTypeOverride(value)}>{label}</button>)}</div></div>}
               <div className="commercial-quick-actions">
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
                 <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => setQuickAction("qualified")}><b>In target</b><small>Discovery svolta</small></button>
@@ -634,7 +639,7 @@ export default function LeadModal({
             <div className="activity-box lead-plan-box" id="lead-next-step">
               <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
-              {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudience("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudience("client")}>Già cliente</button></div></div></>}
+              {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudienceOverride("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudienceOverride("client")}>Già cliente</button></div></div></>}
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenziala nell’Agenda e mostrala prima delle altre.</small></span></label>}
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
