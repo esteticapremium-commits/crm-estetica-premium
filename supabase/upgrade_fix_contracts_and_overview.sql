@@ -74,6 +74,7 @@ create policy contracts_update on public.contracts for update to authenticated u
   public.is_admin() or exists (select 1 from public.leads l where l.id = lead_id and l.assigned_to = public.my_full_name())
 );
 create policy contracts_delete on public.contracts for delete to authenticated using (public.is_admin());
+drop policy if exists contract_events_select on public.contract_events;
 create policy contract_events_select on public.contract_events for select to authenticated using (
   public.is_admin() or exists (select 1 from public.contracts c join public.leads l on l.id = c.lead_id where c.id = contract_id and l.assigned_to = public.my_full_name())
 );
