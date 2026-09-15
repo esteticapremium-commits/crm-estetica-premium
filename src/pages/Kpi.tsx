@@ -210,7 +210,25 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activities, channel, contracts, costs, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller]);
 
-  const total = useMemo(() => sumRows(rows), [rows]);
+  const total = useMemo(() => {
+    const aggregate = sumRows(rows);
+    // Nel totale periodo ogni lead raggiunto vale una sola volta, anche se è
+    // stato richiamato in giorni diversi. Le righe giornaliere restano invece
+    // indipendenti, così il lavoro di ciascun giorno continua a essere leggibile.
+    const uniqueReached = new Set<string>();
+    activities.forEach((activity) => {
+      const type = activity.event_type || "";
+      const outcome = activity.outcome || "";
+      const day = dayInRome(activityTimestamp(activity));
+      if (type !== "discovery_call" && !(!type && activity.activity_type === "call")) return;
+      if (outcome === "no_answer" || outcome === "Non risponde") return;
+      if (!inRange(day) || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      uniqueReached.add(activity.lead_id);
+    });
+    aggregate.reachedLeads = uniqueReached.size;
+    return aggregate;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, channel, leadById, range.from, range.to, rows, seller]);
   const sent = (row: DailyKpi) => row.instantlySent + row.dmSent;
   const collected = (row: DailyKpi) => row.collectedNew + row.collectedRenewal + row.collectedUpsell;
   const bookingRate = (row: DailyKpi) => pct(row.discoveryBooked, row.replies);
@@ -263,17 +281,27 @@ function OutreachModal({ client, meName, admin, sellers, onClose, onSaved }: { c
     const sentCount = number(sent); const replyCount = number(replies); const positiveCount = number(positive);
     if (!date || sentCount + replyCount + positiveCount <= 0) return setError("Inserisci almeno un valore maggiore di zero.");
     if (positiveCount > replyCount) return setError("Le risposte positive non possono superare le risposte totali.");
-    const batchId = crypto.randomUUID(); const occurredAt = new Date(`${date}T12:00:00`).toISOString();
-    const common = { client_id: client.id, lead_id: null, channel, occurred_at: occurredAt, assigned_to: assignedTo || meName, created_by: meName, campaign_name: "Inserimento giornaliero", details: { aggregate: true, batch_id: batchId } };
+    const owner = (assignedTo || meName).trim();
+    const batchId = `${date}:${channel}:${owner.toLowerCase()}`; const occurredAt = new Date(`${date}T12:00:00`).toISOString();
+    const common = { client_id: client.id, lead_id: null, channel, occurred_at: occurredAt, assigned_to: owner, created_by: meName, campaign_name: "Inserimento giornaliero", details: { aggregate: true, batch_id: batchId } };
     const records: Record<string, unknown>[] = [];
-    if (sentCount > 0) records.push({ ...common, event_type: "sent", quantity: sentCount, external_id: `manual:${batchId}:sent` });
-    if (replyCount > 0) records.push({ ...common, event_type: "reply", quantity: replyCount, external_id: `manual:${batchId}:reply` });
-    if (positiveCount > 0) records.push({ ...common, event_type: "positive_reply", quantity: positiveCount, external_id: `manual:${batchId}:positive` });
-    setBusy(true); const result = await supabase.from("sales_outreach_events").insert(records); setBusy(false);
-    if (result.error) setError(result.error.message); else onSaved();
+    const externalIds = {
+      sent: `manual:${batchId}:sent`,
+      reply: `manual:${batchId}:reply`,
+      positive: `manual:${batchId}:positive`,
+    };
+    if (sentCount > 0) records.push({ ...common, event_type: "sent", quantity: sentCount, external_id: externalIds.sent });
+    if (replyCount > 0) records.push({ ...common, event_type: "reply", quantity: replyCount, external_id: externalIds.reply });
+    if (positiveCount > 0) records.push({ ...common, event_type: "positive_reply", quantity: positiveCount, external_id: externalIds.positive });
+    setBusy(true);
+    const result = await supabase.from("sales_outreach_events").upsert(records, { onConflict: "client_id,external_id" });
+    const zeroIds = [sentCount <= 0 ? externalIds.sent : null, replyCount <= 0 ? externalIds.reply : null, positiveCount <= 0 ? externalIds.positive : null].filter((value): value is string => Boolean(value));
+    const clearResult = !result.error && zeroIds.length ? await supabase.from("sales_outreach_events").delete().eq("client_id", client.id).in("external_id", zeroIds) : { error: null };
+    setBusy(false);
+    if (result.error || clearResult.error) setError((result.error || clearResult.error)?.message || "Dati non salvati."); else onSaved();
   }
   const people = [...new Set([meName, ...sellers].filter(Boolean))];
-  return <div className="overlay" onClick={onClose}><div className="modal kpi-cost-modal" onClick={(event) => event.stopPropagation()}><header><div><h3>Registra outreach giornaliero</h3><p>Un solo inserimento per i volumi DM o per eventuali dati Instantly mancanti.</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}<div className="modal-row"><div className="field"><label>Canale</label><select value={channel} onChange={(event) => setChannel(event.target.value as "instantly" | "dm")}><option value="dm">DM</option><option value="instantly">Instantly · recupero manuale</option></select></div><div className="field"><label>Data</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div></div>{admin && <div className="field"><label>Responsabile</label><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}>{people.map((person) => <option key={person} value={person}>{person}</option>)}</select></div>}<div className="modal-row"><div className="field"><label>Messaggi inviati</label><input type="number" min="0" step="1" value={sent} onChange={(event) => setSent(event.target.value)} /></div><div className="field"><label>Risposte</label><input type="number" min="0" step="1" value={replies} onChange={(event) => setReplies(event.target.value)} /></div></div><div className="field"><label>Risposte positive</label><input type="number" min="0" step="1" value={positive} onChange={(event) => setPositive(event.target.value)} /></div></div><footer><button className="btn" onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Registra dati"}</button></footer></div></div>;
+  return <div className="overlay" onClick={onClose}><div className="modal kpi-cost-modal" onClick={(event) => event.stopPropagation()}><header><div><h3>Registra outreach giornaliero</h3><p>Una sola riga per data, canale e responsabile: se la correggi, il valore precedente viene sostituito e non duplicato.</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}<div className="modal-row"><div className="field"><label>Canale</label><select value={channel} onChange={(event) => setChannel(event.target.value as "instantly" | "dm")}><option value="dm">DM</option><option value="instantly">Instantly · recupero manuale</option></select></div><div className="field"><label>Data</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div></div>{admin && <div className="field"><label>Responsabile</label><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}>{people.map((person) => <option key={person} value={person}>{person}</option>)}</select></div>}<div className="modal-row"><div className="field"><label>Messaggi inviati</label><input type="number" min="0" step="1" value={sent} onChange={(event) => setSent(event.target.value)} /></div><div className="field"><label>Risposte</label><input type="number" min="0" step="1" value={replies} onChange={(event) => setReplies(event.target.value)} /></div></div><div className="field"><label>Risposte positive</label><input type="number" min="0" step="1" value={positive} onChange={(event) => setPositive(event.target.value)} /></div></div><footer><button className="btn" onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Registra dati"}</button></footer></div></div>;
 }
 
 function CostModal({ client, meName, onClose, onSaved }: { client: Client; meName: string; onClose: () => void; onSaved: () => void }) {

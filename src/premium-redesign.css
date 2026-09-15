@@ -106,7 +106,46 @@
 .theme-premium.platform-shell .revenue-tracker { border-color: #dfc9cf; background: linear-gradient(145deg, #fff, #fdf8f6); }
 .theme-premium.platform-shell .tracker-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .theme-premium.platform-shell .tracker-heading p { margin: 3px 0 0; }
-.theme-premium.platform-shell .tracker-heading > span { display: grid; min-width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--ep-brand); color: #fff; font-size: 10px; font-weight: 900; }
+.theme-premium.platform-shell .tracker-heading > span { display: grid; min-width: 46px; height: 27px; padding: 0 8px; flex: 0 0 auto; place-items: center; border-radius: 8px; background: var(--ep-brand); color: #fff; font-size: 9px; font-weight: 900; white-space: nowrap; }
+.theme-premium.platform-shell .quick-commercial-tracker { padding: 16px; }
+.theme-premium.platform-shell .commercial-quick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.theme-premium.platform-shell .commercial-quick-actions > button {
+  display: flex;
+  min-width: 0;
+  min-height: 62px;
+  padding: 9px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border: 1px solid var(--ep-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ep-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.theme-premium.platform-shell .commercial-quick-actions > button:hover:not(:disabled) { border-color: #cbb7bd; background: var(--ep-brand-faint); transform: translateY(-1px); }
+.theme-premium.platform-shell .commercial-quick-actions > button:focus-visible { outline: 3px solid rgba(91, 16, 42, .14); outline-offset: 1px; }
+.theme-premium.platform-shell .commercial-quick-actions > button:disabled { cursor: wait; opacity: .55; }
+.theme-premium.platform-shell .commercial-quick-actions b,
+.theme-premium.platform-shell .commercial-quick-actions small { display: block; overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+.theme-premium.platform-shell .commercial-quick-actions b { font-size: 11px; }
+.theme-premium.platform-shell .commercial-quick-actions small { margin-top: 3px; color: var(--ep-muted); font-size: 9px; }
+.theme-premium.platform-shell .commercial-quick-actions > button.success { border-color: #b9d8cc; }
+.theme-premium.platform-shell .commercial-quick-actions > button.accent { border-color: #d9c3ca; background: var(--ep-brand-faint); color: var(--ep-brand); }
+.theme-premium.platform-shell .commercial-quick-actions > button.danger { border-color: #ecd1ce; color: var(--ep-danger); }
+.theme-premium.platform-shell .commercial-quick-actions > button.active { border-color: var(--ep-brand); background: var(--ep-brand-soft); box-shadow: 0 0 0 2px rgba(91, 16, 42, .08); }
+.theme-premium.platform-shell .commercial-quick-actions > button.active.success { border-color: var(--ep-success); background: var(--ep-success-soft); color: var(--ep-success); }
+.theme-premium.platform-shell .commercial-quick-actions > button.active.danger { border-color: var(--ep-danger); background: var(--ep-danger-soft); color: var(--ep-danger); }
+.theme-premium.platform-shell .commercial-quick-detail { margin-top: 9px; padding: 12px; border: 1px solid var(--ep-line); border-radius: 10px; background: var(--ep-surface-muted); }
+.theme-premium.platform-shell .commercial-quick-detail > label { color: var(--ep-ink); font-size: 10px; font-weight: 800; }
+.theme-premium.platform-shell .duration-chips { display: flex; gap: 5px; margin: 7px 0 10px; flex-wrap: wrap; }
+.theme-premium.platform-shell .duration-chips button { min-width: 48px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--ep-line); border-radius: 8px; background: #fff; color: var(--ep-muted); font: inherit; font-size: 9px; font-weight: 800; cursor: pointer; }
+.theme-premium.platform-shell .duration-chips button.active { border-color: var(--ep-brand); background: var(--ep-brand); color: #fff; }
+.theme-premium.platform-shell .commercial-quick-confirm { display: flex; gap: 7px; justify-content: flex-end; margin-top: 8px; }
+.theme-premium.platform-shell .commercial-saved { margin-top: 9px; padding: 8px 10px; border-radius: 8px; background: var(--ep-success-soft); color: var(--ep-success); font-size: 10px; font-weight: 800; }
 .theme-premium.platform-shell .channel-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .theme-premium.platform-shell .channel-choice button { min-height: 38px; border: 1px solid var(--ep-line); border-radius: 9px; background: #fff; color: var(--ep-muted); font: inherit; font-size: 11px; font-weight: 750; cursor: pointer; }
 .theme-premium.platform-shell .channel-choice button.active { border-color: var(--ep-brand); background: #f8e9eb; color: var(--ep-brand); box-shadow: 0 0 0 2px rgba(104, 22, 47, .07); }
@@ -989,6 +1028,7 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 .theme-premium.platform-shell .task-kpis span { color: var(--ep-muted); font-size: 12px; }
 .theme-premium.platform-shell .tasks-tabs { width: max-content; max-width: 100%; margin-bottom: 16px; border-bottom: 1px solid var(--ep-border); overflow-x: auto; }
 .theme-premium.platform-shell .task-list { gap: 10px; }
+.theme-premium.platform-shell .task-calendar-hint { color: var(--ep-brand) !important; font-weight: 700; }
 .theme-premium.platform-shell .task-card {
   min-height: 82px;
   padding: 13px 15px;
@@ -1444,6 +1484,9 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   .theme-premium.platform-shell .task-card { grid-template-columns: 56px minmax(0, 1fr); }
   .theme-premium.platform-shell .task-actions { grid-column: 1 / -1; justify-content: stretch; }
   .theme-premium.platform-shell .task-actions .btn { flex: 1; }
+  .theme-premium.platform-shell .commercial-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .theme-premium.platform-shell .commercial-quick-actions > button { min-height: 58px; }
+  .theme-premium.platform-shell .commercial-quick-confirm .btn { flex: 1; }
   .theme-premium.platform-shell .calendar-top-actions > .btn { flex: 1 1 100%; }
   .theme-premium.platform-shell .calendar-navigation { flex: 1; justify-content: space-between; }
   .theme-premium.platform-shell .modal.lead-drawer { width: 100vw; border-left: 0; border-radius: 0; }

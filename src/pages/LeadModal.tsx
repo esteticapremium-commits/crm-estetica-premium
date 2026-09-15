@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
@@ -136,13 +136,12 @@ export default function LeadModal({
   const [tags, setTags] = useState(lead?.tags ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [activityType, setActivityType] = useState("discovery_call");
-  const [activityChannel, setActivityChannel] = useState("phone");
-  const [activityOutcome, setActivityOutcome] = useState("no_answer");
-  const [activityNote, setActivityNote] = useState("");
-  const [activityMinutes, setActivityMinutes] = useState("");
-  const [activityAt, setActivityAt] = useState(() => localDateTime(new Date()));
+  const [quickAction, setQuickAction] = useState<"qualified" | "not_qualified" | "lost" | null>(null);
+  const [commercialNote, setCommercialNote] = useState("");
+  const [commercialMinutes, setCommercialMinutes] = useState("");
+  const [activitySaved, setActivitySaved] = useState("");
   const [activityHistory, setActivityHistory] = useState<LeadActivity[]>([]);
+  const commercialActionLock = useRef(false);
   const [planKind, setPlanKind] = useState<"task" | "appointment">("task");
   const [planAppointmentType, setPlanAppointmentType] = useState<"discovery" | "demo">("discovery");
   const [planTitle, setPlanTitle] = useState("");
@@ -201,68 +200,56 @@ export default function LeadModal({
       .then(({ data }) => setActivityHistory((data as LeadActivity[]) ?? []));
   }, [lead?.id]);
 
-  const outcomeOptions: Record<string, Array<[string, string]>> = {
-    outreach_sent: [["sent", "Inviato"]],
-    outreach_reply: [["positive", "Risposta positiva"], ["neutral", "Risposta neutra"], ["negative", "Risposta negativa"]],
-    follow_up: [["sent", "Inviato"], ["answered", "Ha risposto"], ["no_answer", "Nessuna risposta"]],
-    discovery_call: [["no_answer", "Non risponde"], ["qualified", "Discovery svolta · in target"], ["not_qualified", "Discovery svolta · fuori target"]],
-    demo_call: [["held", "Demo svolta"], ["no_show", "No-show"], ["rescheduled", "Riprogrammata"]],
-    proposal_sent: [["sent", "Proposta inviata"]],
-    sale_outcome: [["won", "Chiuso vinto"], ["lost", "Perso"]],
-  };
-
-  function defaultChannel(eventType: string) {
-    if (eventType === "discovery_call") return "phone";
-    if (eventType === "demo_call") return "video_call";
-    if (["outreach_sent", "outreach_reply", "follow_up"].includes(eventType)) return activityChannel === "instantly" || activityChannel === "dm" ? activityChannel : "instantly";
-    return "other";
-  }
-
-  function changeActivityType(next: string) {
-    setActivityType(next);
-    const channel = next === "discovery_call" ? "phone" : next === "demo_call" ? "video_call" : ["outreach_sent", "outreach_reply", "follow_up"].includes(next) ? "instantly" : "other";
-    setActivityChannel(channel);
-    setActivityOutcome(outcomeOptions[next]?.[0]?.[0] ?? "");
-    setActivityMinutes("");
-  }
-
-  async function recordCommercialActivity() {
-    if (!lead) return;
-    if (!activityAt || !activityOutcome) return setErr("Scegli esito, data e ora dell'attività.");
-    const minutes = Number(activityMinutes) || 0;
-    if ((activityType === "discovery_call" && activityOutcome !== "no_answer" || activityType === "demo_call" && activityOutcome === "held") && minutes <= 0) return setErr("Inserisci la durata della call: serve per calcolare i minuti giornalieri.");
-    const legacyType = activityType === "discovery_call" ? "call" : activityType === "demo_call" ? "meeting" : "follow_up";
-    setBusy(true); setErr(null);
+  async function recordQuickActivity(outcome: "no_answer" | "qualified" | "not_qualified" | "completed" | "lost") {
+    if (!lead || commercialActionLock.current) return;
+    const isDiscovery = ["no_answer", "qualified", "not_qualified"].includes(outcome);
+    const minutes = Number(commercialMinutes) || 0;
+    if (["qualified", "not_qualified"].includes(outcome) && minutes <= 0) return setErr("Seleziona la durata della discovery.");
+    if (outcome === "lost" && !lostReason.trim()) return setErr("Scegli il motivo della perdita.");
+    commercialActionLock.current = true;
+    setBusy(true); setErr(null); setActivitySaved("");
+    const eventKey = `quick:${lead.id}:${crypto.randomUUID()}`;
+    const eventType = isDiscovery ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
     const result = await supabase.from("lead_activities").insert({
-      lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id,
-      activity_type: legacyType, event_type: activityType, channel: defaultChannel(activityType),
-      outcome: activityOutcome, duration_minutes: minutes || null,
-      occurred_at: new Date(activityAt).toISOString(), note: activityNote.trim() || null,
-      next_action_date: nextAction.trim() || null, created_by: meName?.trim() || null,
+      lead_id: lead.id,
+      client_id: lead.client_id,
+      pipeline_id: lead.pipeline_id,
+      activity_type: isDiscovery ? "call" : "follow_up",
+      event_type: eventType,
+      channel: isDiscovery ? "phone" : "other",
+      outcome,
+      duration_minutes: minutes || null,
+      occurred_at: new Date().toISOString(),
+      note: commercialNote.trim() || (outcome === "lost" ? lostReason.trim() : null),
+      next_action_date: nextAction.trim() || null,
+      created_by: meName?.trim() || null,
+      event_key: eventKey,
     }).select("*").single();
-    if (result.error) { setBusy(false); return setErr("Attività non registrata: " + result.error.message); }
-    if (["outreach_sent", "outreach_reply"].includes(activityType)) {
-      const outreachResult = await supabase.from("sales_outreach_events").insert({
-        client_id: lead.client_id, lead_id: lead.id,
-        channel: defaultChannel(activityType),
-        event_type: activityType === "outreach_sent" ? "sent" : "reply",
-        outcome: activityType === "outreach_reply" ? activityOutcome : "sent",
-        contact_key: email.trim().toLowerCase() || phone.trim() || lead.id,
-        external_id: `crm:${result.data.id}`,
-        occurred_at: new Date(activityAt).toISOString(),
-        assigned_to: lead.assigned_to || meName || null,
-        created_by: meName?.trim() || null,
-        details: { lead_activity_id: result.data.id },
-      });
-      if (outreachResult.error) {
-        await supabase.from("lead_activities").delete().eq("id", result.data.id);
-        setBusy(false);
-        return setErr("Attività non registrata: " + outreachResult.error.message);
-      }
+    if (result.error) {
+      setBusy(false); commercialActionLock.current = false;
+      return setErr("Attività non registrata: " + result.error.message);
     }
-    setBusy(false);
+    if (outcome === "lost") {
+      const lostStage = stages.find((stage) => stage.name === "LOST");
+      const update = await supabase.from("leads").update({ lost_reason: lostReason.trim(), ...(lostStage ? { stage_id: lostStage.id } : {}) }).eq("id", lead.id);
+      if (update.error) {
+        await supabase.from("lead_activities").delete().eq("client_id", lead.client_id).eq("event_key", eventKey);
+        setBusy(false); commercialActionLock.current = false;
+        return setErr("Esito non registrato: " + update.error.message);
+      }
+      if (lostStage) setStageId(lostStage.id);
+    }
     setActivityHistory((current) => [result.data as LeadActivity, ...current]);
-    setActivityNote(""); setActivityMinutes(""); setActivityAt(localDateTime(new Date()));
+    setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
+    setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
+    setBusy(false); commercialActionLock.current = false;
+  }
+
+  function prepareDemo() {
+    setPlanKind("appointment");
+    setPlanAppointmentType("demo");
+    setPlanTitle(`Demo video — ${lead?.name || "Lead"}`);
+    requestAnimationFrame(() => document.getElementById("lead-next-step")?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
   async function removeCommercialActivity(activity: LeadActivity) {
@@ -284,7 +271,7 @@ export default function LeadModal({
       client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
       revenue_type: revenueType, amount: Number(revenueAmount), contract_value: Number(revenueContractValue) || null,
       status: "collected", occurred_at: new Date(revenueAt).toISOString(), assigned_to: lead.assigned_to || meName || null,
-      created_by: meName || null, note: revenueNote.trim() || null,
+      created_by: meName || null, note: revenueNote.trim() || null, event_key: `revenue:${lead.id}:${crypto.randomUUID()}`,
     });
     if (result.error) { setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
     // Il valore del contratto vive sul lead ed entra nei KPI alla data della
@@ -531,8 +518,13 @@ export default function LeadModal({
     if (!error) {
       await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
       if (planKind === "appointment") {
-        const eventResult = await supabase.from("lead_activities").insert({ lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id, activity_type: "meeting", event_type: `${planAppointmentType}_booked`, channel: planAppointmentType === "discovery" ? "phone" : "video_call", outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: new Date(planDue).toISOString(), duration_minutes: 60, note: finalNote || null, created_by: meName || null, details: { task_id: taskResult.data?.id || null } });
-        if (eventResult.error) { setBusy(false); setErr("Appuntamento salvato, ma non registrato nei KPI: " + eventResult.error.message); return false; }
+        const taskId = taskResult.data?.id || null;
+        const eventResult = await supabase.from("lead_activities").upsert({ lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id, activity_type: "meeting", event_type: `${planAppointmentType}_booked`, channel: planAppointmentType === "discovery" ? "phone" : "video_call", outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: new Date(planDue).toISOString(), duration_minutes: 60, note: finalNote || null, created_by: meName || null, details: { task_id: taskId }, event_key: `appointment:${taskId}:booked` }, { onConflict: "client_id,event_key" });
+        if (eventResult.error) {
+          if (taskId) await supabase.from("sales_tasks").delete().eq("id", taskId);
+          if (googleEventId) try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* rollback best effort */ }
+          setBusy(false); setErr("Appuntamento non salvato: " + eventResult.error.message); return false;
+        }
       }
     }
     setBusy(false);
@@ -570,37 +562,27 @@ export default function LeadModal({
           </div>
 
           {!isNew && (
-            <div className="activity-box commercial-tracker">
-              <div className="tracker-heading"><div><b>Registra il lavoro commerciale</b><p>Un solo aggiornamento alimenta automaticamente i KPI del giorno.</p></div><span>KPI</span></div>
-              <div className="modal-row">
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Azione</label>
-                  <select value={activityType} onChange={(e) => changeActivityType(e.target.value)}>
-                    <option value="outreach_sent">Outreach inviato</option>
-                    <option value="outreach_reply">Risposta outreach</option>
-                    <option value="follow_up">Follow-up</option>
-                    <option value="discovery_call">Discovery al telefono</option>
-                    <option value="demo_call">Demo in videochiamata</option>
-                    <option value="proposal_sent">Proposta inviata</option>
-                    <option value="sale_outcome">Esito vendita</option>
-                  </select>
-                </div>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Esito</label>
-                  <select value={activityOutcome} onChange={(e) => setActivityOutcome(e.target.value)}>
-                    {(outcomeOptions[activityType] ?? []).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                  </select>
-                </div>
+            <div className="activity-box commercial-tracker quick-commercial-tracker">
+              <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
+              <div className="commercial-quick-actions">
+                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
+                <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => setQuickAction("qualified")}><b>In target</b><small>Discovery svolta</small></button>
+                <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => setQuickAction("not_qualified")}><b>Fuori target</b><small>Discovery svolta</small></button>
+                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
+                <button type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota demo</b><small>Vai a data e ora</small></button>
+                <button type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => setQuickAction("lost")}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
-              {["outreach_sent", "outreach_reply", "follow_up"].includes(activityType) && <div className="field"><label>Canale</label><div className="channel-choice"><button type="button" className={activityChannel === "instantly" ? "active" : ""} onClick={() => setActivityChannel("instantly")}>Instantly · email</button><button type="button" className={activityChannel === "dm" ? "active" : ""} onClick={() => setActivityChannel("dm")}>DM</button></div></div>}
-              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={activityAt} onChange={(e) => setActivityAt(e.target.value)} /></div>{(["discovery_call", "demo_call"].includes(activityType)) && <div className="field" style={{ flex: 1 }}><label>Durata call (minuti)</label><input type="number" min="0" step="1" value={activityMinutes} onChange={(e) => setActivityMinutes(e.target.value)} placeholder={activityOutcome === "no_answer" || activityOutcome === "no_show" ? "0" : "Es. 35"} /></div>}</div>
-              <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={activityNote} onChange={(e) => setActivityNote(e.target.value)} placeholder="Informazione utile sull'esito" /></div>
-              <button className="btn primary tracker-save" type="button" disabled={busy} onClick={() => void recordCommercialActivity()}>{busy ? "Registrazione…" : "Registra nei KPI"}</button>
-              {activityHistory.length > 0 && <details className="tracker-history"><summary>Ultime registrazioni ({activityHistory.length})</summary>{activityHistory.slice(0, 8).map((activity) => <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}</b><small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"} · {CHANNEL_LABELS[activity.channel || ""] || activity.channel || "CRM"} · {new Date(activity.occurred_at || activity.created_at).toLocaleString("it-IT")}</small></span><button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button></div>)}</details>}
+              {quickAction && <div className="commercial-quick-detail">
+                {quickAction !== "lost" ? <><label>Durata discovery</label><div className="duration-chips">{[5, 10, 15, 20, 30, 45, 60].map((minutes) => <button type="button" key={minutes} className={commercialMinutes === String(minutes) ? "active" : ""} onClick={() => setCommercialMinutes(String(minutes))}>{minutes} min</button>)}</div></> : <div className="field"><label>Motivo della perdita</label><select value={lostReason} onChange={(e) => setLostReason(e.target.value)}><option value="">— scegli —</option><option>Prezzo troppo alto</option><option>Nessuna differenza percepita</option><option>Ha scelto un concorrente</option><option>Non interessato più</option><option>Irraggiungibile</option><option>Budget fermo</option><option>Altro</option></select></div>}
+                <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={commercialNote} onChange={(e) => setCommercialNote(e.target.value)} placeholder="Solo se serve ricordare qualcosa" /></div>
+                <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setQuickAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordQuickActivity(quickAction)}>{busy ? "Salvataggio…" : "Conferma esito"}</button></div>
+              </div>}
+              {activitySaved && <div className="commercial-saved">✓ {activitySaved}</div>}
+              {activityHistory.length > 0 && <details className="tracker-history"><summary>Storico commerciale ({activityHistory.length})</summary>{activityHistory.slice(0, 8).map((activity) => <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}</b><small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"} · {CHANNEL_LABELS[activity.channel || ""] || activity.channel || "CRM"} · {new Date(activity.occurred_at || activity.created_at).toLocaleString("it-IT")}</small></span><button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button></div>)}</details>}
             </div>
           )}
           {!isNew && (
-            <div className="activity-box lead-plan-box">
+            <div className="activity-box lead-plan-box" id="lead-next-step">
               <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
               {planKind === "appointment" && <div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Demo · video</button></div></div>}
@@ -681,7 +663,7 @@ export default function LeadModal({
               />
             </div>
           </div>
-          {!isNew && (
+          {!isNew && canDelete && (
             <div className="activity-box revenue-tracker">
               <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato.</p></div><span>€</span></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
@@ -717,6 +699,7 @@ export default function LeadModal({
               >
                 <option value="">— scegli —</option>
                 <option>Prezzo troppo alto</option>
+                <option>Nessuna differenza percepita</option>
                 <option>Ha scelto un concorrente</option>
                 <option>Non interessato più</option>
                 <option>Irraggiungibile</option>

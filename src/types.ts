@@ -79,6 +79,7 @@ export interface LeadActivity {
   scheduled_at?: string | null;
   amount?: number | null;
   details?: Record<string, unknown> | null;
+  event_key?: string | null;
 }
 
 export interface SalesTask {
@@ -115,6 +116,7 @@ export interface SalesRevenueEvent {
   created_by: string | null;
   note: string | null;
   created_at: string;
+  event_key?: string | null;
 }
 
 export interface SalesOutreachEvent {
