@@ -80,6 +80,7 @@ export interface LeadActivity {
   amount?: number | null;
   details?: Record<string, unknown> | null;
   event_key?: string | null;
+  call_type?: "lead" | "outbound" | "client" | "other" | null;
 }
 
 export interface SalesTask {
@@ -100,6 +101,7 @@ export interface SalesTask {
   appointment_status?: "scheduled" | "held" | "no_show" | "cancelled" | "rescheduled" | null;
   duration_minutes?: number | null;
   google_event_id?: string | null;
+  audience?: "lead" | "client" | null;
 }
 
 export interface SalesRevenueEvent {
@@ -147,6 +149,16 @@ export interface SalesCost {
   note: string | null;
   created_by: string | null;
   created_at: string;
+  assigned_to?: string | null;
+}
+
+export interface SalesIntegration {
+  client_id: string;
+  provider: "instantly";
+  is_active: boolean;
+  activated_at: string | null;
+  note: string | null;
+  updated_at: string;
 }
 
 export type PersonalTaskStatus = "backlog" | "next" | "doing" | "waiting" | "done";
@@ -205,6 +217,7 @@ export interface Contract {
   signed_document_hash?: string | null;
   viewed_at?: string | null;
   view_count?: number | null;
+  deal_value?: number | null;
 }
 
 export interface ContractEvent {

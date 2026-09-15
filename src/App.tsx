@@ -263,6 +263,7 @@ export default function App() {
             onFocusConsumed={() => setFocusLeadId(null)}
             canDelete={isAdmin}
             canReassign={isAdmin}
+            admin={isAdmin}
             headerTools={headerTools}
           />
         ) : (

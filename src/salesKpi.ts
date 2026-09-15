@@ -19,8 +19,8 @@ export const EVENT_LABELS: Record<string, string> = {
   follow_up: "Follow-up",
   discovery_call: "Discovery telefonica",
   discovery_booked: "Discovery fissata",
-  demo_booked: "Demo fissata",
-  demo_call: "Demo in videochiamata",
+  demo_booked: "Closing fissata",
+  demo_call: "Closing in videochiamata",
   proposal_sent: "Proposta inviata",
   sale_outcome: "Esito vendita",
 };
@@ -49,8 +49,50 @@ export const OUTCOME_LABELS: Record<string, string> = {
   lost: "Perso",
 };
 
+export type CallType = "lead" | "outbound" | "client" | "other";
+
+export const CALL_TYPE_LABELS: Record<CallType, string> = {
+  lead: "Call lead",
+  outbound: "Call outbound",
+  client: "Call già clienti",
+  other: "Altre call",
+};
+
 export function activityTimestamp(activity: LeadActivity) {
   return activity.occurred_at || activity.created_at;
+}
+
+/** Minuto in cui è avvenuta l'azione, usato come granularità delle chiavi di
+ *  deduplicazione: due clic sullo stesso esito nello stesso minuto sono lo
+ *  stesso evento, un secondo tentativo reale un minuto dopo è un evento nuovo. */
+export function minuteStamp(date = new Date()) {
+  return date.toISOString().slice(0, 16);
+}
+
+/**
+ * Chiave stabile di un'azione registrata dalla scheda lead.
+ *
+ * Prima qui c'era un crypto.randomUUID(), quindi l'indice univoco su
+ * (client_id, event_key) non poteva mai scattare: due schede aperte sullo
+ * stesso lead producevano due discovery. Con una chiave deterministica il
+ * secondo salvataggio collide e viene ignorato dal database, non dall'interfaccia.
+ */
+export function quickActivityKey(leadId: string, eventType: string, outcome: string, at = new Date()) {
+  return `quick:${leadId}:${eventType}:${outcome}:${minuteStamp(at)}`;
+}
+
+/** Stessa logica per gli incassi: stesso lead, stesso tipo, stessa data/ora e
+ *  stesso importo = stesso incasso. Un secondo pagamento reale differisce
+ *  sempre per importo o per momento di registrazione. */
+export function revenueKey(leadId: string, revenueType: string, occurredAtIso: string, amount: number) {
+  return `revenue:${leadId}:${revenueType}:${occurredAtIso.slice(0, 16)}:${amount.toFixed(2)}`;
+}
+
+/** Chiave del registro outreach manuale: una riga per data, canale,
+ *  responsabile e tipo di evento. Risalvare la stessa combinazione sostituisce
+ *  il valore invece di sommarlo. */
+export function outreachKey(day: string, channel: string, owner: string, eventType: string) {
+  return `manual:${day}:${channel}:${owner.trim().toLowerCase()}:${eventType}`;
 }
 
 export function pct(numerator: number, denominator: number) {
