@@ -40,6 +40,7 @@ export default function Board({
   onFocusConsumed,
   canDelete = false,
   canReassign = false,
+  admin = false,
   headerTools,
 }: {
   client: Client;
@@ -54,6 +55,7 @@ export default function Board({
   onFocusConsumed?: () => void;
   canDelete?: boolean;
   canReassign?: boolean;
+  admin?: boolean;
   headerTools?: ReactNode;
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
@@ -256,6 +258,7 @@ export default function Board({
           meName={meName}
           canDelete={canDelete}
           canReassign={canReassign}
+          admin={admin}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

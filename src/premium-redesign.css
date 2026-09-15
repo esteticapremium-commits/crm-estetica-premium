@@ -1500,3 +1500,23 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   .theme-premium.platform-shell .personal-task-kanban,
   .theme-premium.platform-shell .editorial-kanban { grid-template-columns: repeat(5, 82vw); }
 }
+
+/* Registro KPI: intestazione a due livelli. I gruppi restano ancorati in alto
+   insieme alle colonne, così scorrendo di lato si continua a sapere se un
+   numero è una prenotazione, un appuntamento svolto o un incasso. */
+.theme-premium.platform-shell .kpi-table thead tr.kpi-group-row th { top: 0; height: 26px; padding: 5px 9px; border-bottom: 1px solid #e3d4cf; background: #efe4e0; color: var(--ep-brand); font-weight: 800; text-align: center; }
+.theme-premium.platform-shell .kpi-table thead tr:not(.kpi-group-row) th { top: 26px; }
+.theme-premium.platform-shell .kpi-table tr.total td,
+.theme-premium.platform-shell .kpi-table tr.total .sticky-col { top: 57px; }
+
+/* Le sei azioni rapide restano leggibili anche su telefono: sotto i 560px
+   passano a due colonne invece di troncare ogni etichetta. */
+@media (max-width: 560px) {
+  .theme-premium.platform-shell .commercial-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .theme-premium.platform-shell .commercial-quick-actions b,
+  .theme-premium.platform-shell .commercial-quick-actions small { white-space: normal; }
+}
+
+.theme-premium.platform-shell .quick-linked-appointment { margin: 0 0 9px; font-size: 10px; line-height: 1.45; }
+.theme-premium.platform-shell .quick-call-type { margin-bottom: 10px; }
+.theme-premium.platform-shell .quick-call-type .channel-choice button { font-size: 10px; padding: 6px 8px; }

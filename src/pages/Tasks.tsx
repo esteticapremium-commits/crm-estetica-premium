@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, SalesTask, Stage } from "../types";
 import { romeToday } from "../dates";
+import { appointmentSubject, deleteAppointment, updateAppointment } from "../appointments";
 
 type View = "today" | "future" | "missing" | "done";
 const localDateTime = (date = new Date()) => { const p = (n: number) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; };
@@ -24,20 +25,49 @@ function Kpi({ value, label, onClick, danger, warn }: { value: number; label: st
 function TaskList({ list, leads, onEdit, onOpen, onComplete, busy }: { list: SalesTask[]; leads: Map<string, Lead>; onEdit: (task: SalesTask) => void; onOpen: (lead: Lead) => void; onComplete: (task: SalesTask) => void; busy: boolean }) { if (!list.length) return <div className="tasks-empty"><b>Nessuna attività in questa vista.</b><span>Aggiungi una task personale o pianifica il prossimo passo di un lead.</span></div>; return <div className="task-list">{list.map((task) => { const lead = task.lead_id ? leads.get(task.lead_id) : null; return <article className={`task-card${task.is_priority ? " priority" : ""}${task.completed_at ? " completed" : dayOf(task.due_at) < romeToday() ? " overdue" : ""}`} key={task.id}><div className="task-date"><b>{timeOf(task.due_at)}</b><span>{new Date(task.due_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}</span></div><div className="task-lead">{task.is_priority && <em className="task-priority-badge">Prioritaria</em>}<b>{task.title}</b><span>{lead ? lead.name || "Lead senza nome" : "Task personale"} · {task.assigned_to}</span>{task.description && <small>{task.description}</small>}{task.appointment_type && !task.completed_at && <small className="task-calendar-hint">L’esito si registra dal Calendario, così non viene conteggiato due volte.</small>}</div><div className="task-actions">{lead && <button className="btn small" onClick={() => onOpen(lead)}>Apri lead</button>}<button className="btn small" onClick={() => onEdit(task)}>Modifica</button>{!task.completed_at && !task.appointment_type && <button className="btn small done" disabled={busy} onClick={() => onComplete(task)}>Fatto</button>}</div></article>; })}</div>; }
 function Missing({ leads, stages, onPlan }: { leads: Lead[]; stages: Map<string, Stage>; onPlan: (lead: Lead) => void }) { if (!leads.length) return <div className="tasks-empty"><b>Tutti i lead attivi hanno almeno una prossima attività.</b><span>La pipeline è sotto controllo.</span></div>; return <div className="task-list">{leads.map((lead) => <article className="task-card overdue" key={lead.id}><div className="task-date"><b>—</b><span>Da fissare</span></div><div className="task-lead"><b>{lead.name || "Lead senza nome"}</b><span>{stages.get(lead.stage_id)?.name || "Fase non definita"}{lead.phone ? ` · ${lead.phone}` : ""}</span></div><div className="task-actions"><button className="btn small primary" onClick={() => onPlan(lead)}>Pianifica</button></div></article>)}</div>; }
 function TaskForm({ item, leads, clientId, meName, onClose, onSaved }: { item: SalesTask | null; leads: Lead[]; clientId: string; meName: string; onClose: () => void; onSaved: () => void }) {
-  const [title, setTitle] = useState(item?.title ?? "");
+  const isAppointment = Boolean(item?.appointment_type);
+  const [title, setTitle] = useState(item ? (isAppointment ? appointmentSubject(item) : item.title) : "");
   const [leadId, setLeadId] = useState(item?.lead_id ?? "");
   const [leadSearch, setLeadSearch] = useState("");
   const [due, setDue] = useState(localDateTime(item?.due_at ? new Date(item.due_at) : new Date()));
   const [description, setDescription] = useState(item?.description ?? "");
   const [isPriority, setIsPriority] = useState(Boolean(item?.is_priority));
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const saveLock = useRef(false);
   const selectedLead = leads.find((lead) => lead.id === leadId);
   const matches = leadSearch.trim().length < 2 ? [] : leads.filter((lead) => `${lead.name ?? ""} ${lead.phone ?? ""} ${lead.email ?? ""}`.toLowerCase().includes(leadSearch.trim().toLowerCase())).slice(0, 8);
   function chooseLead(lead: Lead) { setLeadId(lead.id); setLeadSearch(""); if (!title) setTitle(`Follow-up — ${lead.name || "Lead"}`); }
-  async function save() { if (!title.trim() || !due) return setError("Inserisci attività, data e ora."); setBusy(true); const data = { title: title.trim(), lead_id: leadId || null, due_at: new Date(due).toISOString(), description: description.trim() || null, is_priority: isPriority, assigned_to: item?.assigned_to || meName, created_by: item?.created_by || meName }; const res = item?.id ? await supabase.from("sales_tasks").update(data).eq("id", item.id) : await supabase.from("sales_tasks").insert({ ...data, client_id: clientId }); if (!res.error && leadId) await supabase.from("leads").update({ next_action_date: due.slice(0, 10) }).eq("id", leadId); setBusy(false); if (res.error) setError(res.error.message); else onSaved(); }
+  async function save() {
+    if (saveLock.current) return;
+    if (!title.trim() || !due) return setError("Inserisci attività, data e ora.");
+    saveLock.current = true; setBusy(true); setError(null);
+    // Un appuntamento non è una task come le altre: spostarlo deve muovere anche
+    // l'evento Google e la data pianificata nei KPI, altrimenti il CRM e il
+    // calendario raccontano due storie diverse.
+    if (item?.id && isAppointment) {
+      const result = await updateAppointment(item, { subject: title.trim(), startsAt: new Date(due), note: description });
+      saveLock.current = false; setBusy(false);
+      if (!result.ok) return setError(result.error || "Appuntamento non aggiornato.");
+      return onSaved();
+    }
+    const data = { title: title.trim(), lead_id: leadId || null, due_at: new Date(due).toISOString(), description: description.trim() || null, is_priority: isPriority, assigned_to: item?.assigned_to || meName, created_by: item?.created_by || meName };
+    const res = item?.id ? await supabase.from("sales_tasks").update(data).eq("id", item.id) : await supabase.from("sales_tasks").insert({ ...data, client_id: clientId });
+    if (!res.error && leadId) await supabase.from("leads").update({ next_action_date: due.slice(0, 10) }).eq("id", leadId);
+    saveLock.current = false; setBusy(false);
+    if (res.error) setError(res.error.message); else onSaved();
+  }
   async function remove() {
-    if (!item?.id || !confirm("Eliminare definitivamente questa attività?")) return;
+    if (!item?.id) return;
+    if (!confirm(isAppointment ? "Eliminare questo appuntamento? Verrà rimosso anche da Google Calendar e dai KPI." : "Eliminare definitivamente questa attività?")) return;
     setBusy(true); setError(null);
+    // Prima l'eliminazione da qui lasciava l'evento su Google e la prenotazione
+    // nei KPI: le demo annullate restavano contate tra quelle fissate.
+    if (isAppointment) {
+      const result = await deleteAppointment(item);
+      setBusy(false);
+      if (!result.ok) return setError(result.error || "Appuntamento non eliminato.");
+      return onSaved();
+    }
     const { error: deleteError } = await supabase.from("sales_tasks").delete().eq("id", item.id);
     if (deleteError) { setBusy(false); setError(`Attività non eliminata: ${deleteError.message}`); return; }
     if (item.lead_id) {
@@ -46,5 +76,5 @@ function TaskForm({ item, leads, clientId, meName, onClose, onSaved }: { item: S
     }
     setBusy(false); onSaved();
   }
-  return <div className="overlay" onClick={onClose}><div className="modal task-planner" onClick={(e) => e.stopPropagation()}><header><div><h3>{item?.id ? "Modifica attività" : "Nuova attività"}</h3><p>Usa una task personale oppure collegala a un lead.</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}<div className="field"><label>Cosa deve essere fatto?</label><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Es. Preparare scaletta call, richiamare Marta…" /></div><label className={`task-priority-option${isPriority ? " active" : ""}`}><input type="checkbox" checked={isPriority} onChange={(e) => setIsPriority(e.target.checked)} /><span><b>Segna come prioritaria</b><small>Verrà evidenziata e mostrata prima delle altre.</small></span></label><div className="field task-lead-search"><label>Collega a un lead <small>(facoltativo)</small></label>{selectedLead ? <div className="selected-task-lead"><span><b>{selectedLead.name || "Lead senza nome"}</b><small>{selectedLead.phone || selectedLead.email || "Lead collegato"}</small></span><button type="button" className="btn small" onClick={() => setLeadId("")}>Rimuovi</button></div> : <><input value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} placeholder="Cerca nome, telefono o email…" /><small>Lascia vuoto per una task personale.</small>{matches.length > 0 && <div className="task-lead-results">{matches.map((lead) => <button type="button" key={lead.id} onClick={() => chooseLead(lead)}><b>{lead.name || "Lead senza nome"}</b><span>{lead.phone || lead.email || "Nessun recapito"}</span></button>)}</div>}</>}</div><div className="field"><label>Data e orario</label><input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} /></div><div className="field"><label>Dettagli <small>(facoltativo)</small></label><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Cosa serve sapere prima di svolgerla?" /></div></div><footer>{item?.id && <button className="btn danger" disabled={busy} onClick={() => void remove()} style={{ marginRight: "auto" }}>Elimina attività</button>}<button className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Salva attività"}</button></footer></div></div>;
+  return <div className="overlay" onClick={onClose}><div className="modal task-planner" onClick={(e) => e.stopPropagation()}><header><div><h3>{isAppointment ? "Modifica appuntamento" : item?.id ? "Modifica attività" : "Nuova attività"}</h3><p>{isAppointment ? "Spostandolo si aggiornano anche Google Calendar e i KPI." : "Usa una task personale oppure collegala a un lead."}</p></div><button className="x" onClick={onClose}>×</button></header><div className="content">{error && <div className="notice err">{error}</div>}{isAppointment && <div className="notice warn">L’esito di questo appuntamento si registra dal Calendario: da lì conta una volta sola nei KPI.</div>}<div className="field"><label>Cosa deve essere fatto?</label><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Es. Preparare scaletta call, richiamare Marta…" /></div><label className={`task-priority-option${isPriority ? " active" : ""}`}><input type="checkbox" checked={isPriority} onChange={(e) => setIsPriority(e.target.checked)} /><span><b>Segna come prioritaria</b><small>Verrà evidenziata e mostrata prima delle altre.</small></span></label><div className="field task-lead-search"><label>Collega a un lead <small>(facoltativo)</small></label>{selectedLead ? <div className="selected-task-lead"><span><b>{selectedLead.name || "Lead senza nome"}</b><small>{selectedLead.phone || selectedLead.email || "Lead collegato"}</small></span><button type="button" className="btn small" onClick={() => setLeadId("")}>Rimuovi</button></div> : <><input value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} placeholder="Cerca nome, telefono o email…" /><small>Lascia vuoto per una task personale.</small>{matches.length > 0 && <div className="task-lead-results">{matches.map((lead) => <button type="button" key={lead.id} onClick={() => chooseLead(lead)}><b>{lead.name || "Lead senza nome"}</b><span>{lead.phone || lead.email || "Nessun recapito"}</span></button>)}</div>}</>}</div><div className="field"><label>Data e orario</label><input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} /></div><div className="field"><label>Dettagli <small>(facoltativo)</small></label><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Cosa serve sapere prima di svolgerla?" /></div></div><footer>{item?.id && <button className="btn danger" disabled={busy} onClick={() => void remove()} style={{ marginRight: "auto" }}>Elimina attività</button>}<button className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Salvataggio…" : "Salva attività"}</button></footer></div></div>;
 }

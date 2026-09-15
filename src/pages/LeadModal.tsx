@@ -3,9 +3,9 @@ import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
 import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, OWNER_CALENDAR_ID } from "../calendarGoogle";
-import { CHANNEL_LABELS, EVENT_LABELS, OUTCOME_LABELS } from "../salesKpi";
-import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, Stage } from "../types";
+import { CHANNEL_LABELS, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey } from "../salesKpi";
+import { createAppointment, pendingAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
+import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 const NOTE_SEPARATOR = "\n\n---\n\n";
@@ -100,6 +100,9 @@ interface Props {
   meName?: string;
   canDelete?: boolean;
   canReassign?: boolean;
+  /** Solo l'amministratore registra gli incassi: sono dati di cassa e devono
+   *  passare da una sola mano, come già avviene per i costi. */
+  admin?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -113,6 +116,7 @@ export default function LeadModal({
   meName,
   canDelete = false,
   canReassign = false,
+  admin = false,
   onClose,
   onSaved,
 }: Props) {
@@ -141,7 +145,12 @@ export default function LeadModal({
   const [commercialMinutes, setCommercialMinutes] = useState("");
   const [activitySaved, setActivitySaved] = useState("");
   const [activityHistory, setActivityHistory] = useState<LeadActivity[]>([]);
+  const [appointments, setAppointments] = useState<SalesTask[]>([]);
+  const [callType, setCallType] = useState<"lead" | "outbound" | "client" | "other">("lead");
   const commercialActionLock = useRef(false);
+  const revenueLock = useRef(false);
+  const planLock = useRef(false);
+  const [planAudience, setPlanAudience] = useState<AppointmentAudience>("lead");
   const [planKind, setPlanKind] = useState<"task" | "appointment">("task");
   const [planAppointmentType, setPlanAppointmentType] = useState<"discovery" | "demo">("discovery");
   const [planTitle, setPlanTitle] = useState("");
@@ -194,11 +203,26 @@ export default function LeadModal({
       });
   }, [lead?.id]);
 
+  async function reloadActivityHistory() {
+    if (!lead) return;
+    const { data } = await supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(20);
+    setActivityHistory((data as LeadActivity[]) ?? []);
+  }
+
   useEffect(() => {
     if (!lead) return;
-    supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(20)
-      .then(({ data }) => setActivityHistory((data as LeadActivity[]) ?? []));
+    void reloadActivityHistory();
+    // Appuntamenti ancora da chiudere: se ce n'è uno, l'esito registrato da qui
+    // deve aggiornare quello invece di creare una seconda attività.
+    void pendingAppointments(lead.client_id, lead.id).then(setAppointments);
   }, [lead?.id]);
+
+  // Solo gli appuntamenti la cui ora è già passata possono avere un esito: una
+  // discovery fissata per la settimana prossima non deve essere chiusa da un
+  // "non risponde" registrato oggi.
+  const dueAppointments = appointments.filter((task) => new Date(task.due_at).getTime() <= Date.now());
+  const openDiscovery = dueAppointments.find((task) => task.appointment_type === "discovery") ?? null;
+  const openDemo = dueAppointments.find((task) => task.appointment_type === "demo") ?? null;
 
   async function recordQuickActivity(outcome: "no_answer" | "qualified" | "not_qualified" | "completed" | "lost") {
     if (!lead || commercialActionLock.current) return;
@@ -208,23 +232,44 @@ export default function LeadModal({
     if (outcome === "lost" && !lostReason.trim()) return setErr("Scegli il motivo della perdita.");
     commercialActionLock.current = true;
     setBusy(true); setErr(null); setActivitySaved("");
-    const eventKey = `quick:${lead.id}:${crypto.randomUUID()}`;
+
+    // Se la discovery era già in agenda, l'esito appartiene a quell'appuntamento:
+    // viene registrato sulla sua chiave, così lo stesso incontro conta una volta
+    // sola anche se l'esito lo segni da qui invece che dal Calendario.
+    const linkedAppointment = isDiscovery ? openDiscovery : null;
+    if (linkedAppointment) {
+      const tracked = await recordAppointmentOutcome(linkedAppointment, outcome as "qualified" | "not_qualified" | "no_answer", meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
+      setBusy(false); commercialActionLock.current = false;
+      if (!tracked.ok) return setErr(tracked.error || "Esito non registrato.");
+      setAppointments((current) => current.filter((task) => task.id !== linkedAppointment.id));
+      setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
+      setActivitySaved(outcome === "no_answer" ? "Appuntamento segnato come non risposto" : "Esito della discovery in agenda registrato");
+      await reloadActivityHistory();
+      return;
+    }
+
+    const occurredAt = new Date();
     const eventType = isDiscovery ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
-    const result = await supabase.from("lead_activities").insert({
+    // Chiave deterministica: due clic sullo stesso esito nello stesso minuto sono
+    // lo stesso evento e il database rifiuta il secondo. Un tentativo reale più
+    // tardi ha una chiave diversa e viene registrato normalmente.
+    const eventKey = quickActivityKey(lead.id, eventType, outcome, occurredAt);
+    const result = await supabase.from("lead_activities").upsert({
       lead_id: lead.id,
       client_id: lead.client_id,
       pipeline_id: lead.pipeline_id,
       activity_type: isDiscovery ? "call" : "follow_up",
       event_type: eventType,
       channel: isDiscovery ? "phone" : "other",
+      call_type: isDiscovery ? callType : null,
       outcome,
       duration_minutes: minutes || null,
-      occurred_at: new Date().toISOString(),
+      occurred_at: occurredAt.toISOString(),
       note: commercialNote.trim() || (outcome === "lost" ? lostReason.trim() : null),
       next_action_date: nextAction.trim() || null,
       created_by: meName?.trim() || null,
       event_key: eventKey,
-    }).select("*").single();
+    }, { onConflict: "client_id,event_key" }).select("*").single();
     if (result.error) {
       setBusy(false); commercialActionLock.current = false;
       return setErr("Attività non registrata: " + result.error.message);
@@ -239,7 +284,7 @@ export default function LeadModal({
       }
       if (lostStage) setStageId(lostStage.id);
     }
-    setActivityHistory((current) => [result.data as LeadActivity, ...current]);
+    setActivityHistory((current) => [result.data as LeadActivity, ...current.filter((item) => item.id !== (result.data as LeadActivity).id)]);
     setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
     setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
     setBusy(false); commercialActionLock.current = false;
@@ -248,40 +293,42 @@ export default function LeadModal({
   function prepareDemo() {
     setPlanKind("appointment");
     setPlanAppointmentType("demo");
-    setPlanTitle(`Demo video — ${lead?.name || "Lead"}`);
+    setPlanTitle(`Closing video — ${lead?.name || "Lead"}`);
     requestAnimationFrame(() => document.getElementById("lead-next-step")?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
   async function removeCommercialActivity(activity: LeadActivity) {
     if (!confirm("Eliminare questa registrazione dai KPI?")) return;
     setBusy(true);
-    if (["outreach_sent", "outreach_reply"].includes(activity.event_type || "")) {
-      const outreachResult = await supabase.from("sales_outreach_events").delete().eq("client_id", lead?.client_id).eq("external_id", `crm:${activity.id}`);
-      if (outreachResult.error) { setBusy(false); return setErr("Registrazione non eliminata: " + outreachResult.error.message); }
-    }
     const result = await supabase.from("lead_activities").delete().eq("id", activity.id); setBusy(false);
     if (result.error) return setErr("Registrazione non eliminata: " + result.error.message);
     setActivityHistory((current) => current.filter((item) => item.id !== activity.id));
   }
 
   async function recordRevenue() {
-    if (!lead || Number(revenueAmount) <= 0 || !revenueAt) return setErr("Inserisci importo incassato, data e ora.");
-    setBusy(true); setErr(null);
-    const result = await supabase.from("sales_revenue_events").insert({
+    if (!lead || revenueLock.current) return;
+    if (Number(revenueAmount) <= 0 || !revenueAt) return setErr("Inserisci importo incassato, data e ora.");
+    revenueLock.current = true; setBusy(true); setErr(null);
+    const amount = Number(revenueAmount);
+    const occurredAt = new Date(revenueAt).toISOString();
+    // Stesso lead, stesso tipo, stesso momento e stesso importo = stesso incasso.
+    // Un secondo pagamento reale differisce sempre per importo o per orario.
+    const key = revenueKey(lead.id, revenueType, occurredAt, amount);
+    const result = await supabase.from("sales_revenue_events").upsert({
       client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
-      revenue_type: revenueType, amount: Number(revenueAmount), contract_value: Number(revenueContractValue) || null,
-      status: "collected", occurred_at: new Date(revenueAt).toISOString(), assigned_to: lead.assigned_to || meName || null,
-      created_by: meName || null, note: revenueNote.trim() || null, event_key: `revenue:${lead.id}:${crypto.randomUUID()}`,
-    });
-    if (result.error) { setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
-    // Il valore del contratto vive sul lead ed entra nei KPI alla data della
-    // firma. Evitiamo così di sommarlo una seconda volta alla data dell'incasso.
+      revenue_type: revenueType, amount, contract_value: Number(revenueContractValue) || null,
+      status: "collected", occurred_at: occurredAt, assigned_to: lead.assigned_to || meName || null,
+      created_by: meName || null, note: revenueNote.trim() || null, event_key: key,
+    }, { onConflict: "client_id,event_key" });
+    if (result.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
+    // Il valore aggiornato resta la previsione corrente del lead. I KPI già
+    // chiusi non cambiano: leggono il valore congelato sul contratto firmato.
     if (revenueType === "new" && Number(revenueContractValue) > 0) {
       const valueResult = await supabase.from("leads").update({ value: Number(revenueContractValue) }).eq("id", lead.id);
-      if (valueResult.error) { setBusy(false); return setErr("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
+      if (valueResult.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
       setValue(String(Number(revenueContractValue)));
     }
-    setBusy(false);
+    revenueLock.current = false; setBusy(false);
     setRevenueAmount(""); setRevenueContractValue(""); setRevenueNote(""); setRevenueAt(localDateTime(new Date()));
   }
 
@@ -367,6 +414,9 @@ export default function LeadModal({
         status: "draft",
         sent_to: ctTo.trim() || lead.email || null,
         created_by: meName ?? null,
+        // Il valore viene congelato qui: correggere il lead più avanti non deve
+        // riscrivere il fatturato di una giornata già chiusa nei KPI.
+        deal_value: Number(value) || null,
       })
       .select("id, sign_token")
       .single();
@@ -495,40 +545,36 @@ export default function LeadModal({
   }
 
   async function savePlan(closeAfterSave = true): Promise<boolean> {
-    if (!lead || !planDue) { setErr("Scegli data e orario."); return false; }
-    const appointmentLabel = planAppointmentType === "discovery" ? "Discovery telefonica" : "Demo video";
-    const base = planTitle.trim() || (planKind === "appointment" ? `${appointmentLabel} — ${lead.name || "Lead"}` : `Follow-up — ${lead.name || "Lead"}`);
-    if (planKind === "appointment" && !await ensureGoogleCalendarConnection()) { setErr("Google Calendar richiede di nuovo il consenso. Apri Calendario e premi “Collega Google Calendar”, poi riprova."); return false; }
-    setBusy(true); setErr(null);
-    const finalTitle = base;
-    const finalNote = planNote.trim();
-    let googleEventId: string | null = null;
+    if (!lead || planLock.current) return false;
+    if (!planDue) { setErr("Scegli data e orario."); return false; }
+    const subject = planTitle.trim() || lead.name || "Lead";
+    planLock.current = true; setBusy(true); setErr(null);
+
+    // L'appuntamento passa dal ciclo di vita condiviso: Google Calendar, task CRM
+    // e attività KPI nascono insieme o non nascono affatto.
     if (planKind === "appointment") {
-      try {
-        const start = new Date(planDue); const end = new Date(start.getTime() + 60 * 60 * 1000);
-        const event = await createGoogleCalendarEvent({ title: finalTitle, start: start.toISOString(), end: end.toISOString(), description: `${lead.name || "Lead"}${planNote ? ` — ${planNote}` : ""}`, attendees: [OWNER_CALENDAR_ID] });
-        googleEventId = event.id || null;
-      } catch {
-        setBusy(false); setErr("Google Calendar non ha ricevuto l'appuntamento: non l'ho salvato nemmeno nel CRM. Ricollega Google Calendar e riprova."); return false;
-      }
+      const result = await createAppointment({
+        clientId: lead.client_id, lead, type: planAppointmentType, audience: planAudience,
+        subject, startsAt: new Date(planDue), durationMinutes: 60, note: planNote, meName: meName || "",
+      });
+      planLock.current = false; setBusy(false);
+      if (!result.ok) { setErr(result.error || "Appuntamento non salvato."); return false; }
+      void pendingAppointments(lead.client_id, lead.id).then(setAppointments);
+      setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
+      if (closeAfterSave) onSaved();
+      return true;
     }
-    const taskResult = await supabase.from("sales_tasks").insert({ client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null, is_priority: planKind === "task" && planPriority, due_at: new Date(planDue).toISOString(), assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null, appointment_type: planKind === "appointment" ? planAppointmentType : null, appointment_status: planKind === "appointment" ? "scheduled" : null, duration_minutes: planKind === "appointment" ? 60 : null, google_event_id: googleEventId }).select("id").single();
-    const error = taskResult.error;
-    if (error && googleEventId) { try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* l'errore principale resta quello del CRM */ } }
-    if (!error) {
-      await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
-      if (planKind === "appointment") {
-        const taskId = taskResult.data?.id || null;
-        const eventResult = await supabase.from("lead_activities").upsert({ lead_id: lead.id, client_id: lead.client_id, pipeline_id: lead.pipeline_id, activity_type: "meeting", event_type: `${planAppointmentType}_booked`, channel: planAppointmentType === "discovery" ? "phone" : "video_call", outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: new Date(planDue).toISOString(), duration_minutes: 60, note: finalNote || null, created_by: meName || null, details: { task_id: taskId }, event_key: `appointment:${taskId}:booked` }, { onConflict: "client_id,event_key" });
-        if (eventResult.error) {
-          if (taskId) await supabase.from("sales_tasks").delete().eq("id", taskId);
-          if (googleEventId) try { await deleteGoogleCalendarEvent(googleEventId); } catch { /* rollback best effort */ }
-          setBusy(false); setErr("Appuntamento non salvato: " + eventResult.error.message); return false;
-        }
-      }
-    }
-    setBusy(false);
-    if (error) { setErr("Pianificazione non salvata: " + error.message); return false; }
+
+    const finalTitle = planTitle.trim() || `Follow-up — ${lead.name || "Lead"}`;
+    const finalNote = planNote.trim();
+    const taskResult = await supabase.from("sales_tasks").insert({
+      client_id: lead.client_id, lead_id: lead.id, title: finalTitle, description: finalNote || null,
+      is_priority: planPriority, due_at: new Date(planDue).toISOString(),
+      assigned_to: lead.assigned_to || meName || "Venditore", created_by: meName || null,
+    }).select("id").single();
+    if (!taskResult.error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
+    planLock.current = false; setBusy(false);
+    if (taskResult.error) { setErr("Pianificazione non salvata: " + taskResult.error.message); return false; }
     setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
     if (closeAfterSave) onSaved();
     return true;
@@ -564,12 +610,15 @@ export default function LeadModal({
           {!isNew && (
             <div className="activity-box commercial-tracker quick-commercial-tracker">
               <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
+              {openDiscovery && <div className="notice warn quick-linked-appointment">Stai registrando l’esito della discovery del {new Date(openDiscovery.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: conta una volta sola, anche se l’hai già aperta dal Calendario.</div>}
+              {openDemo && <div className="notice quick-linked-appointment">C’è una closing in agenda il {new Date(openDemo.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: il suo esito si registra dal Calendario.</div>}
+              {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Lead"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallType(value)}>{label}</button>)}</div></div>}
               <div className="commercial-quick-actions">
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
                 <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => setQuickAction("qualified")}><b>In target</b><small>Discovery svolta</small></button>
                 <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => setQuickAction("not_qualified")}><b>Fuori target</b><small>Discovery svolta</small></button>
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
-                <button type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota demo</b><small>Vai a data e ora</small></button>
+                <button type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota closing</b><small>Vai a data e ora</small></button>
                 <button type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => setQuickAction("lost")}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
               {quickAction && <div className="commercial-quick-detail">
@@ -585,11 +634,11 @@ export default function LeadModal({
             <div className="activity-box lead-plan-box" id="lead-next-step">
               <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
-              {planKind === "appointment" && <div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Demo · video</button></div></div>}
+              {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudience("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudience("client")}>Già cliente</button></div></div></>}
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenziala nell’Agenda e mostrala prima delle altre.</small></span></label>}
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
-              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Demo in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
+              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
               <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: l’appuntamento verrà creato insieme alle modifiche della scheda.</p>
             </div>
           )}
@@ -663,9 +712,9 @@ export default function LeadModal({
               />
             </div>
           </div>
-          {!isNew && canDelete && (
+          {!isNew && admin && (
             <div className="activity-box revenue-tracker">
-              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato.</p></div><span>€</span></div>
+              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Riservato all’amministratore.</p></div><span>€</span></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
               <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
