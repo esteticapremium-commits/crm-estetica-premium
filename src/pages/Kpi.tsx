@@ -4,7 +4,7 @@ import { activityTimestamp, formatPct, normalizedLeadSource, outreachKey, pct } 
 import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent } from "../types";
 
 type ChannelFilter = "all" | "instantly" | "dm";
-type RangePreset = "7" | "30" | "month" | "custom";
+type RangePreset = "today" | "yesterday" | "7" | "30" | "month" | "custom";
 
 interface DailyKpi {
   day: string;
@@ -152,6 +152,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const range = useMemo(() => {
     const end = today();
     if (preset === "custom") return { from: customFrom, to: customTo };
+    if (preset === "today") return { from: end, to: end };
+    if (preset === "yesterday") { const day = addDays(end, -1); return { from: day, to: day }; }
     if (preset === "month") return { from: `${end.slice(0, 7)}-01`, to: end };
     return { from: addDays(end, -(Number(preset) - 1)), to: end };
   }, [preset, customFrom, customTo]);
@@ -406,7 +408,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     {outreachConflicts.length > 0 && <div className="notice warn"><b>Possibile doppio conteggio Instantly.</b> In {outreachConflicts.length === 1 ? "questa giornata" : "queste giornate"} ({outreachConflicts.join(", ")}) risultano sia invii registrati a mano sia invii arrivati dal webhook: i volumi si sommano. Tieni una sola delle due fonti.</div>}
 
     <section className="kpi-filters panel">
-      <div><label>Periodo</label><div className="segmented"><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
+      <div><label>Periodo</label><div className="segmented"><button className={preset === "today" ? "active" : ""} onClick={() => setPreset("today")}>Oggi</button><button className={preset === "yesterday" ? "active" : ""} onClick={() => setPreset("yesterday")}>Ieri</button><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
       {preset === "custom" && <div className="kpi-date-range"><label>Dal<input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>Al<input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label></div>}
       <label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Instantly + DM</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option></select></label>
       {admin && <label>Venditore<select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutto il team</option>{sellers.map((name) => <option value={name} key={name}>{name}</option>)}</select></label>}
