@@ -229,9 +229,12 @@ export default function LeadModal({
   const openDiscovery = dueAppointments.find((task) => task.appointment_type === "discovery") ?? null;
   const openDemo = dueAppointments.find((task) => task.appointment_type === "demo") ?? null;
 
-  async function recordQuickActivity(outcome: "no_answer" | "qualified" | "not_qualified" | "completed" | "lost") {
+  async function recordQuickActivity(outcome: "no_answer" | "answered" | "qualified" | "not_qualified" | "completed" | "lost") {
     if (!lead || commercialActionLock.current) return;
-    const isDiscovery = ["no_answer", "qualified", "not_qualified"].includes(outcome);
+    const isCall = ["no_answer", "answered", "qualified", "not_qualified"].includes(outcome);
+    // Solo "in target" e "fuori target" dichiarano una discovery svolta: un
+    // recall a cui il cliente risponde e' una chiamata risposta, non una discovery.
+    const isDiscovery = ["qualified", "not_qualified"].includes(outcome);
     const minutes = Number(commercialMinutes) || 0;
     if (["qualified", "not_qualified"].includes(outcome) && minutes <= 0) return setErr("Seleziona la durata della discovery.");
     if (outcome === "lost" && !lostReason.trim()) return setErr("Scegli il motivo della perdita.");
@@ -241,7 +244,7 @@ export default function LeadModal({
     // Se la discovery era già in agenda, l'esito appartiene a quell'appuntamento:
     // viene registrato sulla sua chiave, così lo stesso incontro conta una volta
     // sola anche se l'esito lo segni da qui invece che dal Calendario.
-    const linkedAppointment = isDiscovery ? openDiscovery : null;
+    const linkedAppointment = isDiscovery || outcome === "no_answer" ? openDiscovery : null;
     if (linkedAppointment) {
       const tracked = await recordAppointmentOutcome(linkedAppointment, outcome as "qualified" | "not_qualified" | "no_answer", meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
       setBusy(false); commercialActionLock.current = false;
@@ -254,7 +257,7 @@ export default function LeadModal({
     }
 
     const occurredAt = new Date();
-    const eventType = isDiscovery ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
+    const eventType = isCall ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
     // Chiave deterministica: due clic sullo stesso esito nello stesso minuto sono
     // lo stesso evento e il database rifiuta il secondo. Un tentativo reale più
     // tardi ha una chiave diversa e viene registrato normalmente.
@@ -263,10 +266,10 @@ export default function LeadModal({
       lead_id: lead.id,
       client_id: lead.client_id,
       pipeline_id: lead.pipeline_id,
-      activity_type: isDiscovery ? "call" : "follow_up",
+      activity_type: isCall ? "call" : "follow_up",
       event_type: eventType,
-      channel: isDiscovery ? "phone" : "other",
-      call_type: isDiscovery ? callType : null,
+      channel: isCall ? "phone" : "other",
+      call_type: isCall ? callType : null,
       outcome,
       duration_minutes: minutes || null,
       occurred_at: occurredAt.toISOString(),
@@ -291,7 +294,7 @@ export default function LeadModal({
     }
     setActivityHistory((current) => [result.data as LeadActivity, ...current.filter((item) => item.id !== (result.data as LeadActivity).id)]);
     setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
-    setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
+    setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "answered" ? "Chiamata risposta registrata" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
     setBusy(false); commercialActionLock.current = false;
   }
 
@@ -621,6 +624,7 @@ export default function LeadModal({
               {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Lead"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallTypeOverride(value)}>{label}</button>)}</div></div>}
               <div className="commercial-quick-actions">
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
+                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
                 <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => setQuickAction("qualified")}><b>In target</b><small>Discovery svolta</small></button>
                 <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => setQuickAction("not_qualified")}><b>Fuori target</b><small>Discovery svolta</small></button>
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>

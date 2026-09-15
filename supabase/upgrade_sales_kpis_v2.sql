@@ -73,18 +73,22 @@ where c.deal_value is null and c.lead_id = l.id and l.value is not null;
 alter table public.sales_costs add column if not exists assigned_to text;
 
 -- ---------------------------------------------------------------------------
--- 5. Chiavi di deduplicazione: gli indici diventano parziali, così le righe
---    storiche senza chiave non occupano spazio nell'indice.
+-- 5. Chiavi di deduplicazione.
+--    ATTENZIONE: questi indici devono restare NON parziali. Postgres non
+--    riesce a dedurre un ON CONFLICT da un indice parziale se l'istruzione non
+--    ripete lo stesso predicato, e PostgREST non lo ripete: con un indice
+--    parziale ogni salvataggio basato sulla chiave fallisce con "there is no
+--    unique or exclusion constraint matching the ON CONFLICT specification".
+--    I NULL in Postgres sono distinti tra loro, quindi le righe storiche senza
+--    chiave non collidono comunque.
 -- ---------------------------------------------------------------------------
 drop index if exists public.lead_activities_event_key_uidx;
 create unique index lead_activities_event_key_uidx
-  on public.lead_activities(client_id, event_key)
-  where event_key is not null;
+  on public.lead_activities(client_id, event_key);
 
 drop index if exists public.sales_revenue_event_key_uidx;
 create unique index sales_revenue_event_key_uidx
-  on public.sales_revenue_events(client_id, event_key)
-  where event_key is not null;
+  on public.sales_revenue_events(client_id, event_key);
 
 -- ---------------------------------------------------------------------------
 -- 6. Incassi riservati all'amministratore.
