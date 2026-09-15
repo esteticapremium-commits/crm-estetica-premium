@@ -564,6 +564,7 @@ export default function LeadModal({
       });
       planLock.current = false; setBusy(false);
       if (!result.ok) { setErr(result.error || "Appuntamento non salvato."); return false; }
+      if (result.warning) setErr(result.warning);
       void pendingAppointments(lead.client_id, lead.id).then(setAppointments);
       setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
       if (closeAfterSave) onSaved();

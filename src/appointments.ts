@@ -64,6 +64,9 @@ export interface CreateAppointmentInput {
 export interface AppointmentResult {
   ok: boolean;
   error?: string;
+  /** L'operazione è riuscita ma qualcosa merita di essere detto: tipicamente
+   *  l'appuntamento è nel CRM e nei KPI ma non su Google Calendar. */
+  warning?: string;
   taskId?: string;
 }
 
@@ -74,19 +77,25 @@ export interface AppointmentResult {
  */
 export async function createAppointment(input: CreateAppointmentInput): Promise<AppointmentResult> {
   const { clientId, lead, type, audience, subject, startsAt, durationMinutes, note, meName } = input;
-  if (!(await ensureGoogleCalendarConnection())) {
-    return { ok: false, error: "Google Calendar richiede di nuovo il consenso. Apri Calendario, premi “Collega Google Calendar” e riprova." };
-  }
   const title = appointmentTitle(type, subject);
   const end = new Date(startsAt.getTime() + durationMinutes * 60_000);
   const description = [lead ? `Lead: ${lead.name || "Senza nome"}` : "", lead?.phone ? `Telefono: ${lead.phone}` : "", note.trim()].filter(Boolean).join("\n");
 
+  // Google Calendar è una comodità, non una condizione. Prima un token scaduto
+  // impediva di registrare l'appuntamento: il venditore restava bloccato e il
+  // KPI della giornata perdeva un dato reale per un problema di integrazione.
+  // Ora l'appuntamento si salva comunque e resta segnalato come da sincronizzare.
   let googleEventId: string | null = null;
-  try {
-    const event = await createGoogleCalendarEvent({ title, start: startsAt.toISOString(), end: end.toISOString(), description, attendees: [OWNER_CALENDAR_ID] });
-    googleEventId = event.id || null;
-  } catch {
-    return { ok: false, error: "Google Calendar non ha ricevuto l'appuntamento: nel CRM non è stato creato nulla. Ricollega Google Calendar e riprova." };
+  let googleWarning: string | undefined;
+  if (await ensureGoogleCalendarConnection()) {
+    try {
+      const event = await createGoogleCalendarEvent({ title, start: startsAt.toISOString(), end: end.toISOString(), description, attendees: [OWNER_CALENDAR_ID] });
+      googleEventId = event.id || null;
+    } catch {
+      googleWarning = "Appuntamento salvato nel CRM e nei KPI, ma Google Calendar l'ha rifiutato. Apri Calendario, premi “Collega Google Calendar” e risincronizzalo.";
+    }
+  } else {
+    googleWarning = "Appuntamento salvato nel CRM e nei KPI, ma non è finito su Google Calendar: il collegamento è scaduto. Apri Calendario e premi “Collega Google Calendar”.";
   }
 
   const taskResult = await supabase.from("sales_tasks").insert({
@@ -119,7 +128,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
     }
     await supabase.from("leads").update({ next_action_date: romeDayOf(startsAt) }).eq("id", lead.id);
   }
-  return { ok: true, taskId };
+  return { ok: true, taskId, warning: googleWarning };
 }
 
 /**
@@ -139,12 +148,17 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
 
   // L'evento si ritrova sempre dal suo id, mai dal titolo: rinominare
   // l'appuntamento non deve far perdere il collegamento con Google.
+  let googleWarning: string | undefined;
   if (task.google_event_id) {
     try {
       await updateGoogleCalendarEvent(task.google_event_id, { title, start: changes.startsAt.toISOString(), end: end.toISOString(), description: changes.note.trim() });
     } catch {
-      return { ok: false, error: "Appuntamento aggiornato nel CRM, ma Google Calendar non ha accettato la modifica. Ricollega Google Calendar e risalva." };
+      // Lo spostamento nel CRM è già avvenuto: segnalarlo come errore farebbe
+      // credere che non sia stato salvato nulla, e il venditore lo rifarebbe.
+      googleWarning = "Appuntamento spostato nel CRM, ma Google Calendar non ha accettato la modifica. Apri Calendario e premi “Collega Google Calendar”.";
     }
+  } else {
+    googleWarning = "Appuntamento spostato nel CRM. Non era collegato a Google Calendar, quindi lì non cambia nulla.";
   }
 
   if (task.lead_id && type) {
@@ -153,7 +167,7 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
       .eq("client_id", task.client_id).eq("event_key", bookingKey(task.id));
     await supabase.from("leads").update({ next_action_date: romeDayOf(changes.startsAt) }).eq("id", task.lead_id);
   }
-  return { ok: true, taskId: task.id };
+  return { ok: true, taskId: task.id, warning: googleWarning };
 }
 
 /**
