@@ -15,7 +15,7 @@ interface DailyKpi {
   callOther: number;
   mexFollowUp: number;
   callMinutes: number;
-  callLeadAnswered: number;
+  prospectCallsAnswered: number;
   reachedLeads: number;
   leads: number;
   // Outreach
@@ -76,7 +76,7 @@ const taskIdOf = (activity: LeadActivity) => {
 
 const emptyDay = (day: string): DailyKpi => ({
   day, callLead: 0, callOutbound: 0, callClient: 0, callOther: 0, mexFollowUp: 0, callMinutes: 0,
-  callLeadAnswered: 0, reachedLeads: 0, leads: 0, instantlySent: 0, dmSent: 0, replies: 0, positiveReplies: 0,
+  prospectCallsAnswered: 0, reachedLeads: 0, leads: 0, instantlySent: 0, dmSent: 0, replies: 0, positiveReplies: 0,
   discoveryBooked: 0, demoBooked: 0, demoClientBooked: 0, discoverySameDay: 0, demoSameDay: 0, demoClientSameDay: 0,
   discoveryHeld: 0, demoHeld: 0, demoClientHeld: 0, discoveryHeldBooked: 0, demoHeldBooked: 0, demoClientHeldBooked: 0,
   noShow: 0, qualified: 0, proposals: 0, signed: 0,
@@ -107,8 +107,9 @@ const booked = (row: DailyKpi) => row.discoveryBooked + row.demoBooked + row.dem
 const sameDayTotal = (row: DailyKpi) => row.discoverySameDay + row.demoSameDay + row.demoClientSameDay;
 const callsHeld = (row: DailyKpi) => row.discoveryHeld + row.demoHeld + row.demoClientHeld;
 const collected = (row: DailyKpi) => row.collectedNew + row.collectedRenewal + row.collectedUpsell;
-const answerRate = (row: DailyKpi) => pct(row.callLeadAnswered, row.callLead);
-const attemptsPerReached = (row: DailyKpi) => (row.reachedLeads > 0 ? row.callLead / row.reachedLeads : null);
+const prospectCalls = (row: DailyKpi) => row.callLead + row.callOutbound;
+const answerRate = (row: DailyKpi) => pct(row.prospectCallsAnswered, prospectCalls(row));
+const attemptsPerReached = (row: DailyKpi) => (row.reachedLeads > 0 ? prospectCalls(row) / row.reachedLeads : null);
 const outreachReplyRate = (row: DailyKpi) => pct(row.replies, outreachSent(row));
 // % PRENOT: quanti, dopo una discovery svolta, prenotano la closing. È il passo
 // che il venditore controlla davvero, ed è il complemento del DROP D/DE.
@@ -141,7 +142,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [setupWarning, setSetupWarning] = useState(false);
-  const [preset, setPreset] = useState<RangePreset>("30");
+  const [preset, setPreset] = useState<RangePreset>("today");
   const [customFrom, setCustomFrom] = useState(addDays(today(), -29));
   const [customTo, setCustomTo] = useState(today());
   const [seller, setSeller] = useState(admin ? "all" : meName);
@@ -290,7 +291,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
         if (callType === "lead" || callType === "outbound") {
           if (outcome !== "no_answer" && outcome !== "Non risponde") {
-            if (callType === "lead") row.callLeadAnswered += 1;
+            row.prospectCallsAnswered += 1;
             const reached = reachedByDay.get(day) || new Set<string>();
             reached.add(activity.lead_id);
             reachedByDay.set(day, reached);
@@ -416,8 +417,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
     <div className="kpi-summary-grid">
       <Summary label="Azioni di contatto" value={contactActions(total)} detail={`${total.callLead} call lead · ${total.mexFollowUp} mex FU`} />
-      <Summary label="% RISP" value={formatPct(answerRate(total))} detail={`${total.callLeadAnswered} risposte / ${total.callLead} call lead`} />
-      <Summary label="T/M" value={ratio(attemptsPerReached(total))} detail={`${total.callLead} call / ${total.reachedLeads} lead raggiunti`} />
+      <Summary label="% RISP" value={formatPct(answerRate(total))} detail={`${total.prospectCallsAnswered} risposte / ${prospectCalls(total)} call prospect`} />
+      <Summary label="T/M" value={ratio(attemptsPerReached(total))} detail={`${prospectCalls(total)} tentativi / ${total.reachedLeads} lead raggiunti`} />
       <Summary label="Messaggi outreach" value={outreachSent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} />
       <Summary label="% PRENOT" value={formatPct(bookingRate(total))} detail={`${total.demoBooked + total.demoClientBooked} closing / ${total.discoveryHeld} discovery svolte`} />
       <Summary label="% PREN RIS" value={formatPct(bookingOnReplies(total))} detail={`${total.discoveryBooked} discovery / ${total.replies} risposte`} />
@@ -449,7 +450,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
           </tr>
           <tr>
             <th className="sticky-col">Data</th>
-            <th>Call lead</th><th>Call outbound</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call lead risp</th><th>% RISP</th><th>T/M</th>
+            <th>Call lead</th><th>Call outbound</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call prospect risp</th><th>% RISP</th><th>T/M</th>
             <th>N. lead</th><th>Instantly</th><th>DM</th><th>Risposte</th>
             <th>Positive</th><th>Disco fiss</th><th>Closing fiss</th><th>Closing GC fiss</th><th>% PRENOT</th>
             <th>% PREN RIS</th><th>Disco day</th><th>Closing day</th><th>Closing GC day</th>
@@ -468,7 +469,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     </section>
 
     <details className="panel kpi-definitions"><summary>Come vengono calcolati i numeri</summary><div>
-      <p><b>Azioni di contatto:</b> call lead + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call lead con risposta ÷ call lead. <b>T/M:</b> call lead ÷ lead raggiunti.</p>
+      <p><b>Azioni di contatto:</b> call lead + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ call lead e outbound. <b>T/M:</b> tentativi lead e outbound ÷ lead raggiunti.</p>
       <p><b>Lead raggiunti:</b> nel totale del periodo ogni lead conta una volta sola anche se richiamato in giorni diversi; nelle righe giornaliere conta in ogni giornata in cui è stato davvero lavorato.</p>
       <p><b>% PRENOT:</b> closing prenotate ÷ discovery svolte — quanti, dopo la discovery, accettano la closing. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
       <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> svolti ÷ fissati, contando al numeratore solo gli appuntamenti che erano stati davvero prenotati: una discovery fatta seduta stante non gonfia lo show-up. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
@@ -494,7 +495,7 @@ function KpiRow({ row, total, admin }: { row: DailyKpi; total?: boolean; admin: 
   return <tr className={total ? "total" : row.day === today() ? "today" : ""}>
     <th className="sticky-col">{label}</th>
     <td>{row.callLead}</td><td>{row.callOutbound}</td><td>{row.callClient}</td><td>{row.callOther}</td><td>{row.mexFollowUp}</td>
-    <td>{contactActions(row)}</td><td>{row.callMinutes}</td><td>{row.callLeadAnswered}</td><td>{formatPct(answerRate(row))}</td><td>{ratio(attemptsPerReached(row))}</td>
+    <td>{contactActions(row)}</td><td>{row.callMinutes}</td><td>{row.prospectCallsAnswered}</td><td>{formatPct(answerRate(row))}</td><td>{ratio(attemptsPerReached(row))}</td>
     <td>{row.leads}</td><td>{row.instantlySent}</td><td>{row.dmSent}</td><td>{row.replies}</td><td>{row.positiveReplies}</td>
     <td>{row.discoveryBooked}</td><td>{row.demoBooked}</td><td>{row.demoClientBooked}</td><td>{formatPct(bookingRate(row))}</td><td>{formatPct(bookingOnReplies(row))}</td>
     <td>{row.discoverySameDay}</td><td>{row.demoSameDay}</td><td>{row.demoClientSameDay}</td><td>{sameDayTotal(row)}</td>

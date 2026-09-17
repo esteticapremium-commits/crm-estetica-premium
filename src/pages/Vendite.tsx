@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
-import type { Client, Lead, Pipeline, Stage } from "../types";
+import type { Client, Lead, LeadActivity, Pipeline, Stage } from "../types";
 import { STAGE_PROBABILITY } from "./Board";
 import { romeDay, romeLastDays, romeToday } from "../dates";
+import { lastLeadWorkAt, latestActivityByLead } from "../leadRecency";
 
 interface StageEvent {
   id: string;
@@ -40,6 +41,7 @@ export default function Vendite({
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [events, setEvents] = useState<StageEvent[]>([]);
+  const [activities, setActivities] = useState<Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,13 +55,18 @@ export default function Vendite({
         .eq("client_id", client.id)
         .order("changed_at", { ascending: false })
         .limit(5000),
-    ]).then(([{ data: st }, { data: ld }, { data: ev }]) => {
+      supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
+    ]).then(([{ data: st }, { data: ld }, { data: ev }, { data: activityData }]) => {
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
       setEvents((ev as StageEvent[]) ?? []);
+      setActivities((activityData as Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]) ?? []);
       setLoading(false);
     });
   }, [client.id, pipeline.id]);
+
+  const latestActivity = useMemo(() => latestActivityByLead(activities), [activities]);
+  const lastWorkedAt = (lead: Lead) => lastLeadWorkAt(lead, latestActivity);
 
   const stageById = useMemo(() => {
     const m: Record<string, Stage> = {};
@@ -143,18 +150,18 @@ export default function Vendite({
   const stale = leads
     .filter((l) => {
       if (!activeStages.includes(l.stage_id)) return false;
-      const upd = l.updated_at ?? l.created_at;
+      const upd = lastWorkedAt(l);
       const days = (Date.now() - new Date(upd).getTime()) / 86400000;
       return days >= 5;
     })
-    .sort((a, b) => (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at));
+    .sort((a, b) => lastWorkedAt(a).localeCompare(lastWorkedAt(b)));
 
   const today = useMemo(() => romeToday(), []);
   // ultimi 7 giorni DI CALENDARIO (non gli ultimi 7 con attività)
   const weekDays = useMemo(() => romeLastDays(7), []);
-  // "Lavorato" = card aggiornata: updated_at cambia a ogni salvataggio (anche
-  // solo della nota). Conta ogni lead toccato, non solo i cambi di fase.
-  const workedDay = (l: Lead) => romeDay(l.updated_at ?? l.created_at);
+  // "Lavorato" = ultima modifica della scheda oppure ultima attività registrata.
+  // Conta ogni lead toccato, non solo i cambi di fase.
+  const workedDay = (l: Lead) => romeDay(lastWorkedAt(l));
   const workedToday = leads.filter((l) => workedDay(l) === today).length;
   const workedWeek = leads.filter((l) => weekDays.has(workedDay(l))).length;
 
@@ -271,7 +278,7 @@ export default function Vendite({
                   <td><b>{l.name || "(senza nome)"}</b></td>
                   <td>{stageById[l.stage_id]?.name ?? ""}</td>
                   <td>{new Date(l.next_action_date!).toLocaleDateString("it-IT")}</td>
-                  <td>{Math.floor((Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) / 86400000)} gg</td>
+                  <td>{Math.floor((Date.now() - new Date(lastWorkedAt(l)).getTime()) / 86400000)} gg</td>
                 </tr>
               ))}
             </tbody>
@@ -291,7 +298,7 @@ export default function Vendite({
                 <tr key={l.id}>
                   <td><b>{l.name || "(senza nome)"}</b></td>
                   <td>{stageById[l.stage_id]?.name ?? ""}</td>
-                  <td>{Math.floor((Date.now() - new Date(l.updated_at ?? l.created_at).getTime()) / 86400000)} gg</td>
+                  <td>{Math.floor((Date.now() - new Date(lastWorkedAt(l)).getTime()) / 86400000)} gg</td>
                   <td>{l.value ? "€ " + Number(l.value).toLocaleString("it-IT") : "—"}</td>
                 </tr>
               ))}

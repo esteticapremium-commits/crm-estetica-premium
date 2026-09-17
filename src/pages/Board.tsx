@@ -14,6 +14,9 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import LeadModal from "./LeadModal";
 import { romeToday } from "../dates";
+import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
+
+type ActivityStamp = { lead_id: string; created_at: string; occurred_at?: string | null };
 
 // Probabilità di chiusura per fase (impostazione da CRM vendita: il valore
 // della pipeline si pondera per la probabilità della fase in cui si trova).
@@ -60,6 +63,7 @@ export default function Board({
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [activityStamps, setActivityStamps] = useState<ActivityStamp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -72,7 +76,7 @@ export default function Board({
 
   const load = useCallback(async () => {
     setError(null);
-    const [{ data: st, error: stagesError }, { data: ld, error: leadsError }] = await Promise.all([
+    const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }] = await Promise.all([
       supabase
         .from("stages")
         .select("*")
@@ -84,12 +88,19 @@ export default function Board({
         .eq("pipeline_id", pipeline.id)
         .order("position")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("lead_activities")
+        .select("lead_id,created_at,occurred_at")
+        .eq("client_id", client.id)
+        .order("created_at", { ascending: false })
+        .limit(5000),
     ]);
-    if (stagesError || leadsError) setError((stagesError || leadsError)?.message ?? "Errore nel caricamento della pipeline.");
+    if (stagesError || leadsError || activitiesError) setError((stagesError || leadsError || activitiesError)?.message ?? "Errore nel caricamento della pipeline.");
     setStages((st as Stage[]) ?? []);
     setLeads((ld as Lead[]) ?? []);
+    setActivityStamps((activityData as ActivityStamp[]) ?? []);
     setLoading(false);
-  }, [pipeline.id]);
+  }, [client.id, pipeline.id]);
 
   useEffect(() => {
     setLoading(true);
@@ -108,11 +119,23 @@ export default function Board({
         },
         () => load()
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "lead_activities",
+          filter: `client_id=eq.${client.id}`,
+        },
+        () => load()
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [pipeline.id, load]);
+  }, [client.id, pipeline.id, load]);
+
+  const latestActivity = useMemo(() => latestActivityByLead(activityStamps), [activityStamps]);
 
   // Lead arrivato dalla ricerca globale: apri la sua scheda
   useEffect(() => {
@@ -236,6 +259,7 @@ export default function Board({
                 onOpen={(l) => setEditing(l)}
                 onAdd={canEdit && s.id === settingStage.id ? () => setCreatingInStage(settingStage) : undefined}
                 leadStageNames={leadStageNames}
+                latestActivity={latestActivity}
               />
             ))}
           </div>
@@ -245,6 +269,7 @@ export default function Board({
             <LeadCardView
               lead={activeLead}
               stageName={leadStageNames[activeLead.stage_id] ?? ""}
+              latestActivity={latestActivity}
             />
           ) : null}
         </DragOverlay>
@@ -292,12 +317,14 @@ function Column({
   onOpen,
   onAdd,
   leadStageNames,
+  latestActivity,
 }: {
   stage: Stage;
   leads: Lead[];
   onOpen: (l: Lead) => void;
   onAdd?: () => void;
   leadStageNames: Record<string, string>;
+  latestActivity: Map<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
@@ -317,6 +344,7 @@ function Column({
             lead={l}
             onOpen={() => onOpen(l)}
             stageName={leadStageNames[l.stage_id] ?? ""}
+            latestActivity={latestActivity}
           />
         ))}
       </div>
@@ -334,10 +362,12 @@ function DraggableCard({
   lead,
   onOpen,
   stageName,
+  latestActivity,
 }: {
   lead: Lead;
   onOpen: () => void;
   stageName: string;
+  latestActivity: Map<string, string>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
@@ -350,34 +380,30 @@ function DraggableCard({
       {...attributes}
       onClick={onOpen}
     >
-      <LeadCardInner lead={lead} stageName={stageName} />
+      <LeadCardInner lead={lead} stageName={stageName} latestActivity={latestActivity} />
     </div>
   );
 }
 
 /* Card usata anche nell'overlay di trascinamento */
-function LeadCardView({ lead, stageName }: { lead: Lead; stageName: string }) {
+function LeadCardView({ lead, stageName, latestActivity }: { lead: Lead; stageName: string; latestActivity: Map<string, string> }) {
   return (
     <div className="card" style={{ width: 264 }}>
-      <LeadCardInner lead={lead} stageName={stageName} />
+      <LeadCardInner lead={lead} stageName={stageName} latestActivity={latestActivity} />
     </div>
   );
-}
-
-function daysSince(d: string) {
-  if (!d) return null;
-  const diff = Date.now() - new Date(d).getTime();
-  return Math.max(0, Math.floor(diff / 86400000));
 }
 
 function LeadCardInner({
   lead,
   stageName,
+  latestActivity,
 }: {
   lead: Lead;
   stageName: string;
+  latestActivity: Map<string, string>;
 }) {
-  const idle = daysSince(lead.updated_at ?? lead.created_at);
+  const idle = daysSinceLeadWork(lead, latestActivity);
   const isDead = ["LOST", "CLOSED"].includes(stageName);
   return (
     <>
@@ -426,7 +452,7 @@ function LeadCardInner({
         )}
         {lead.source && <span className="chip src">{lead.source}</span>}
         {lead.notes && <span className="chip note">📝 nota</span>}
-        {!isDead && idle !== null && idle >= 3 && (
+        {!isDead && idle >= 3 && (
           <span className="chip idle">⏳ fermo {idle} gg</span>
         )}
       </div>
