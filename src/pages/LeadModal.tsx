@@ -329,6 +329,30 @@ export default function LeadModal({
       created_by: meName || null, note: revenueNote.trim() || null, event_key: key,
     }, { onConflict: "client_id,event_key" });
     if (result.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
+    // La prima cauzione/incasso nuovo rende la vendita vinta. Lo scriviamo
+    // automaticamente nello storico: l'amministratore non deve compilare un
+    // secondo esito e un nuovo tentativo con la stessa chiave non duplica nulla.
+    if (revenueType === "new") {
+      const wonResult = await supabase.from("lead_activities").upsert({
+        lead_id: lead.id,
+        client_id: lead.client_id,
+        pipeline_id: lead.pipeline_id,
+        activity_type: "meeting",
+        event_type: "sale_outcome",
+        channel: "other",
+        call_type: "lead",
+        outcome: "won",
+        amount,
+        occurred_at: occurredAt,
+        note: revenueNote.trim() || "Vendita vinta con incasso registrato",
+        created_by: meName || null,
+        event_key: `revenue-won:${key}`,
+      }, { onConflict: "client_id,event_key" });
+      if (wonResult.error) {
+        revenueLock.current = false; setBusy(false);
+        return setErr("Incasso registrato, ma la chiusura vinta non è entrata nello storico: " + wonResult.error.message);
+      }
+    }
     // Il valore aggiornato resta la previsione corrente del lead. I KPI già
     // chiusi non cambiano: leggono il valore congelato sul contratto firmato.
     if (revenueType === "new" && Number(revenueContractValue) > 0) {

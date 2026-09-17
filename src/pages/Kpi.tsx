@@ -50,7 +50,7 @@ interface DailyKpi {
   qualified: number;
   // Chiusura
   proposals: number;
-  signed: number;
+  won: number;
   renewals: number;
   upsells: number;
   // Denaro
@@ -85,7 +85,7 @@ const emptyDay = (day: string): DailyKpi => ({
   discoveryBooked: 0, demoBooked: 0, demoClientBooked: 0, discoveryScheduled: 0, demoScheduled: 0, demoClientScheduled: 0,
   discoverySameDay: 0, demoSameDay: 0, demoClientSameDay: 0,
   discoveryHeld: 0, demoHeld: 0, demoClientHeld: 0, discoveryHeldBooked: 0, demoHeldBooked: 0, demoClientHeldBooked: 0,
-  noShow: 0, qualified: 0, proposals: 0, signed: 0,
+  noShow: 0, qualified: 0, proposals: 0, won: 0,
   renewals: 0, upsells: 0, collectedNew: 0, collectedRenewal: 0, collectedUpsell: 0, contractValue: 0, costs: 0,
 });
 
@@ -129,12 +129,12 @@ const showUpDemoClient = (row: DailyKpi) => pct(row.demoClientHeldBooked, row.de
 const showUpTotal = (row: DailyKpi) => pct(attendedScheduled(row), scheduled(row));
 const discoveryDemoDrop = (row: DailyKpi) => (row.discoveryHeld > 0 ? (Math.max(row.discoveryHeld - row.demoBooked, 0) / row.discoveryHeld) * 100 : null);
 const qualificationRate = (row: DailyKpi) => pct(row.qualified, row.discoveryHeld);
-const winRate = (row: DailyKpi) => pct(row.signed, row.proposals);
-const closeRate = (row: DailyKpi) => pct(row.signed, row.demoHeld + row.demoClientHeld);
-const averageDeal = (row: DailyKpi) => (row.signed > 0 ? row.contractValue / row.signed : null);
+const winRate = (row: DailyKpi) => pct(row.won, row.proposals);
+const closeRate = (row: DailyKpi) => pct(row.won, row.demoHeld + row.demoClientHeld);
+const averageDeal = (row: DailyKpi) => (row.won > 0 ? row.contractValue / row.won : null);
 const cpl = (row: DailyKpi) => (row.leads > 0 ? row.costs / row.leads : null);
 const costPerDiscovery = (row: DailyKpi) => (row.discoveryBooked > 0 ? row.costs / row.discoveryBooked : null);
-const cac = (row: DailyKpi) => (row.signed > 0 ? row.costs / row.signed : null);
+const cac = (row: DailyKpi) => (row.won > 0 ? row.costs / row.won : null);
 const roi = (row: DailyKpi) => (row.costs > 0 ? collected(row) / row.costs : null);
 
 export default function Kpi({ client, meName, admin, headerTools }: { client: Client; meName: string; admin: boolean; headerTools?: ReactNode }) {
@@ -222,6 +222,32 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     });
     return map;
   }, [activities]);
+
+  // La prima cauzione/incasso "new" di ogni lead e' l'evento che trasforma la
+  // closing in una vendita vinta. La sola firma di un accordo di prova non e'
+  // denaro incassato e non deve gonfiare chiusure, CR o CAC.
+  const firstNewRevenueByLead = useMemo(() => {
+    const map = new Map<string, SalesRevenueEvent>();
+    revenue.forEach((entry) => {
+      if (!entry.lead_id || entry.status !== "collected" || entry.revenue_type !== "new") return;
+      const current = map.get(entry.lead_id);
+      if (!current || entry.occurred_at < current.occurred_at || (entry.occurred_at === current.occurred_at && entry.id < current.id)) {
+        map.set(entry.lead_id, entry);
+      }
+    });
+    return map;
+  }, [revenue]);
+
+  const signedValueByLead = useMemo(() => {
+    const map = new Map<string, number>();
+    contracts
+      .filter((contract) => contract.lead_id && contract.signed_at)
+      .sort((a, b) => (b.signed_at || "").localeCompare(a.signed_at || ""))
+      .forEach((contract) => {
+        if (!map.has(contract.lead_id!)) map.set(contract.lead_id!, number(contract.deal_value ?? leadById.get(contract.lead_id!)?.value));
+      });
+    return map;
+  }, [contracts, leadById]);
 
   // Appuntamenti già registrati nel CRM: un booking arrivato dal webhook
   // Instantly non deve aggiungersi a una discovery che il venditore ha già
@@ -364,22 +390,20 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (!sellerMatches(lead?.assigned_to || contract.created_by) || !sourceMatches(contract.lead_id)) return;
       const proposalDay = dayInRome(contract.sent_at || contract.created_at);
       if (inRange(proposalDay)) rowOf(proposalDay).proposals += 1;
-      if (contract.signed_at) {
-        const day = dayInRome(contract.signed_at);
-        if (inRange(day)) {
-          // Il valore è quello congelato sul contratto: correggere il lead non
-          // può più riscrivere il fatturato di una giornata già chiusa.
-          rowOf(day).signed += 1;
-          rowOf(day).contractValue += number(contract.deal_value ?? lead?.value);
-        }
-      }
     });
 
     revenue.forEach((entry) => {
       const day = dayInRome(entry.occurred_at);
       if (!inRange(day) || entry.status !== "collected" || !sellerMatches(entry.assigned_to) || !sourceMatches(entry.lead_id)) return;
       const row = rowOf(day);
-      if (entry.revenue_type === "new") row.collectedNew += number(entry.amount);
+      if (entry.revenue_type === "new") {
+        row.collectedNew += number(entry.amount);
+        // Rate successive aumentano l'incassato, ma la closing resta una sola.
+        if (entry.lead_id && firstNewRevenueByLead.get(entry.lead_id)?.id === entry.id) {
+          row.won += 1;
+          row.contractValue += number(entry.contract_value ?? signedValueByLead.get(entry.lead_id) ?? leadById.get(entry.lead_id)?.value);
+        }
+      }
       if (entry.revenue_type === "renewal") { row.renewals += 1; row.collectedRenewal += number(entry.amount); }
       if (entry.revenue_type === "upsell") { row.upsells += 1; row.collectedUpsell += number(entry.amount); }
     });
@@ -395,7 +419,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
     return [...result.values()].sort((a, b) => b.day.localeCompare(a.day));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller]);
+  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewRevenueByLead, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead]);
 
   const total = useMemo(() => {
     const aggregate = sumRows(rows);
@@ -462,9 +486,9 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary label="SHOW UP TOT" value={formatPct(showUpTotal(total))} detail={`${attendedScheduled(total)} presenti / ${scheduled(total)} previsti`} />
       <Summary label="DROP D/DE" value={formatPct(discoveryDemoDrop(total))} detail={`${Math.max(total.discoveryHeld - total.demoBooked, 0)} persi / ${total.discoveryHeld} discovery`} />
       <Summary label="% in target" value={formatPct(qualificationRate(total))} detail={`${total.qualified} in target / ${total.discoveryHeld} discovery`} />
-      <Summary label="% chiusura" value={formatPct(winRate(total))} detail={`${total.signed} contratti / ${total.proposals} proposte`} />
-      <Summary label="CR" value={formatPct(closeRate(total))} detail={`${total.signed} contratti / ${total.demoHeld + total.demoClientHeld} closing svolte`} />
-      <Summary label="VAL TOT" value={eur(total.contractValue)} detail={`${total.signed} contratti firmati`} />
+      <Summary label="% chiusura" value={formatPct(winRate(total))} detail={`${total.won} vinte / ${total.proposals} proposte`} />
+      <Summary label="CR" value={formatPct(closeRate(total))} detail={`${total.won} vinte / ${total.demoHeld + total.demoClientHeld} closing svolte`} />
+      <Summary label="VAL TOT" value={eur(total.contractValue)} detail={`${total.won} vendite vinte`} />
       <Summary label="VAL TOT M" value={averageDeal(total) === null ? "—" : eur(averageDeal(total)!)} detail="Valore medio per contratto" />
       <Summary label="€ SALES" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo · ${eur(total.collectedRenewal + total.collectedUpsell)} rinnovi e upsell`} positive />
     </div>
@@ -510,9 +534,9 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <p><b>% PRENOT:</b> closing prenotate ÷ discovery svolte — quanti, dopo la discovery, accettano la closing. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
       <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> appuntamenti svolti ÷ appuntamenti previsti in agenda nello stesso giorno, anche se erano stati fissati nei giorni precedenti. Una discovery fatta seduta stante non gonfia lo show-up. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
       <p><b>In target:</b> discovery chiuse con esito “in target”. Una discovery è svolta solo con esito in target o fuori target; “non risponde” resta un tentativo.</p>
-      <p><b>Proposte:</b> contratti creati o inviati. <b>% chiusura:</b> contratti firmati ÷ proposte. <b>CR:</b> contratti firmati ÷ closing svolte.</p>
-      <p><b>VAL TOT:</b> fatturato firmato, congelato alla firma. <b>VAL TOT M:</b> valore medio per contratto. <b>€ SALES:</b> incassato reale del periodo. Sono due numeri diversi: un contratto da 4.000 € pagato in due rate vale 4.000 € di VAL TOT subito e 2.000 € di € SALES alla prima rata.</p>
-      <p><b>CPL:</b> costi ÷ lead entrati. <b>Costo/disco:</b> costi ÷ discovery fissate. <b>CAC:</b> costi ÷ contratti firmati. <b>ROI:</b> incassato ÷ costi. I costi senza responsabile compaiono solo sul totale del team.</p>
+      <p><b>Proposte:</b> contratti creati o inviati. <b>Vendita vinta:</b> prima cauzione o primo incasso “nuovo” realmente ricevuto per il lead; la sola firma di una prova gratuita non conta. <b>% chiusura:</b> vendite vinte ÷ proposte. <b>CR:</b> vendite vinte ÷ closing svolte.</p>
+      <p><b>VAL TOT:</b> valore contrattuale delle vendite vinte. <b>VAL TOT M:</b> valore medio per vendita vinta. <b>€ SALES:</b> incassato reale del periodo. Le rate successive aumentano € SALES ma non creano una seconda chiusura.</p>
+      <p><b>CPL:</b> costi ÷ lead entrati. <b>Costo/disco:</b> costi ÷ discovery fissate. <b>CAC:</b> costi ÷ vendite vinte. <b>ROI:</b> incassato ÷ costi. I costi senza responsabile compaiono solo sul totale del team.</p>
       <p><b>Denominatore a zero:</b> la cella mostra “—”, mai 0%.</p>
     </div></details>
 
@@ -538,7 +562,7 @@ function KpiRow({ row, total, admin }: { row: DailyKpi; total?: boolean; admin: 
     <td>{row.discoveryHeld}</td><td>{row.demoHeld}</td><td>{row.demoClientHeld}</td><td>{callsHeld(row)}</td><td>{row.noShow}</td>
     <td>{formatPct(showUpDiscovery(row))}</td><td>{formatPct(showUpDemo(row))}</td><td>{formatPct(showUpDemoClient(row))}</td><td>{formatPct(showUpTotal(row))}</td>
     <td>{formatPct(discoveryDemoDrop(row))}</td><td>{row.qualified}</td><td>{formatPct(qualificationRate(row))}</td>
-    <td>{row.proposals}</td><td>{row.signed}</td><td>{formatPct(winRate(row))}</td><td>{formatPct(closeRate(row))}</td><td>{row.upsells}</td><td>{row.renewals}</td>
+    <td>{row.proposals}</td><td>{row.won}</td><td>{formatPct(winRate(row))}</td><td>{formatPct(closeRate(row))}</td><td>{row.upsells}</td><td>{row.renewals}</td>
     <td>{eur(row.collectedNew)}</td><td>{eur(row.collectedRenewal)}</td><td>{eur(row.collectedUpsell)}</td><td className="money">{eur(collected(row))}</td>
     <td>{eur(row.contractValue)}</td><td>{money(averageDeal(row))}</td>
     {admin && <><td>{eur(row.costs)}</td><td>{money(cpl(row))}</td><td>{money(costPerDiscovery(row))}</td><td>{money(cac(row))}</td><td>{roi(row) === null ? "—" : `${ratio(roi(row))}x`}</td></>}
