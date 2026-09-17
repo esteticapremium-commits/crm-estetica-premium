@@ -219,7 +219,13 @@ export async function recordAppointmentOutcome(
   }
   if (!task.lead_id) return { ok: false, error: "L'appuntamento non è collegato a un lead: non può produrre KPI." };
 
+  // L'esito può essere registrato anche nei giorni successivi. `completed_at`
+  // conserva il momento in cui il venditore lo ha inserito, mentre
+  // `occurred_at` deve restare la data reale dell'appuntamento: in questo modo
+  // il report giornaliero non sposta una call di lunedì al giovedì solo perché
+  // l'esito è stato compilato in ritardo.
   const completedAt = new Date().toISOString();
+  const occurredAt = task.due_at;
   const status = outcome === "no_show" || outcome === "no_answer" ? "no_show" : "held";
   const previous = { appointment_status: task.appointment_status || "scheduled", completed_at: task.completed_at || null, completed_by: task.completed_by || null };
 
@@ -234,7 +240,7 @@ export async function recordAppointmentOutcome(
     event_type: type === "discovery" ? "discovery_call" : "demo_call",
     channel: channelFor(type),
     call_type: task.audience === "client" ? "client" : "lead",
-    outcome, occurred_at: completedAt, scheduled_at: task.due_at,
+    outcome, occurred_at: occurredAt, scheduled_at: task.due_at,
     duration_minutes: status === "held" ? actualMinutes || task.duration_minutes || 60 : null,
     created_by: meName || null, details: { task_id: task.id }, event_key: outcomeKey(task.id),
   }, { onConflict: "client_id,event_key" });

@@ -52,7 +52,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
 export type CallType = "lead" | "outbound" | "client" | "other";
 
 export const CALL_TYPE_LABELS: Record<CallType, string> = {
-  lead: "Call lead",
+  lead: "Richiamo",
   outbound: "Call outbound",
   client: "Call già clienti",
   other: "Altre call",

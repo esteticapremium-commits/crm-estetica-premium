@@ -258,13 +258,17 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     });
 
     activities.forEach((activity) => {
-      const day = dayInRome(activityTimestamp(activity));
+      const type = activity.event_type || "";
+      const fromAppointment = Boolean(taskIdOf(activity));
+      // Anche lo storico già registrato deve finire nel giorno corretto. Gli
+      // esiti legati a un appuntamento usano la data pianificata; prenotazioni,
+      // richiami e attività manuali continuano a usare il momento dell'azione.
+      const appointmentOutcome = fromAppointment && (type === "discovery_call" || type === "demo_call");
+      const day = dayInRome(appointmentOutcome && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity));
       if (!inRange(day) || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
       const row = rowOf(day);
-      const type = activity.event_type || "";
       const outcome = activity.outcome || "";
       const callType = activity.call_type || "lead";
-      const fromAppointment = Boolean(taskIdOf(activity));
       // Le colonne "day" misurano gli appuntamenti svolti senza attesa. Sono due
       // i casi: quelli fissati e chiusi nella stessa giornata, e quelli fatti al
       // volo durante la chiamata, che non hanno mai avuto una prenotazione. Il
@@ -416,7 +420,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     </section>
 
     <div className="kpi-summary-grid">
-      <Summary label="Azioni di contatto" value={contactActions(total)} detail={`${total.callLead} call lead · ${total.mexFollowUp} mex FU`} />
+      <Summary label="Azioni di contatto" value={contactActions(total)} detail={`${total.callLead} richiami · ${total.mexFollowUp} mex FU`} />
       <Summary label="% RISP" value={formatPct(answerRate(total))} detail={`${total.prospectCallsAnswered} risposte / ${prospectCalls(total)} call prospect`} />
       <Summary label="T/M" value={ratio(attemptsPerReached(total))} detail={`${prospectCalls(total)} tentativi / ${total.reachedLeads} lead raggiunti`} />
       <Summary label="Messaggi outreach" value={outreachSent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} />
@@ -450,7 +454,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
           </tr>
           <tr>
             <th className="sticky-col">Data</th>
-            <th>Call lead</th><th>Call outbound</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call prospect risp</th><th>% RISP</th><th>T/M</th>
+            <th>Richiami</th><th>Call outbound</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call prospect risp</th><th>% RISP</th><th>T/M</th>
             <th>N. lead</th><th>Instantly</th><th>DM</th><th>Risposte</th>
             <th>Positive</th><th>Disco fiss</th><th>Closing fiss</th><th>Closing GC fiss</th><th>% PRENOT</th>
             <th>% PREN RIS</th><th>Disco day</th><th>Closing day</th><th>Closing GC day</th>
@@ -469,7 +473,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     </section>
 
     <details className="panel kpi-definitions"><summary>Come vengono calcolati i numeri</summary><div>
-      <p><b>Azioni di contatto:</b> call lead + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ call lead e outbound. <b>T/M:</b> tentativi lead e outbound ÷ lead raggiunti.</p>
+      <p><b>Azioni di contatto:</b> richiami + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ richiami e call outbound. <b>T/M:</b> tentativi di richiamo e outbound ÷ lead raggiunti.</p>
       <p><b>Lead raggiunti:</b> nel totale del periodo ogni lead conta una volta sola anche se richiamato in giorni diversi; nelle righe giornaliere conta in ogni giornata in cui è stato davvero lavorato.</p>
       <p><b>% PRENOT:</b> closing prenotate ÷ discovery svolte — quanti, dopo la discovery, accettano la closing. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
       <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> svolti ÷ fissati, contando al numeratore solo gli appuntamenti che erano stati davvero prenotati: una discovery fatta seduta stante non gonfia lo show-up. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
