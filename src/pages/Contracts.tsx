@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { openSignedContractPdf } from "../contractPdf";
 import type { Contract, ContractEvent, Lead } from "../types";
+import { withTimeout } from "../async";
 
 type Filter = "all" | "pending" | "signed" | "expired" | "revoked";
 
@@ -67,10 +68,10 @@ export default function Contracts({ canManageLinks = false }: { canManageLinks?:
     try {
       // Contratti e lead sono il nucleo della sezione. Lo storico avanzato è
       // opzionale finché non viene applicato il relativo upgrade SQL.
-      const [c, l] = await Promise.all([
+      const [c, l] = await withTimeout(Promise.all([
         supabase.from("contracts").select("*").order("created_at", { ascending: false }),
         supabase.from("leads").select("id,name,email,phone,client_id,pipeline_id,stage_id,source,assigned_to,value,notes,next_action_date,closing_date,lost_reason,tags,position,created_at,updated_at"),
-      ]);
+      ]), 20_000, "I contratti stanno impiegando troppo tempo a rispondere.");
       const failure = c.error || l.error;
       if (failure) {
         setLoadError(failure.message);
@@ -79,11 +80,11 @@ export default function Contracts({ canManageLinks = false }: { canManageLinks?:
       setContracts((c.data as Contract[]) ?? []);
       setLeads((l.data as Lead[]) ?? []);
 
-      const e = await supabase.from("contract_events").select("*").order("created_at", { ascending: false }).limit(500);
+      const e = await withTimeout(supabase.from("contract_events").select("*").order("created_at", { ascending: false }).limit(500));
       setHasProfessionalUpgrade(!e.error);
       setEvents((e.data as ContractEvent[]) ?? []);
-    } catch {
-      setLoadError("Errore di connessione durante il caricamento dei contratti.");
+    } catch (reason) {
+      setLoadError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento dei contratti.");
     } finally {
       setLoading(false);
     }
@@ -97,7 +98,7 @@ export default function Contracts({ canManageLinks = false }: { canManageLinks?:
   const renew = async (c: Contract) => { const { data, error } = await supabase.rpc("renew_contract_link", { p_contract_id: c.id }); if (error) return alert(error.message); await navigator.clipboard.writeText(`${window.location.origin}/#/firma/${data}`); alert("Nuovo link creato e copiato. Scade tra 30 giorni."); load(); };
   const revoke = async (c: Contract) => { if (!confirm(`Revocare il link di firma per “${c.title}”?`)) return; const { error } = await supabase.rpc("revoke_contract", { p_contract_id: c.id }); if (error) return alert(error.message); load(); };
   if (loading) return <div className="center-msg">Caricamento contratti…</div>;
-  if (loadError) return <div className="center-msg">La sezione Contratti richiede l’aggiornamento del database.<br /><small>{loadError}</small></div>;
+  if (loadError) return <div className="center-msg module-error"><b>Contratti non disponibili</b><span>{loadError}</span><button className="btn primary" onClick={() => window.location.reload()}>Riprova</button></div>;
   return <div className="page contracts-page">
     <div className="contracts-intro"><div><h1>Contratti</h1><p>Controlla firma, scadenze e storico di ogni accordo.</p></div><div className="contract-safety">{hasProfessionalUpgrade ? "Link firmabili protetti da scadenza e revoca" : "Gestione contratti attiva"}</div></div>
     <div className="cards-grid contracts-kpis"><Kpi label="Da firmare" value={count("pending")} /><Kpi label="Firmati" value={count("signed")} good /><Kpi label="Scaduti" value={count("expired")} warn /><Kpi label="Revocati" value={count("revoked")} /></div>

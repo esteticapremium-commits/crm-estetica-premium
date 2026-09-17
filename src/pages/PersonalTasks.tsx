@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { supabase } from "../supabaseClient";
 import type { PersonalTask, PersonalTaskStatus } from "../types";
+import { withTimeout } from "../async";
 
 const COLUMNS: Array<{ id: PersonalTaskStatus; label: string; hint: string }> = [
   { id: "backlog", label: "Da decidere", hint: "Idee e cose da pianificare" },
@@ -19,8 +20,14 @@ export default function PersonalTasks({ headerTools }: { headerTools?: ReactNode
 
   const load = async () => {
     setLoading(true); setError(null);
-    const { data, error: loadError } = await supabase.from("personal_tasks").select("*").order("position").order("created_at");
-    setItems(((data as PersonalTask[]) ?? []).sort((a, b) => Number(Boolean(b.is_priority)) - Number(Boolean(a.is_priority)) || a.position - b.position)); setError(loadError?.message ?? null); setLoading(false);
+    try {
+      const { data, error: loadError } = await withTimeout(supabase.from("personal_tasks").select("*").order("position").order("created_at"));
+      setItems(((data as PersonalTask[]) ?? []).sort((a, b) => Number(Boolean(b.is_priority)) - Number(Boolean(a.is_priority)) || a.position - b.position)); setError(loadError?.message ?? null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Errore nel caricamento delle task aziendali.");
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { void load(); }, []);
 

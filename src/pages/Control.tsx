@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, LeadActivity, Pipeline, Profile, SalesTask, Stage } from "../types";
 import { romeDay, romeLastDays, romeToday } from "../dates";
 import { lastLeadWorkAt, latestActivityByLead } from "../leadRecency";
+import { withTimeout } from "../async";
 
 type StageEvent = { changed_by: string | null; changed_at: string; to_stage_id: string | null };
 type CompanyOverview = { total_leads: number; active_leads: number; appointments: number; closed_leads: number; worked_today: number; due_today: number; conversion_rate: number };
@@ -19,13 +20,13 @@ export default function Control({ client, pipelines, meName, admin, headerTools 
   useEffect(() => {
     if (!ids.length) { setLoading(false); return; }
     setLoading(true); setError(null);
-    Promise.all([
+    withTimeout(Promise.all([
       supabase.from("leads").select("*").in("pipeline_id", ids), supabase.from("stages").select("*").in("pipeline_id", ids), supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(1000), supabase.from("lead_stage_events").select("changed_by,changed_at,to_stage_id").eq("client_id", client.id).order("changed_at", { ascending: false }).limit(5000), supabase.from("sales_tasks").select("*").eq("client_id", client.id).order("due_at").limit(1000), supabase.from("profiles").select("id,role,client_id,full_name").eq("client_id", client.id).eq("role", "venditore"),
-    ]).then(([l, s, a, m, t, p]) => {
+    ]), 20_000, "La panoramica sta impiegando troppo tempo a rispondere.").then(([l, s, a, m, t, p]) => {
       const failure = [l, s, a, m, t, p].find((r) => r.error)?.error;
       if (failure) setError(`Non è stato possibile caricare la panoramica: ${failure.message}`);
       setLeads((l.data as Lead[]) ?? []); setStages((s.data as Stage[]) ?? []); setActivities((a.data as LeadActivity[]) ?? []); setMoves((m.data as StageEvent[]) ?? []); setTasks((t.data as SalesTask[]) ?? []); setTeam((p.data as Profile[]) ?? []); setLoading(false);
-    }).catch(() => { setError("Errore di connessione durante il caricamento della panoramica."); setLoading(false); });
+    }).catch((reason) => { setError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento della panoramica."); setLoading(false); });
   }, [client.id, idsKey]);
   useEffect(() => { if (admin) return; setCompanyOverview(null); setOverviewError(null); supabase.rpc("seller_company_overview", { p_client_id: client.id }).then(({ data, error }) => { if (error) setOverviewError("Il quadro generale dell'azienda non è ancora disponibile."); else setCompanyOverview(((data as CompanyOverview[] | null)?.[0]) ?? null); }); }, [admin, client.id]);
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
+import { withTimeout } from "../async";
 import type { Client, Lead, LeadActivity, Pipeline, Stage } from "../types";
 import { STAGE_PROBABILITY } from "./Board";
 import { romeDay, romeLastDays, romeToday } from "../dates";
@@ -43,10 +44,12 @@ export default function Vendite({
   const [events, setEvents] = useState<StageEvent[]>([]);
   const [activities, setActivities] = useState<Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
+    setLoadError(null);
+    withTimeout(Promise.all([
       supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
       supabase.from("leads").select("*").eq("pipeline_id", pipeline.id),
       supabase
@@ -56,11 +59,14 @@ export default function Vendite({
         .order("changed_at", { ascending: false })
         .limit(5000),
       supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
-    ]).then(([{ data: st }, { data: ld }, { data: ev }, { data: activityData }]) => {
+    ]), 20_000, "I dati di vendita stanno impiegando troppo tempo a rispondere.").then(([{ data: st }, { data: ld }, { data: ev }, { data: activityData }]) => {
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
       setEvents((ev as StageEvent[]) ?? []);
       setActivities((activityData as Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]) ?? []);
+      setLoading(false);
+    }).catch((reason) => {
+      setLoadError(reason instanceof Error ? reason.message : "Errore nel caricamento delle vendite.");
       setLoading(false);
     });
   }, [client.id, pipeline.id]);
@@ -166,6 +172,7 @@ export default function Vendite({
   const workedWeek = leads.filter((l) => weekDays.has(workedDay(l))).length;
 
   if (loading) return <div className="center-msg">Caricamento vendite…</div>;
+  if (loadError) return <div className="center-msg module-error"><b>Vendite non disponibili</b><span>{loadError}</span><button className="btn primary" onClick={() => window.location.reload()}>Riprova</button></div>;
 
   return (
     <div className="page vendite">

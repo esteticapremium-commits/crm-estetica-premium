@@ -3,6 +3,7 @@ import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, use
 import { supabase } from "../supabaseClient";
 import type { EditorialContent, EditorialStatus } from "../types";
 import { romeToday } from "../dates";
+import { withTimeout } from "../async";
 
 type View = "today" | "calendar" | "kanban" | "list";
 const STATUS: Record<EditorialStatus, string> = { idea: "Da definire", in_production: "Da registrare", review: "Da editare", scheduled: "Da pubblicare", published: "Pubblicato" };
@@ -35,10 +36,10 @@ export default function EditorialPlan({ clientId, meName }: { clientId: string; 
 
   const load = () => {
     setLoading(true); setLoadError(null);
-    supabase.from("editorial_contents").select("*").eq("client_id", clientId).order("scheduled_for", { ascending: true, nullsFirst: false }).then(({ data, error }) => {
+    withTimeout(supabase.from("editorial_contents").select("*").eq("client_id", clientId).order("scheduled_for", { ascending: true, nullsFirst: false })).then(({ data, error }) => {
       if (error) setLoadError(error.message);
       setItems((data as EditorialContent[]) ?? []); setLoading(false);
-    });
+    }).catch((reason) => { setLoadError(reason instanceof Error ? reason.message : "Errore nel caricamento del piano editoriale."); setLoading(false); });
   };
   useEffect(load, [clientId]);
 

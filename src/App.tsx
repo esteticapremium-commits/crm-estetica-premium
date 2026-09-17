@@ -1,19 +1,27 @@
-import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import { useAuth } from "./useAuth";
 import type { Client, Lead, Pipeline } from "./types";
-const Login = lazy(() => import("./pages/Login"));
-const Board = lazy(() => import("./pages/Board"));
-const Admin = lazy(() => import("./pages/Admin"));
-const Vendite = lazy(() => import("./pages/Vendite"));
-const FirmaPage = lazy(() => import("./pages/FirmaPage"));
-const Control = lazy(() => import("./pages/Control"));
-const EditorialPlan = lazy(() => import("./pages/EditorialPlan"));
-const Contracts = lazy(() => import("./pages/Contracts"));
-const Tasks = lazy(() => import("./pages/Tasks"));
-const Calendar = lazy(() => import("./pages/Calendar"));
-const PersonalTasks = lazy(() => import("./pages/PersonalTasks"));
-const Kpi = lazy(() => import("./pages/Kpi"));
+import { withTimeout } from "./async";
+function lazyPage<T extends ComponentType<any>>(loader: () => Promise<{ default: T }>) {
+  return lazy(() => Promise.race([
+    loader(),
+    new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("ChunkLoadError: caricamento modulo scaduto")), 15_000)),
+  ]));
+}
+
+const Login = lazyPage(() => import("./pages/Login"));
+const Board = lazyPage(() => import("./pages/Board"));
+const Admin = lazyPage(() => import("./pages/Admin"));
+const Vendite = lazyPage(() => import("./pages/Vendite"));
+const FirmaPage = lazyPage(() => import("./pages/FirmaPage"));
+const Control = lazyPage(() => import("./pages/Control"));
+const EditorialPlan = lazyPage(() => import("./pages/EditorialPlan"));
+const Contracts = lazyPage(() => import("./pages/Contracts"));
+const Tasks = lazyPage(() => import("./pages/Tasks"));
+const Calendar = lazyPage(() => import("./pages/Calendar"));
+const PersonalTasks = lazyPage(() => import("./pages/PersonalTasks"));
+const Kpi = lazyPage(() => import("./pages/Kpi"));
 
 type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal";
 type NavIconName = "home" | "pipeline" | "tasks" | "calendar" | "sales" | "kpi" | "contracts" | "company" | "editorial" | "revenue" | "comp" | "settings";
@@ -38,7 +46,7 @@ function NavIcon({ name }: { name: NavIconName }) {
 
 /** Evita lo schermo bianco se una pagina aperta prova a caricare un file
  * JavaScript della versione precedente subito dopo una nuova pubblicazione. */
-class ModuleBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+class ModuleBoundary extends Component<{ children: ReactNode; resetKey?: string }, { error: Error | null }> {
   state = { error: null as Error | null };
 
   static getDerivedStateFromError(error: Error) {
@@ -52,6 +60,10 @@ class ModuleBoundary extends Component<{ children: ReactNode }, { error: Error |
       window.sessionStorage.setItem(recoveryKey, "1");
       window.location.reload();
     }
+  }
+
+  componentDidUpdate(previous: Readonly<{ children: ReactNode; resetKey?: string }>) {
+    if (this.state.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null });
   }
 
   render() {
@@ -70,6 +82,7 @@ export default function App() {
   const [q, setQ] = useState("");
   const [qResults, setQResults] = useState<Lead[]>([]);
   const [focusLeadId, setFocusLeadId] = useState<string | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.localStorage.getItem("ep-sidebar-collapsed") === "true"
@@ -78,6 +91,14 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem("ep-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  // Dopo un avvio riuscito permettiamo di nuovo il recupero automatico in
+  // caso di una pubblicazione futura con file JavaScript differenti.
+  useEffect(() => {
+    if (auth.loading) return;
+    const timer = window.setTimeout(() => window.sessionStorage.removeItem("ep-module-recovery"), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [auth.loading]);
 
   // Ogni modulo parte dalla propria intestazione. Senza questo reset la
   // posizione verticale del modulo precedente veniva mantenuta, facendo
@@ -138,12 +159,15 @@ export default function App() {
   // I clienti di altri progetti non entrano in questa app.
   useEffect(() => {
     if (!auth.profile) return;
-    supabase
-      .from("clients")
-      .select(
-        "id, name, ingest_token, ghl_pipeline_id, meta_page_id, meta_form_id, meta_ad_account_id, created_at"
-      )
-      .order("name")
+    setWorkspaceError(null);
+    withTimeout(
+      supabase
+        .from("clients")
+        .select("id, name, ingest_token, ghl_pipeline_id, meta_page_id, meta_form_id, meta_ad_account_id, created_at")
+        .order("name"),
+      15_000,
+      "I dati aziendali non rispondono."
+    )
       .then(({ data }) => {
         const list = ((data as Client[]) ?? []).filter((c) =>
           c.name.startsWith("Estetica")
@@ -156,7 +180,8 @@ export default function App() {
         } else if (list.length > 0) {
           setClientId((prev) => prev ?? list[0].id);
         }
-      });
+      })
+      .catch((reason) => setWorkspaceError(reason instanceof Error ? reason.message : "Dati aziendali non disponibili."));
   }, [auth.profile]);
 
   // Carica le pipeline del cliente selezionato.
@@ -168,16 +193,22 @@ export default function App() {
       setPipelineId(null);
       return;
     }
-    supabase
-      .from("pipelines")
-      .select("id, client_id, name, position, meta_form_id, meta_ad_account_id, created_at")
-      .eq("client_id", clientId)
-      .order("position")
+    setWorkspaceError(null);
+    withTimeout(
+      supabase
+        .from("pipelines")
+        .select("id, client_id, name, position, meta_form_id, meta_ad_account_id, created_at")
+        .eq("client_id", clientId)
+        .order("position"),
+      15_000,
+      "La pipeline non risponde."
+    )
       .then(({ data }) => {
         const list = (data as Pipeline[]) ?? [];
         setPipelines(list);
         setPipelineId((prev) => (list.find((p) => p.id === prev) ? prev : list[0]?.id ?? null));
-      });
+      })
+      .catch((reason) => setWorkspaceError(reason instanceof Error ? reason.message : "Pipeline non disponibile."));
   }, [clientId]);
 
   if (!isSupabaseConfigured) {
@@ -193,6 +224,9 @@ export default function App() {
 
   if (auth.loading) {
     return <div className="center-msg">Caricamento…</div>;
+  }
+  if (auth.error) {
+    return <div className="center-msg module-error"><b>Connessione temporaneamente non disponibile</b><span>{auth.error}</span><button className="btn primary" onClick={() => window.location.reload()}>Riprova</button></div>;
   }
   if (!auth.userId) {
     return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento…</div>}><Login /></Suspense></ModuleBoundary>;
@@ -250,7 +284,9 @@ export default function App() {
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
       </aside>
       <main className="app-main">
-        <div className="app-content" ref={contentRef}><ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
+        <div className="app-content" ref={contentRef}><ModuleBoundary resetKey={tab}><Suspense fallback={<div className="center-msg">Caricamento modulo…</div>}>
+      {workspaceError && <div className="center-msg module-error"><b>Connessione temporaneamente non disponibile</b><span>{workspaceError}</span><button className="btn primary" onClick={() => window.location.reload()}>Riprova</button></div>}
+      {!workspaceError && <>
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
@@ -299,6 +335,7 @@ export default function App() {
       {tab === "contracts" && <Contracts canManageLinks={isAdmin} />}
 
       {tab === "admin" && isAdmin && <Admin clients={clients} headerTools={headerTools} />}
+      </>}
         </Suspense></ModuleBoundary></div>
       </main>
     </div>

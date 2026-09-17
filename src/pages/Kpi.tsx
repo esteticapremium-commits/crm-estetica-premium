@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
+import { withTimeout } from "../async";
 import { activityTimestamp, formatPct, normalizedLeadSource, outreachKey, pct } from "../salesKpi";
 import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent } from "../types";
 
@@ -168,32 +169,33 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setSetupWarning(false);
-    const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult] = await Promise.all([
-      supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
-      supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
-      supabase.from("leads").select("*").eq("client_id", client.id),
-      supabase.from("contracts").select("*").eq("client_id", client.id),
-      supabase.from("sales_revenue_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }),
-      admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-      supabase.from("sales_integrations").select("*").eq("client_id", client.id),
-    ]);
-    const coreError = activityResult.error || leadResult.error || contractResult.error;
-    if (coreError) setError(`KPI non caricati: ${coreError.message}`);
-    // La migrazione manca solo se il database rifiuta le colonne nuove, non se
-    // il periodo selezionato è semplicemente vuoto.
-    if (outreachResult.error || revenueResult.error || costResult.error) setSetupWarning(true);
-    setActivities((activityResult.data as LeadActivity[]) || []);
-    setOutreach((outreachResult.data as SalesOutreachEvent[]) || []);
-    setOutreachReady(!outreachResult.error);
-    // Instantly conta come integrato solo se qualcuno lo ha dichiarato attivo:
-    // non basta che la tabella degli eventi sia leggibile.
-    const integrations = (integrationResult.data as SalesIntegration[]) || [];
-    setInstantlyActive(integrations.some((row) => row.provider === "instantly" && row.is_active));
-    setLeads((leadResult.data as Lead[]) || []);
-    setContracts((contractResult.data as Contract[]) || []);
-    setRevenue((revenueResult.data as SalesRevenueEvent[]) || []);
-    setCosts((costResult.data as SalesCost[]) || []);
-    setLoading(false);
+    try {
+      const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult] = await withTimeout(Promise.all([
+        supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
+        supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
+        supabase.from("leads").select("*").eq("client_id", client.id),
+        supabase.from("contracts").select("*").eq("client_id", client.id),
+        supabase.from("sales_revenue_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }),
+        admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+        supabase.from("sales_integrations").select("*").eq("client_id", client.id),
+      ]), 25_000, "Il calcolo dei KPI sta impiegando troppo tempo.");
+      const coreError = activityResult.error || leadResult.error || contractResult.error;
+      if (coreError) setError(`KPI non caricati: ${coreError.message}`);
+      if (outreachResult.error || revenueResult.error || costResult.error) setSetupWarning(true);
+      setActivities((activityResult.data as LeadActivity[]) || []);
+      setOutreach((outreachResult.data as SalesOutreachEvent[]) || []);
+      setOutreachReady(!outreachResult.error);
+      const integrations = (integrationResult.data as SalesIntegration[]) || [];
+      setInstantlyActive(integrations.some((row) => row.provider === "instantly" && row.is_active));
+      setLeads((leadResult.data as Lead[]) || []);
+      setContracts((contractResult.data as Contract[]) || []);
+      setRevenue((revenueResult.data as SalesRevenueEvent[]) || []);
+      setCosts((costResult.data as SalesCost[]) || []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento dei KPI.");
+    } finally {
+      setLoading(false);
+    }
   }, [admin, client.id]);
 
   useEffect(() => { void load(); }, [load]);

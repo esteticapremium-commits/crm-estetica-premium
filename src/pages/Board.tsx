@@ -11,6 +11,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "../supabaseClient";
+import { withTimeout } from "../async";
 import type { Client, Lead, Pipeline, Stage } from "../types";
 import LeadModal from "./LeadModal";
 import { romeToday } from "../dates";
@@ -76,30 +77,21 @@ export default function Board({
 
   const load = useCallback(async () => {
     setError(null);
-    const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }] = await Promise.all([
-      supabase
-        .from("stages")
-        .select("*")
-        .eq("pipeline_id", pipeline.id)
-        .order("position"),
-      supabase
-        .from("leads")
-        .select("*")
-        .eq("pipeline_id", pipeline.id)
-        .order("position")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("lead_activities")
-        .select("lead_id,created_at,occurred_at")
-        .eq("client_id", client.id)
-        .order("created_at", { ascending: false })
-        .limit(5000),
-    ]);
-    if (stagesError || leadsError || activitiesError) setError((stagesError || leadsError || activitiesError)?.message ?? "Errore nel caricamento della pipeline.");
-    setStages((st as Stage[]) ?? []);
-    setLeads((ld as Lead[]) ?? []);
-    setActivityStamps((activityData as ActivityStamp[]) ?? []);
-    setLoading(false);
+    try {
+      const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }] = await withTimeout(Promise.all([
+        supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
+        supabase.from("leads").select("*").eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
+        supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
+      ]), 20_000, "La pipeline sta impiegando troppo tempo a rispondere.");
+      if (stagesError || leadsError || activitiesError) setError((stagesError || leadsError || activitiesError)?.message ?? "Errore nel caricamento della pipeline.");
+      setStages((st as Stage[]) ?? []);
+      setLeads((ld as Lead[]) ?? []);
+      setActivityStamps((activityData as ActivityStamp[]) ?? []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento della pipeline.");
+    } finally {
+      setLoading(false);
+    }
   }, [client.id, pipeline.id]);
 
   useEffect(() => {
