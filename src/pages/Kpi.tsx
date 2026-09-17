@@ -279,7 +279,12 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         sourceMatches(activity.lead_id, activity.channel)
       ) {
         const scheduledDay = dayInRome(activity.scheduled_at);
-        if (inRange(scheduledDay)) {
+        // Durante la giornata non consideriamo assente chi deve ancora fare la
+        // call: entrerà nel denominatore dello show-up quando arriva il suo
+        // orario. Per i giorni passati, invece, tutti gli appuntamenti previsti
+        // restano nel calcolo anche se l'esito non è stato compilato.
+        const isStillUpcomingToday = scheduledDay === today() && new Date(activity.scheduled_at).getTime() > Date.now();
+        if (inRange(scheduledDay) && !isStillUpcomingToday) {
           const scheduledRow = rowOf(scheduledDay);
           const scheduledCallType = activity.call_type || "lead";
           if (type === "discovery_booked") scheduledRow.discoveryScheduled += 1;
