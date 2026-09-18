@@ -623,6 +623,10 @@ export default function LeadModal({
     else onSaved();
   }
 
+  // Mantiene il prefisso internazionale e rimuove soltanto i caratteri di
+  // formattazione, così su iPhone il link apre direttamente l'app Telefono.
+  const callablePhone = phone.trim().replace(/[^\d+*#,;]/g, "");
+
   return (
     <div className="overlay lead-drawer-overlay" onClick={onClose}>
       <div className="modal lead-drawer" onClick={(e) => e.stopPropagation()}>
@@ -679,7 +683,18 @@ export default function LeadModal({
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Telefono</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <div className="lead-phone-control">
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                {callablePhone && (
+                  <a
+                    className="btn primary lead-call-button"
+                    href={`tel:${callablePhone}`}
+                    aria-label={`Chiama ${phone.trim()}`}
+                  >
+                    Chiama
+                  </a>
+                )}
+              </div>
             </div>
             <div className="field" style={{ flex: 1 }}>
               <label>Email</label>

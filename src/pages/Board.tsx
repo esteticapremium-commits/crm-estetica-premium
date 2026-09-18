@@ -407,9 +407,23 @@ function LeadCardInner({
 }) {
   const idle = daysSinceLeadWork(lead, latestActivity);
   const isDead = ["LOST", "CLOSED"].includes(stageName);
+  const callablePhone = (lead.phone ?? "").trim().replace(/[^\d+*#,;]/g, "");
   return (
     <>
-      <div className="name">{lead.name || "(senza nome)"}</div>
+      <div className="card-name-row">
+        <div className="name">{lead.name || "(senza nome)"}</div>
+        {callablePhone && (
+          <a
+            className="card-call-button"
+            href={`tel:${callablePhone}`}
+            aria-label={`Chiama ${lead.name || callablePhone}`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            Chiama
+          </a>
+        )}
+      </div>
       {lead.value ? (
         <div className="deal-value">
           € {Number(lead.value).toLocaleString("it-IT")}
@@ -418,7 +432,7 @@ function LeadCardInner({
       {lead.phone && (
         <div className="row">
           <span>📞</span>
-          <a href={`tel:${lead.phone}`} onClick={(e) => e.stopPropagation()}>
+          <a href={`tel:${callablePhone}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             {lead.phone}
           </a>
         </div>

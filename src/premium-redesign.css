@@ -540,6 +540,28 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   box-shadow: 0 0 0 3px rgba(91, 16, 42, .08);
 }
 
+.theme-premium.platform-shell .lead-phone-control {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.theme-premium.platform-shell .lead-phone-control input {
+  min-width: 0;
+}
+
+.theme-premium.platform-shell .lead-call-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 88px;
+  min-height: 42px;
+  padding-inline: 14px;
+  text-decoration: none;
+}
+
 .theme-premium.platform-shell .table { border-collapse: separate; border-spacing: 0; }
 .theme-premium.platform-shell .table th {
   padding: 11px 13px;
@@ -937,7 +959,26 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   box-shadow: 0 10px 24px rgba(50, 24, 33, .09);
   transform: translateY(-2px);
 }
-.theme-premium.platform-shell .card .name { margin-bottom: 7px; color: var(--ep-ink-strong); font-size: 14px; line-height: 1.35; }
+.theme-premium.platform-shell .card-name-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 7px; }
+.theme-premium.platform-shell .card .name { flex: 1 1 auto; min-width: 0; margin-bottom: 0; color: var(--ep-ink-strong); font-size: 14px; line-height: 1.35; }
+.theme-premium.platform-shell .card-call-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid rgba(91, 16, 42, .2);
+  border-radius: 8px;
+  background: var(--ep-brand-faint);
+  color: var(--ep-brand);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+.theme-premium.platform-shell .card-call-button:hover { border-color: var(--ep-brand); background: var(--ep-brand); color: #fff; }
 .theme-premium.platform-shell .card .row,
 .theme-premium.platform-shell .card .row a { margin-top: 5px; color: var(--ep-muted); font-size: 12px; }
 .theme-premium.platform-shell .deal-value { color: var(--ep-brand); font-size: 13px; }
