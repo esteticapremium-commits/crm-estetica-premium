@@ -153,6 +153,16 @@ export default function Board({
       if (!map[l.stage_id]) map[l.stage_id] = [];
       map[l.stage_id].push(l);
     }
+    // La posizione viene abbassata quando una card entra in una nuova fase:
+    // ordinando ogni colonna qui, il lead spostato compare subito in cima
+    // anche durante l'aggiornamento ottimistico, prima del refresh realtime.
+    for (const stageLeads of Object.values(map)) {
+      stageLeads.sort(
+        (a, b) =>
+          a.position - b.position ||
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    }
     return map;
   }, [stages, leads]);
 
