@@ -2,10 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
 import { activityTimestamp, formatPct, normalizedLeadSource, outreachKey, pct } from "../salesKpi";
-import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent } from "../types";
+import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "../types";
 
 type ChannelFilter = "all" | "instantly" | "dm";
 type RangePreset = "today" | "yesterday" | "7" | "30" | "month" | "custom";
+type ForecastPreset = "tomorrow" | "day_after" | "week" | "7" | "30" | "custom";
+type ForecastOrder = "asc" | "desc";
+
+interface ForecastDay {
+  day: string;
+  discovery: number;
+  closing: number;
+  clientClosing: number;
+  appointments: SalesTask[];
+}
 
 interface DailyKpi {
   day: string;
@@ -72,6 +82,19 @@ const addDays = (iso: string, amount: number) => {
   date.setUTCDate(date.getUTCDate() + amount);
   return date.toISOString().slice(0, 10);
 };
+const endOfWeek = (iso: string) => {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekday = date.getUTCDay() || 7;
+  return addDays(iso, 7 - weekday);
+};
+const formatForecastDay = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("it-IT", {
+  weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Rome",
+});
+const formatForecastTime = (iso: string) => new Intl.DateTimeFormat("it-IT", {
+  hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome",
+}).format(new Date(iso));
+const cleanAppointmentTitle = (title: string) => title.replace(/^(Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
 const eur = (value: number) => `€ ${value.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const ratio = (value: number | null) => (value === null ? "—" : value.toLocaleString("it-IT", { maximumFractionDigits: 1 }));
 const number = (value: unknown) => Number(value) || 0;
@@ -147,6 +170,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [revenue, setRevenue] = useState<SalesRevenueEvent[]>([]);
   const [costs, setCosts] = useState<SalesCost[]>([]);
+  const [futureAppointments, setFutureAppointments] = useState<SalesTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [setupWarning, setSetupWarning] = useState(false);
@@ -157,6 +181,12 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const [channel, setChannel] = useState<ChannelFilter>("all");
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
+  const [forecastPreset, setForecastPreset] = useState<ForecastPreset>("week");
+  const [forecastOrder, setForecastOrder] = useState<ForecastOrder>("asc");
+  const [forecastSeller, setForecastSeller] = useState(admin ? "all" : meName);
+  const [forecastFrom, setForecastFrom] = useState(today());
+  const [forecastTo, setForecastTo] = useState(addDays(today(), 30));
+  const [forecastError, setForecastError] = useState<string | null>(null);
 
   const range = useMemo(() => {
     const end = today();
@@ -167,10 +197,19 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     return { from: addDays(end, -(Number(preset) - 1)), to: end };
   }, [preset, customFrom, customTo]);
 
+  const forecastRange = useMemo(() => {
+    const start = today();
+    if (forecastPreset === "custom") return { from: forecastFrom, to: forecastTo };
+    if (forecastPreset === "tomorrow") return { from: start, to: addDays(start, 1) };
+    if (forecastPreset === "day_after") return { from: start, to: addDays(start, 2) };
+    if (forecastPreset === "week") return { from: start, to: endOfWeek(start) };
+    return { from: start, to: addDays(start, Number(forecastPreset) - 1) };
+  }, [forecastFrom, forecastPreset, forecastTo]);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null); setSetupWarning(false);
     try {
-      const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult] = await withTimeout(Promise.all([
+      const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult, futureResult] = await withTimeout(Promise.all([
         supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
         supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
         supabase.from("leads").select("*").eq("client_id", client.id),
@@ -178,6 +217,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         supabase.from("sales_revenue_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }),
         admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
         supabase.from("sales_integrations").select("*").eq("client_id", client.id),
+        supabase.from("sales_tasks").select("*").eq("client_id", client.id).not("appointment_type", "is", null).gte("due_at", new Date().toISOString()).order("due_at").limit(2000),
       ]), 25_000, "Il calcolo dei KPI sta impiegando troppo tempo.");
       const coreError = activityResult.error || leadResult.error || contractResult.error;
       if (coreError) setError(`KPI non caricati: ${coreError.message}`);
@@ -191,6 +231,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       setContracts((contractResult.data as Contract[]) || []);
       setRevenue((revenueResult.data as SalesRevenueEvent[]) || []);
       setCosts((costResult.data as SalesCost[]) || []);
+      setFutureAppointments((futureResult.data as SalesTask[]) || []);
+      setForecastError(futureResult.error ? `Prospetto futuro non disponibile: ${futureResult.error.message}` : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento dei KPI.");
     } finally {
@@ -199,10 +241,55 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   }, [admin, client.id]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (!admin) setSeller(meName); }, [admin, meName]);
+  useEffect(() => { if (!admin) { setSeller(meName); setForecastSeller(meName); } }, [admin, meName]);
 
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
   const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map((activity) => activity.created_by), ...outreach.map((event) => event.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leads, outreach]);
+  const forecastSellers = useMemo(() => [...new Set(futureAppointments.map((task) => task.assigned_to).filter(Boolean))].sort(), [futureAppointments]);
+
+  const openFutureAppointments = useMemo(() => futureAppointments.filter((task) => {
+    if (task.appointment_type !== "discovery" && task.appointment_type !== "demo") return false;
+    if (task.completed_at || task.appointment_status === "held" || task.appointment_status === "no_show" || task.appointment_status === "cancelled") return false;
+    if (new Date(task.due_at).getTime() <= Date.now()) return false;
+    return forecastSeller === "all" || task.assigned_to.trim().toLowerCase() === forecastSeller.trim().toLowerCase();
+  }), [forecastSeller, futureAppointments]);
+
+  const forecastCount = useCallback((from: string, to: string) => {
+    const tasks = openFutureAppointments.filter((task) => {
+      const day = dayInRome(task.due_at);
+      return day >= from && day <= to;
+    });
+    return {
+      discovery: tasks.filter((task) => task.appointment_type === "discovery").length,
+      closing: tasks.filter((task) => task.appointment_type === "demo" && task.audience !== "client").length,
+      clientClosing: tasks.filter((task) => task.appointment_type === "demo" && task.audience === "client").length,
+      total: tasks.length,
+    };
+  }, [openFutureAppointments]);
+
+  const forecastRows = useMemo(() => {
+    const byDay = new Map<string, ForecastDay>();
+    openFutureAppointments.forEach((task) => {
+      const day = dayInRome(task.due_at);
+      if (day < forecastRange.from || day > forecastRange.to) return;
+      const row = byDay.get(day) || { day, discovery: 0, closing: 0, clientClosing: 0, appointments: [] };
+      if (task.appointment_type === "discovery") row.discovery += 1;
+      else if (task.audience === "client") row.clientClosing += 1;
+      else row.closing += 1;
+      row.appointments.push(task);
+      byDay.set(day, row);
+    });
+    const direction = forecastOrder === "asc" ? 1 : -1;
+    return [...byDay.values()]
+      .map((row) => ({ ...row, appointments: row.appointments.slice().sort((a, b) => a.due_at.localeCompare(b.due_at)) }))
+      .sort((a, b) => a.day.localeCompare(b.day) * direction);
+  }, [forecastOrder, forecastRange.from, forecastRange.to, openFutureAppointments]);
+
+  const forecastTotal = useMemo(() => forecastCount(forecastRange.from, forecastRange.to), [forecastCount, forecastRange.from, forecastRange.to]);
+  const forecastToday = useMemo(() => forecastCount(today(), today()), [forecastCount]);
+  const forecastTomorrow = useMemo(() => { const day = addDays(today(), 1); return forecastCount(day, day); }, [forecastCount]);
+  const forecastDayAfter = useMemo(() => { const day = addDays(today(), 2); return forecastCount(day, day); }, [forecastCount]);
+  const forecastWeek = useMemo(() => forecastCount(today(), endOfWeek(today())), [forecastCount]);
 
   const sourceMatches = (leadId: string | null | undefined, explicit?: string | null) => {
     if (channel === "all") return true;
@@ -495,6 +582,62 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary label="€ SALES" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo · ${eur(total.collectedRenewal + total.collectedUpsell)} rinnovi e upsell`} positive />
     </div>
 
+    <section className="panel kpi-forecast-panel">
+      <header className="kpi-forecast-header">
+        <div><span className="eyebrow">PROSPETTO FUTURO</span><h2>Call in programma</h2><p>Solo appuntamenti commerciali ancora da svolgere. Questo blocco non entra nei calcoli delle KPI consuntive.</p></div>
+        <span className="kpi-forecast-live"><i /> Aggiornato dal Calendario CRM</span>
+      </header>
+      {forecastError && <div className="notice err">{forecastError}</div>}
+      <div className="kpi-forecast-snapshots" aria-label="Riepilogo appuntamenti futuri">
+        <ForecastSnapshot label="Oggi" value={forecastToday.total} data={forecastToday} />
+        <ForecastSnapshot label="Domani" value={forecastTomorrow.total} data={forecastTomorrow} />
+        <ForecastSnapshot label="Dopodomani" value={forecastDayAfter.total} data={forecastDayAfter} />
+        <ForecastSnapshot label="Entro domenica" value={forecastWeek.total} data={forecastWeek} />
+      </div>
+      <div className="kpi-forecast-controls">
+        <label>Orizzonte
+          <select value={forecastPreset} onChange={(event) => setForecastPreset(event.target.value as ForecastPreset)}>
+            <option value="tomorrow">Da ora a domani</option>
+            <option value="day_after">Da ora a dopodomani</option>
+            <option value="week">Fino a domenica</option>
+            <option value="7">Prossimi 7 giorni</option>
+            <option value="30">Prossimi 30 giorni</option>
+            <option value="custom">Date personalizzate</option>
+          </select>
+        </label>
+        {forecastPreset === "custom" && <div className="kpi-forecast-dates"><label>Dal<input type="date" min={today()} value={forecastFrom} onChange={(event) => setForecastFrom(event.target.value)} /></label><label>Al<input type="date" min={forecastFrom} value={forecastTo} onChange={(event) => setForecastTo(event.target.value)} /></label></div>}
+        {admin && <label>Venditore
+          <select value={forecastSeller} onChange={(event) => setForecastSeller(event.target.value)}>
+            <option value="all">Tutto il team</option>
+            {forecastSellers.map((name) => <option value={name} key={name}>{name}</option>)}
+          </select>
+        </label>}
+        <label>Ordine
+          <select value={forecastOrder} onChange={(event) => setForecastOrder(event.target.value as ForecastOrder)}>
+            <option value="asc">Più vicine prima</option>
+            <option value="desc">Più lontane prima</option>
+          </select>
+        </label>
+        <div className="kpi-forecast-total"><span>Totale periodo</span><b>{forecastTotal.total}</b><small>{forecastTotal.discovery} discovery · {forecastTotal.closing} closing{forecastTotal.clientClosing ? ` · ${forecastTotal.clientClosing} già clienti` : ""}</small></div>
+      </div>
+      <div className="kpi-forecast-table-wrap">
+        <table className="kpi-forecast-table">
+          <thead><tr><th>Data</th><th>Discovery</th><th>Closing</th><th>Già clienti</th><th>Totale</th><th>Agenda</th></tr></thead>
+          <tbody>
+            {forecastRows.map((row) => <tr key={row.day}>
+              <th><b>{formatForecastDay(row.day)}</b><small>{row.day}</small></th>
+              <td><span className="forecast-count discovery">{row.discovery}</span></td>
+              <td><span className="forecast-count closing">{row.closing}</span></td>
+              <td><span className="forecast-count client">{row.clientClosing}</span></td>
+              <td><b className="forecast-day-total">{row.appointments.length}</b></td>
+              <td><div className="forecast-agenda">{row.appointments.map((task) => <span key={task.id} className={`forecast-appointment ${task.appointment_type}`}><time>{formatForecastTime(task.due_at)}</time><b>{cleanAppointmentTitle(task.title) || "Appuntamento"}</b>{admin && <small>{task.assigned_to}</small>}</span>)}</div></td>
+            </tr>)}
+            {forecastRows.length === 0 && <tr><td className="kpi-forecast-empty" colSpan={6}>Nessuna call in programma nel periodo selezionato.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section className="panel kpi-table-panel">
       <header><div><span className="eyebrow">GIORNO PER GIORNO</span><h2>Registro KPI</h2></div><span>Fuso orario: Europa/Roma</span></header>
       <div className="kpi-table-scroll"><table className="kpi-table">
@@ -549,6 +692,13 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
 function Summary({ label, value, detail, positive }: { label: string; value: string | number; detail: string; positive?: boolean }) {
   return <article className={`kpi-summary${positive ? " positive" : ""}`}><span>{label}</span><b>{value}</b><small>{detail}</small></article>;
+}
+
+function ForecastSnapshot({ label, value, data }: { label: string; value: number; data: { discovery: number; closing: number; clientClosing: number } }) {
+  return <article className="kpi-forecast-snapshot">
+    <span>{label}</span><b>{value}</b>
+    <small><em>{data.discovery} discovery</em><em>{data.closing} closing</em>{data.clientClosing > 0 && <em>{data.clientClosing} già clienti</em>}</small>
+  </article>;
 }
 
 function KpiRow({ row, total, admin }: { row: DailyKpi; total?: boolean; admin: boolean }) {

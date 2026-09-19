@@ -74,6 +74,50 @@
 .theme-premium.platform-shell .kpi-summary > b { display: block; margin: 8px 0 5px; color: var(--ep-brand); font-size: clamp(23px, 2vw, 31px); line-height: 1; }
 .theme-premium.platform-shell .kpi-summary > small { font-size: 10px; }
 .theme-premium.platform-shell .kpi-summary.positive > b { color: var(--ep-success); }
+.theme-premium.platform-shell .kpi-forecast-panel { margin-bottom: 16px; padding: 0; overflow: hidden; }
+.theme-premium.platform-shell .kpi-forecast-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--ep-border); }
+.theme-premium.platform-shell .kpi-forecast-header h2 { margin: 3px 0 4px; }
+.theme-premium.platform-shell .kpi-forecast-header p { max-width: 720px; margin: 0; color: var(--ep-muted); font-size: 11px; }
+.theme-premium.platform-shell .kpi-forecast-live { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; background: var(--ep-success-soft); color: var(--ep-success); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.theme-premium.platform-shell .kpi-forecast-live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px rgba(39, 112, 82, .12); }
+.theme-premium.platform-shell .kpi-forecast-snapshots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 16px 22px; background: var(--ep-surface-muted); }
+.theme-premium.platform-shell .kpi-forecast-snapshot { min-width: 0; padding: 14px 15px; border: 1px solid var(--ep-border); border-radius: 12px; background: #fff; box-shadow: var(--ep-shadow-xs); }
+.theme-premium.platform-shell .kpi-forecast-snapshot > span { display: block; color: var(--ep-muted); font-size: 10px; font-weight: 800; }
+.theme-premium.platform-shell .kpi-forecast-snapshot > b { display: block; margin: 5px 0 7px; color: var(--ep-brand); font-size: 27px; line-height: 1; }
+.theme-premium.platform-shell .kpi-forecast-snapshot small { display: flex; gap: 5px; flex-wrap: wrap; }
+.theme-premium.platform-shell .kpi-forecast-snapshot em { padding: 3px 6px; border-radius: 6px; background: var(--ep-brand-faint); color: var(--ep-muted); font-size: 8px; font-style: normal; font-weight: 750; }
+.theme-premium.platform-shell .kpi-forecast-controls { display: flex; align-items: end; gap: 12px; padding: 14px 22px; border-top: 1px solid #eee7e3; border-bottom: 1px solid var(--ep-border); }
+.theme-premium.platform-shell .kpi-forecast-controls label { display: grid; gap: 5px; color: var(--ep-muted); font-size: 9px; font-weight: 800; letter-spacing: .55px; text-transform: uppercase; }
+.theme-premium.platform-shell .kpi-forecast-controls select,
+.theme-premium.platform-shell .kpi-forecast-controls input { min-height: 37px; border: 1px solid var(--ep-border); border-radius: 9px; padding: 7px 9px; background: #fff; color: var(--ep-ink); font-size: 11px; }
+.theme-premium.platform-shell .kpi-forecast-dates { display: flex; gap: 8px; }
+.theme-premium.platform-shell .kpi-forecast-total { min-width: 180px; margin-left: auto; padding: 8px 11px; border-left: 3px solid var(--ep-brand); border-radius: 0 9px 9px 0; background: var(--ep-brand-faint); }
+.theme-premium.platform-shell .kpi-forecast-total span,
+.theme-premium.platform-shell .kpi-forecast-total small { display: block; color: var(--ep-muted); font-size: 8px; }
+.theme-premium.platform-shell .kpi-forecast-total b { display: block; margin: 1px 0; color: var(--ep-brand); font-size: 19px; }
+.theme-premium.platform-shell .kpi-forecast-table-wrap { max-width: 100%; overflow: auto; }
+.theme-premium.platform-shell .kpi-forecast-table { width: 100%; min-width: 820px; border-collapse: collapse; font-size: 11px; }
+.theme-premium.platform-shell .kpi-forecast-table th,
+.theme-premium.platform-shell .kpi-forecast-table td { padding: 11px 13px; border-bottom: 1px solid #eee7e3; text-align: center; vertical-align: top; }
+.theme-premium.platform-shell .kpi-forecast-table thead th { background: #f6f1ef; color: var(--ep-muted); font-size: 9px; letter-spacing: .45px; text-transform: uppercase; }
+.theme-premium.platform-shell .kpi-forecast-table thead th:first-child,
+.theme-premium.platform-shell .kpi-forecast-table thead th:last-child { text-align: left; }
+.theme-premium.platform-shell .kpi-forecast-table tbody th { min-width: 155px; color: var(--ep-ink); text-align: left; text-transform: capitalize; }
+.theme-premium.platform-shell .kpi-forecast-table tbody th b,
+.theme-premium.platform-shell .kpi-forecast-table tbody th small { display: block; }
+.theme-premium.platform-shell .kpi-forecast-table tbody th small { margin-top: 2px; color: var(--ep-muted-soft); font-size: 8px; }
+.theme-premium.platform-shell .forecast-count { display: inline-grid; min-width: 31px; height: 27px; padding: 0 7px; place-items: center; border-radius: 8px; font-weight: 850; }
+.theme-premium.platform-shell .forecast-count.discovery { background: #edf4ff; color: #2c65ad; }
+.theme-premium.platform-shell .forecast-count.closing { background: var(--ep-brand-soft); color: var(--ep-brand); }
+.theme-premium.platform-shell .forecast-count.client { background: var(--ep-warning-soft); color: var(--ep-warning); }
+.theme-premium.platform-shell .forecast-day-total { color: var(--ep-ink-strong); font-size: 15px; }
+.theme-premium.platform-shell .forecast-agenda { display: flex; min-width: 300px; gap: 6px; flex-wrap: wrap; text-align: left; }
+.theme-premium.platform-shell .forecast-appointment { display: grid; grid-template-columns: auto minmax(80px, 1fr); gap: 1px 7px; max-width: 250px; padding: 6px 8px; border: 1px solid var(--ep-border); border-left: 3px solid #4c83ce; border-radius: 8px; background: #fff; }
+.theme-premium.platform-shell .forecast-appointment.demo { border-left-color: var(--ep-brand); }
+.theme-premium.platform-shell .forecast-appointment time { grid-row: 1 / span 2; color: var(--ep-brand); font-size: 9px; font-weight: 850; }
+.theme-premium.platform-shell .forecast-appointment b { overflow: hidden; color: var(--ep-ink); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.theme-premium.platform-shell .forecast-appointment small { color: var(--ep-muted); font-size: 8px; }
+.theme-premium.platform-shell .kpi-forecast-empty { padding: 28px !important; color: var(--ep-muted); text-align: center !important; }
 .theme-premium.platform-shell .kpi-table-panel { padding: 0; overflow: hidden; }
 .theme-premium.platform-shell .kpi-table-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 18px; border-bottom: 1px solid var(--ep-line); }
 .theme-premium.platform-shell .kpi-table-panel > header h2 { margin: 3px 0 0; }
@@ -170,6 +214,8 @@
   .theme-premium.platform-shell .kpi-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .theme-premium.platform-shell .kpi-filters { align-items: stretch; flex-wrap: wrap; }
   .theme-premium.platform-shell .kpi-filters > div:first-child { flex-basis: 100%; }
+  .theme-premium.platform-shell .kpi-forecast-controls { align-items: stretch; flex-wrap: wrap; }
+  .theme-premium.platform-shell .kpi-forecast-total { margin-left: 0; }
 }
 @media (max-width: 700px) {
   .theme-premium.platform-shell .kpi-intro { flex-direction: column; }
@@ -180,6 +226,14 @@
   .theme-premium.platform-shell .kpi-filters { display: grid; gap: 12px; }
   .theme-premium.platform-shell .segmented { display: grid; grid-template-columns: 1fr 1fr; }
   .theme-premium.platform-shell .kpi-date-range { display: grid; grid-template-columns: 1fr 1fr; }
+  .theme-premium.platform-shell .kpi-forecast-header { display: grid; padding: 17px 16px 14px; }
+  .theme-premium.platform-shell .kpi-forecast-live { width: fit-content; }
+  .theme-premium.platform-shell .kpi-forecast-snapshots { grid-template-columns: 1fr 1fr; padding: 12px 16px; }
+  .theme-premium.platform-shell .kpi-forecast-controls { display: grid; padding: 13px 16px; }
+  .theme-premium.platform-shell .kpi-forecast-controls select,
+  .theme-premium.platform-shell .kpi-forecast-controls input { width: 100%; }
+  .theme-premium.platform-shell .kpi-forecast-dates { display: grid; grid-template-columns: 1fr 1fr; }
+  .theme-premium.platform-shell .kpi-forecast-total { width: 100%; }
   .theme-premium.platform-shell .kpi-definitions > div { grid-template-columns: 1fr; }
   .theme-premium.platform-shell .channel-choice { grid-template-columns: 1fr; }
 }
