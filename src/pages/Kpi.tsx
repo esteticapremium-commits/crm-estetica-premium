@@ -5,7 +5,7 @@ import { activityTimestamp, formatPct, normalizedLeadSource, outreachKey, pct } 
 import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "../types";
 
 type ChannelFilter = "all" | "instantly" | "dm";
-type RangePreset = "today" | "yesterday" | "7" | "30" | "month" | "custom";
+type RangePreset = "today" | "yesterday" | "7" | "14" | "30" | "month" | "custom";
 type ForecastPreset = "tomorrow" | "day_after" | "week" | "7" | "30" | "custom";
 type ForecastOrder = "asc" | "desc";
 
@@ -57,6 +57,10 @@ interface DailyKpi {
   discoveryHeldBooked: number;
   demoHeldBooked: number;
   demoClientHeldBooked: number;
+  // Conversione discovery -> closing calcolata per lead unico. Le
+  // riprogrammazioni della stessa closing non devono mai alzare il tasso.
+  discoveryLeads: number;
+  discoveryConvertedLeads: number;
   noShow: number;
   qualified: number;
   // Chiusura
@@ -109,6 +113,7 @@ const emptyDay = (day: string): DailyKpi => ({
   discoveryBooked: 0, demoBooked: 0, demoClientBooked: 0, discoveryScheduled: 0, demoScheduled: 0, demoClientScheduled: 0,
   discoverySameDay: 0, demoSameDay: 0, demoClientSameDay: 0,
   discoveryHeld: 0, demoHeld: 0, demoClientHeld: 0, discoveryHeldBooked: 0, demoHeldBooked: 0, demoClientHeldBooked: 0,
+  discoveryLeads: 0, discoveryConvertedLeads: 0,
   noShow: 0, qualified: 0, proposals: 0, won: 0,
   renewals: 0, upsells: 0, collectedNew: 0, collectedRenewal: 0, collectedUpsell: 0, contractValue: 0, costs: 0,
 });
@@ -144,14 +149,15 @@ const attemptsPerReached = (row: DailyKpi) => (row.reachedLeads > 0 ? prospectCa
 const outreachReplyRate = (row: DailyKpi) => pct(row.replies, outreachSent(row));
 // % PRENOT: quanti, dopo una discovery svolta, prenotano la closing. È il passo
 // che il venditore controlla davvero, ed è il complemento del DROP D/DE.
-const bookingRate = (row: DailyKpi) => pct(row.demoBooked + row.demoClientBooked, row.discoveryHeld);
+const bookingRate = (row: DailyKpi) => pct(row.discoveryConvertedLeads, row.discoveryLeads);
 // % PREN RIS: quante discovery nascono dalle risposte all'outreach.
 const bookingOnReplies = (row: DailyKpi) => pct(row.discoveryBooked, row.replies);
 const showUpDiscovery = (row: DailyKpi) => pct(row.discoveryHeldBooked, row.discoveryScheduled);
 const showUpDemo = (row: DailyKpi) => pct(row.demoHeldBooked, row.demoScheduled);
 const showUpDemoClient = (row: DailyKpi) => pct(row.demoClientHeldBooked, row.demoClientScheduled);
+const showUpClosing = (row: DailyKpi) => pct(row.demoHeldBooked + row.demoClientHeldBooked, row.demoScheduled + row.demoClientScheduled);
 const showUpTotal = (row: DailyKpi) => pct(attendedScheduled(row), scheduled(row));
-const discoveryDemoDrop = (row: DailyKpi) => (row.discoveryHeld > 0 ? (Math.max(row.discoveryHeld - row.demoBooked, 0) / row.discoveryHeld) * 100 : null);
+const discoveryDemoDrop = (row: DailyKpi) => pct(Math.max(row.discoveryLeads - row.discoveryConvertedLeads, 0), row.discoveryLeads);
 const qualificationRate = (row: DailyKpi) => pct(row.qualified, row.discoveryHeld);
 const winRate = (row: DailyKpi) => pct(row.won, row.proposals);
 const closeRate = (row: DailyKpi) => pct(row.won, row.demoHeld + row.demoClientHeld);
@@ -354,8 +360,20 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const rows = useMemo(() => {
     const result = new Map<string, DailyKpi>();
     const reachedByDay = new Map<string, Set<string>>();
+    const heldDiscoveryByDay = new Map<string, Map<string, string>>();
+    const demoBookingsByLead = new Map<string, string[]>();
     for (let day = range.from; day <= range.to; day = addDays(day, 1)) result.set(day, emptyDay(day));
     const rowOf = (day: string) => { if (!result.has(day)) result.set(day, emptyDay(day)); return result.get(day)!; };
+
+    // Una closing può essere riprogrammata più volte, ma ai fini della
+    // conversione la persona resta una sola. Conserviamo tutti gli orari di
+    // prenotazione per verificare che la closing sia successiva alla discovery.
+    activities.forEach((activity) => {
+      if (activity.event_type !== "demo_booked" || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      const bookings = demoBookingsByLead.get(activity.lead_id) || [];
+      bookings.push(dayInRome(activityTimestamp(activity)));
+      demoBookingsByLead.set(activity.lead_id, bookings);
+    });
 
     leads.forEach((lead) => {
       const day = dayInRome(lead.created_at);
@@ -453,6 +471,11 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
           row.discoveryHeld += 1;
           if (fromAppointment) row.discoveryHeldBooked += 1;
           if (sameDay) row.discoverySameDay += 1;
+          const leadTimes = heldDiscoveryByDay.get(day) || new Map<string, string>();
+          const occurredAt = dayInRome(appointmentOutcome && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity));
+          const previous = leadTimes.get(activity.lead_id);
+          if (previous === undefined || occurredAt < previous) leadTimes.set(activity.lead_id, occurredAt);
+          heldDiscoveryByDay.set(day, leadTimes);
         }
         if (outcome === "qualified") row.qualified += 1;
         if (outcome === "no_answer" && fromAppointment) row.noShow += 1;
@@ -469,6 +492,14 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         }
         if (outcome === "no_show") row.noShow += 1;
       }
+    });
+
+    heldDiscoveryByDay.forEach((leadTimes, day) => {
+      const row = rowOf(day);
+      row.discoveryLeads = leadTimes.size;
+      row.discoveryConvertedLeads = [...leadTimes].filter(([leadId, discoveryDay]) =>
+        (demoBookingsByLead.get(leadId) || []).some((bookingDay) => bookingDay >= discoveryDay)
+      ).length;
     });
 
     // Il contratto è la fonte autorevole di proposte e firme. Quando sent_at non
@@ -527,6 +558,29 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       uniqueReached.add(activity.lead_id);
     });
     aggregate.reachedLeads = uniqueReached.size;
+
+    const heldDiscoveryByLead = new Map<string, string>();
+    const demoBookingsByLead = new Map<string, string[]>();
+    activities.forEach((activity) => {
+      if (!sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      if (activity.event_type === "demo_booked") {
+        const bookings = demoBookingsByLead.get(activity.lead_id) || [];
+        bookings.push(dayInRome(activityTimestamp(activity)));
+        demoBookingsByLead.set(activity.lead_id, bookings);
+        return;
+      }
+      if (!isCallActivity(activity) || !isHeldDiscovery(activity.outcome)) return;
+      const fromAppointment = Boolean(taskIdOf(activity));
+      const timestamp = fromAppointment && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity);
+      if (!inRange(dayInRome(timestamp))) return;
+      const occurredAt = dayInRome(timestamp);
+      const previous = heldDiscoveryByLead.get(activity.lead_id);
+      if (previous === undefined || occurredAt < previous) heldDiscoveryByLead.set(activity.lead_id, occurredAt);
+    });
+    aggregate.discoveryLeads = heldDiscoveryByLead.size;
+    aggregate.discoveryConvertedLeads = [...heldDiscoveryByLead].filter(([leadId, discoveryDay]) =>
+      (demoBookingsByLead.get(leadId) || []).some((bookingDay) => bookingDay >= discoveryDay)
+    ).length;
     return aggregate;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activities, channel, leadById, range.from, range.to, rows, seller]);
@@ -558,7 +612,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     {outreachConflicts.length > 0 && <div className="notice warn"><b>Possibile doppio conteggio Instantly.</b> In {outreachConflicts.length === 1 ? "questa giornata" : "queste giornate"} ({outreachConflicts.join(", ")}) risultano sia invii registrati a mano sia invii arrivati dal webhook: i volumi si sommano. Tieni una sola delle due fonti.</div>}
 
     <section className="kpi-filters panel">
-      <div><label>Periodo</label><div className="segmented"><button className={preset === "today" ? "active" : ""} onClick={() => setPreset("today")}>Oggi</button><button className={preset === "yesterday" ? "active" : ""} onClick={() => setPreset("yesterday")}>Ieri</button><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
+      <div><label>Periodo</label><div className="segmented"><button className={preset === "today" ? "active" : ""} onClick={() => setPreset("today")}>Oggi</button><button className={preset === "yesterday" ? "active" : ""} onClick={() => setPreset("yesterday")}>Ieri</button><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "14" ? "active" : ""} onClick={() => setPreset("14")}>14 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
       {preset === "custom" && <div className="kpi-date-range"><label>Dal<input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>Al<input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label></div>}
       <label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Instantly + DM</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option></select></label>
       {admin && <label>Venditore<select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutto il team</option>{sellers.map((name) => <option value={name} key={name}>{name}</option>)}</select></label>}
@@ -569,11 +623,12 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary label="% RISP" value={formatPct(answerRate(total))} detail={`${total.prospectCallsAnswered} risposte / ${prospectCalls(total)} call prospect`} />
       <Summary label="T/M" value={ratio(attemptsPerReached(total))} detail={`${prospectCalls(total)} tentativi / ${total.reachedLeads} lead raggiunti`} />
       <Summary label="Messaggi outreach" value={outreachSent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} />
-      <Summary label="% PRENOT" value={formatPct(bookingRate(total))} detail={`${total.demoBooked + total.demoClientBooked} closing / ${total.discoveryHeld} discovery svolte`} />
+      <Summary label="% PRENOT" value={formatPct(bookingRate(total))} detail={`${total.discoveryConvertedLeads} lead con closing / ${total.discoveryLeads} lead con discovery`} />
       <Summary label="% PREN RIS" value={formatPct(bookingOnReplies(total))} detail={`${total.discoveryBooked} discovery / ${total.replies} risposte`} />
       <Summary label="Call tot svolte" value={callsHeld(total)} detail={`${total.discoveryHeld} disco · ${total.demoHeld} closing · ${total.demoClientHeld} closing GC`} />
-      <Summary label="SHOW UP TOT" value={formatPct(showUpTotal(total))} detail={`${attendedScheduled(total)} presenti / ${scheduled(total)} previsti`} />
-      <Summary label="DROP D/DE" value={formatPct(discoveryDemoDrop(total))} detail={`${Math.max(total.discoveryHeld - total.demoBooked, 0)} persi / ${total.discoveryHeld} discovery`} />
+      <Summary label="SHOW UP DISCOVERY" value={formatPct(showUpDiscovery(total))} detail={`${total.discoveryHeldBooked} presenti / ${total.discoveryScheduled} previsti`} />
+      <Summary label="SHOW UP CLOSING" value={formatPct(showUpClosing(total))} detail={`${total.demoHeldBooked + total.demoClientHeldBooked} presenti / ${total.demoScheduled + total.demoClientScheduled} previsti`} />
+      <Summary label="DROP D/DE" value={formatPct(discoveryDemoDrop(total))} detail={`${Math.max(total.discoveryLeads - total.discoveryConvertedLeads, 0)} lead senza closing / ${total.discoveryLeads} lead con discovery`} />
       <Summary label="% in target" value={formatPct(qualificationRate(total))} detail={`${total.qualified} in target / ${total.discoveryHeld} discovery`} />
       <Summary label="% chiusura" value={formatPct(winRate(total))} detail={`${total.won} vinte / ${total.proposals} proposte`} />
       <Summary label="CR" value={formatPct(closeRate(total))} detail={`${total.won} vinte / ${total.demoHeld + total.demoClientHeld} closing svolte`} />
@@ -676,8 +731,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     <details className="panel kpi-definitions"><summary>Come vengono calcolati i numeri</summary><div>
       <p><b>Azioni di contatto:</b> richiami + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ richiami e call outbound. <b>T/M:</b> tentativi di richiamo e outbound ÷ lead raggiunti.</p>
       <p><b>Lead raggiunti:</b> nel totale del periodo ogni lead conta una volta sola anche se richiamato in giorni diversi; nelle righe giornaliere conta in ogni giornata in cui è stato davvero lavorato.</p>
-      <p><b>% PRENOT:</b> closing prenotate ÷ discovery svolte — quanti, dopo la discovery, accettano la closing. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
-      <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> appuntamenti svolti ÷ appuntamenti previsti in agenda nello stesso giorno, anche se erano stati fissati nei giorni precedenti. Una discovery fatta seduta stante non gonfia lo show-up. <b>DROP D/DE:</b> discovery svolte che non producono una closing ÷ discovery svolte.</p>
+      <p><b>% PRENOT:</b> lead unici con una closing successiva ÷ lead unici con discovery svolta. Riprogrammare la stessa closing non aumenta il dato e il tasso non può superare il 100%. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
+      <p><b>Colonne “day”:</b> appuntamenti svolti senza attesa — fissati e chiusi in giornata, oppure fatti al volo durante la chiamata senza prenotazione. <b>Show up:</b> è separato tra discovery e closing; misura gli appuntamenti svolti ÷ quelli previsti in agenda nello stesso giorno. Una call registrata come non pianificata entra nelle call svolte ma non altera lo show-up. <b>DROP D/DE:</b> lead con discovery che non producono una closing ÷ lead unici con discovery.</p>
       <p><b>In target:</b> discovery chiuse con esito “in target”. Una discovery è svolta solo con esito in target o fuori target; “non risponde” resta un tentativo.</p>
       <p><b>Proposte:</b> contratti creati o inviati. <b>Vendita vinta:</b> prima cauzione o primo incasso “nuovo” realmente ricevuto per il lead; la sola firma di una prova gratuita non conta. <b>% chiusura:</b> vendite vinte ÷ proposte. <b>CR:</b> vendite vinte ÷ closing svolte.</p>
       <p><b>VAL TOT:</b> valore contrattuale delle vendite vinte. <b>VAL TOT M:</b> valore medio per vendita vinta. <b>€ SALES:</b> incassato reale del periodo. Le rate successive aumentano € SALES ma non creano una seconda chiusura.</p>

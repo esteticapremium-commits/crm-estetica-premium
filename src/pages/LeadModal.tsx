@@ -143,6 +143,8 @@ export default function LeadModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [quickAction, setQuickAction] = useState<"qualified" | "not_qualified" | "lost" | null>(null);
+  const [closingAction, setClosingAction] = useState<"held" | "no_show" | null>(null);
+  const [closingMinutes, setClosingMinutes] = useState("");
   const [commercialNote, setCommercialNote] = useState("");
   const [commercialMinutes, setCommercialMinutes] = useState("");
   const [activitySaved, setActivitySaved] = useState("");
@@ -298,6 +300,51 @@ export default function LeadModal({
     setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
     setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "answered" ? "Chiamata risposta registrata" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
     setBusy(false); commercialActionLock.current = false;
+  }
+
+  async function recordClosingOutcome(outcome: "held" | "no_show") {
+    if (!lead || commercialActionLock.current) return;
+    const minutes = Number(closingMinutes) || 0;
+    if (outcome === "held" && minutes <= 0) return setErr("Seleziona la durata della closing.");
+    commercialActionLock.current = true;
+    setBusy(true); setErr(null); setActivitySaved("");
+
+    // Se la closing esiste in agenda aggiorniamo quella stessa registrazione.
+    // In caso contrario salviamo una call non pianificata: entra nelle closing
+    // svolte e nel CR, ma non falsa lo show-up perché non aveva un appuntamento.
+    if (openDemo) {
+      const tracked = await recordAppointmentOutcome(openDemo, outcome, meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
+      setBusy(false); commercialActionLock.current = false;
+      if (!tracked.ok) return setErr(tracked.error || "Esito della closing non registrato.");
+      setAppointments((current) => current.filter((task) => task.id !== openDemo.id));
+      setClosingAction(null); setClosingMinutes(""); setCommercialNote("");
+      setActivitySaved(outcome === "held" ? "Closing in agenda registrata come svolta" : "No-show della closing registrato");
+      await reloadActivityHistory();
+      return;
+    }
+
+    const occurredAt = new Date();
+    const eventKey = quickActivityKey(lead.id, "demo_call", outcome, occurredAt);
+    const result = await supabase.from("lead_activities").upsert({
+      lead_id: lead.id,
+      client_id: lead.client_id,
+      pipeline_id: lead.pipeline_id,
+      activity_type: "meeting",
+      event_type: "demo_call",
+      channel: "video_call",
+      call_type: defaultAudience(currentStageName) === "client" ? "client" : "lead",
+      outcome,
+      duration_minutes: outcome === "held" ? minutes : null,
+      occurred_at: occurredAt.toISOString(),
+      note: commercialNote.trim() || "Closing registrata dalla scheda lead senza appuntamento CRM",
+      created_by: meName?.trim() || null,
+      event_key: eventKey,
+    }, { onConflict: "client_id,event_key" }).select("*").single();
+    setBusy(false); commercialActionLock.current = false;
+    if (result.error) return setErr("Esito della closing non registrato: " + result.error.message);
+    setActivityHistory((current) => [result.data as LeadActivity, ...current.filter((item) => item.id !== (result.data as LeadActivity).id)]);
+    setClosingAction(null); setClosingMinutes(""); setCommercialNote("");
+    setActivitySaved(outcome === "held" ? "Closing non pianificata registrata come svolta" : "No-show non pianificato registrato");
   }
 
   function prepareDemo() {
@@ -652,21 +699,30 @@ export default function LeadModal({
             <div className="activity-box commercial-tracker quick-commercial-tracker">
               <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
               {openDiscovery && <div className="notice warn quick-linked-appointment">Stai registrando l’esito della discovery del {new Date(openDiscovery.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: conta una volta sola, anche se l’hai già aperta dal Calendario.</div>}
-              {openDemo && <div className="notice quick-linked-appointment">C’è una closing in agenda il {new Date(openDemo.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: il suo esito si registra dal Calendario.</div>}
+              {openDemo && <div className="notice quick-linked-appointment">C’è una closing in agenda il {new Date(openDemo.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: puoi registrarne l’esito qui oppure dal Calendario, senza duplicarla.</div>}
               {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Richiamo"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallTypeOverride(value)}>{label}</button>)}</div></div>}
               <div className="commercial-quick-actions">
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
-                <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => setQuickAction("qualified")}><b>In target</b><small>Discovery svolta</small></button>
-                <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => setQuickAction("not_qualified")}><b>Fuori target</b><small>Discovery svolta</small></button>
+                <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => { setClosingAction(null); setQuickAction("qualified"); }}><b>In target</b><small>Discovery svolta</small></button>
+                <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => { setClosingAction(null); setQuickAction("not_qualified"); }}><b>Fuori target</b><small>Discovery svolta</small></button>
                 <button type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
                 <button type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota closing</b><small>Vai a data e ora</small></button>
-                <button type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => setQuickAction("lost")}><b>Perso</b><small>Indica il motivo</small></button>
+                <button type="button" disabled={busy} className={closingAction === "held" ? "active success" : "success"} onClick={() => { setQuickAction(null); setClosingAction("held"); }}><b>Closing svolta</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
+                <button type="button" disabled={busy} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
+                <button type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
               {quickAction && <div className="commercial-quick-detail">
                 {quickAction !== "lost" ? <><label>Durata discovery</label><div className="duration-chips">{[5, 10, 15, 20, 30, 45, 60].map((minutes) => <button type="button" key={minutes} className={commercialMinutes === String(minutes) ? "active" : ""} onClick={() => setCommercialMinutes(String(minutes))}>{minutes} min</button>)}</div></> : <div className="field"><label>Motivo della perdita</label><select value={lostReason} onChange={(e) => setLostReason(e.target.value)}><option value="">— scegli —</option><option>Prezzo troppo alto</option><option>Nessuna differenza percepita</option><option>Ha scelto un concorrente</option><option>Non interessato più</option><option>Irraggiungibile</option><option>Budget fermo</option><option>Altro</option></select></div>}
                 <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={commercialNote} onChange={(e) => setCommercialNote(e.target.value)} placeholder="Solo se serve ricordare qualcosa" /></div>
                 <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setQuickAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordQuickActivity(quickAction)}>{busy ? "Salvataggio…" : "Conferma esito"}</button></div>
+              </div>}
+              {closingAction && <div className="commercial-quick-detail">
+                <p className="quick-closing-explanation">{openDemo ? "L’esito aggiornerà la closing già presente in agenda." : "La closing verrà registrata come non pianificata: conterà nelle closing svolte e nel CR, ma non nello show-up."}</p>
+                {closingAction === "held" && <><label>Durata closing</label><div className="duration-chips">{[15, 30, 45, 60, 75, 90].map((minutes) => <button type="button" key={minutes} className={closingMinutes === String(minutes) ? "active" : ""} onClick={() => setClosingMinutes(String(minutes))}>{minutes} min</button>)}</div></>}
+                <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={commercialNote} onChange={(e) => setCommercialNote(e.target.value)} placeholder="Esito o dettaglio utile" /></div>
+                {closingAction === "held" && admin && <p className="quick-closing-explanation"><b>Se il lead ha pagato:</b> dopo questo passaggio registra sotto l’incasso nuovo. La prima cauzione lo segnerà automaticamente come vendita vinta.</p>}
+                <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setClosingAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordClosingOutcome(closingAction)}>{busy ? "Salvataggio…" : "Conferma esito closing"}</button></div>
               </div>}
               {activitySaved && <div className="commercial-saved">✓ {activitySaved}</div>}
               {activityHistory.length > 0 && <details className="tracker-history"><summary>Storico commerciale ({activityHistory.length})</summary>{activityHistory.slice(0, 8).map((activity) => <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}</b><small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"} · {CHANNEL_LABELS[activity.channel || ""] || activity.channel || "CRM"} · {new Date(activity.occurred_at || activity.created_at).toLocaleString("it-IT")}</small></span><button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button></div>)}</details>}

@@ -185,6 +185,8 @@
 .theme-premium.platform-shell .commercial-quick-actions > button.active.danger { border-color: var(--ep-danger); background: var(--ep-danger-soft); color: var(--ep-danger); }
 .theme-premium.platform-shell .commercial-quick-detail { margin-top: 9px; padding: 12px; border: 1px solid var(--ep-line); border-radius: 10px; background: var(--ep-surface-muted); }
 .theme-premium.platform-shell .commercial-quick-detail > label { color: var(--ep-ink); font-size: 10px; font-weight: 800; }
+.theme-premium.platform-shell .quick-closing-explanation { margin: 0 0 10px; color: var(--ep-muted); font-size: 10px; line-height: 1.5; }
+.theme-premium.platform-shell .quick-closing-explanation b { color: var(--ep-ink); }
 .theme-premium.platform-shell .duration-chips { display: flex; gap: 5px; margin: 7px 0 10px; flex-wrap: wrap; }
 .theme-premium.platform-shell .duration-chips button { min-width: 48px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--ep-line); border-radius: 8px; background: #fff; color: var(--ep-muted); font: inherit; font-size: 9px; font-weight: 800; cursor: pointer; }
 .theme-premium.platform-shell .duration-chips button.active { border-color: var(--ep-brand); background: var(--ep-brand); color: #fff; }
