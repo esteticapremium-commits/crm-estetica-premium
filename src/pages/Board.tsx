@@ -291,6 +291,7 @@ export default function Board({
             setEditing(null);
             load();
           }}
+          onUpdated={load}
         />
       )}
       {creatingInStage && (

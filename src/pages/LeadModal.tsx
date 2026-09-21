@@ -105,6 +105,7 @@ interface Props {
   admin?: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onUpdated?: () => void;
 }
 
 export default function LeadModal({
@@ -119,6 +120,7 @@ export default function LeadModal({
   admin = false,
   onClose,
   onSaved,
+  onUpdated,
 }: Props) {
   const isNew = !lead;
   const [name, setName] = useState(lead?.name ?? "");
@@ -573,7 +575,9 @@ export default function LeadModal({
     if (error) return setErr("Nota non salvata: " + error.message);
     setNotes(finalNotes);
     setQuickNote("");
-    onSaved();
+    // Aggiorna la card nella pipeline senza usare il callback del salvataggio
+    // completo, che chiude intenzionalmente il drawer.
+    onUpdated?.();
   }
 
   async function savePlan(closeAfterSave = true): Promise<boolean> {
