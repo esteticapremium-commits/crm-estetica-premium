@@ -146,3 +146,64 @@ Data: {{data_oggi}}
 
 Il Committente dichiara di avere letto attentamente il presente contratto e, ai sensi e per gli effetti degli articoli 1341 e 1342 del codice civile, dichiara di approvare specificamente le seguenti clausole: art. 4 (natura della prestazione), art. 5 (facoltà di sospensione e interruzione del Collaboratore), art. 6 (durata), art. 7 (completamento del periodo di prova), art. 12 (proprietà intellettuale e strumenti), art. 13 (piattaforme e fornitori terzi), art. 14 (limitazione di responsabilità) e art. 17 (legge applicabile e foro competente).`,
 } as const;
+
+const STANDARD_DURATION_CLAUSE = `Art. 6 - Durata
+Il presente contratto avrà inizio in data {{data_inizio_servizio}} e avrà una durata di 30 giorni decorrenti da tale data, indipendentemente dalla data di effettivo avvio delle campagne pubblicitarie e da eventuali periodi di sospensione delle stesse.
+
+Alla scadenza il contratto cessa automaticamente, senza necessità di disdetta, senza rinnovo tacito e senza alcun obbligo di prosecuzione per le parti. Al termine le parti si confronteranno per valutare liberamente l'eventuale prosecuzione della collaborazione, che potrà avvenire esclusivamente mediante nuovo accordo scritto, alle condizioni economiche e contrattuali che verranno concordate tra le stesse.`;
+
+const STANDARD_COMPLETION_CLAUSE = `Art. 7 - Completamento del periodo di prova
+Le parti convengono che il periodo di prova ha carattere unitario e non frazionabile: il committente si impegna a portarlo a termine per l'intera durata di cui all'art. 6, consentendo al collaboratore di completare l'attività e di misurarne i risultati. Non è pertanto previsto recesso anticipato da parte del committente, il cui rapporto cessa alla naturale scadenza del termine.
+
+Alla scadenza nessuna penale né costo relativo ai servizi professionali del collaboratore è dovuto dal committente, che resta tuttavia tenuto al pagamento del budget pubblicitario speso e dei costi maturati nei confronti di piattaforme o fornitori terzi. Il committente si rende disponibile, ove possibile, a una breve videochiamata di confronto finale con il collaboratore.`;
+
+const RENEWAL_DURATION_CLAUSE = `Art. 6 - Durata
+Il presente contratto avrà inizio in data {{data_inizio_servizio}} e avrà una durata di 30 giorni decorrenti da tale data, indipendentemente dalla data di effettivo avvio delle campagne pubblicitarie e da eventuali periodi di sospensione delle stesse.
+
+Qualora nel corso del periodo di prova venga raggiunta la soglia economica indicata all'art. 7, il committente sarà tenuto al rinnovo della collaborazione alle condizioni previste dal medesimo articolo. Se tale soglia non viene raggiunta entro la scadenza, il contratto cessa automaticamente, senza necessità di disdetta, senza rinnovo tacito e senza alcun obbligo di prosecuzione per le parti.`;
+
+const RENEWAL_THRESHOLD_CLAUSE = `Art. 7 - Soglia di risultato e rinnovo della collaborazione
+Le parti convengono che il periodo di prova ha carattere unitario e non frazionabile: il committente si impegna a portarlo a termine per l'intera durata di cui all'art. 6, consentendo al collaboratore di completare l'attività e di misurarne i risultati. Non è pertanto previsto recesso anticipato da parte del committente.
+
+Ai fini del presente articolo, la soglia di risultato si considera raggiunta quando il committente abbia effettivamente incassato complessivamente almeno € 5.000,00, al netto di IVA, rimborsi, storni, annullamenti e insoluti, dalla vendita di trattamenti o percorsi di estetica avanzata a nuovi clienti acquisiti tramite contatti generati e tracciati dalle campagne, dalle landing page, dal CRM o dagli altri strumenti riconducibili all'attività del collaboratore durante il periodo di prova. Non concorrono al raggiungimento della soglia gli incassi riferibili a clienti già presenti nel database del committente, a contatti organici o a contatti generati da campagne o fornitori diversi dal collaboratore.
+
+Il committente si impegna a comunicare tempestivamente e in forma scritta gli appuntamenti conclusi, le vendite effettuate e i relativi incassi, mettendo a disposizione, ove richiesto, documentazione idonea a verificarli. In difetto di comunicazione o riscontro, faranno fede i dati tracciati dal collaboratore, salvo prova contraria documentata.
+
+Al raggiungimento della soglia di € 5.000,00, il committente si obbliga a rinnovare la collaborazione e a sottoscrivere, entro 5 giorni lavorativi dalla comunicazione scritta del collaboratore, il relativo accordo per una durata di 4 mesi, al corrispettivo complessivo di € 4.490,00, da corrispondere in un'unica soluzione contestualmente alla sottoscrizione e comunque prima dell'avvio del periodo rinnovato. Al corrispettivo sarà applicata l'IVA nella misura prevista dalla legge, ove dovuta.
+
+Durante il successivo periodo quadrimestrale di rinnovo, il committente avrà facoltà di recedere in qualsiasi momento e senza applicazione di penali, mediante comunicazione scritta inviata al collaboratore a mezzo PEC o e-mail, con un preavviso di 30 giorni di calendario. Il recesso avrà efficacia allo scadere del periodo di preavviso e non pregiudicherà il diritto del collaboratore al corrispettivo maturato per i servizi eseguiti fino a tale data. Poiché il corrispettivo è versato in un'unica soluzione anticipata, il collaboratore restituirà entro 15 giorni lavorativi dall'efficacia del recesso la quota riferibile al periodo successivo alla cessazione del servizio, calcolata in proporzione ai giorni residui non goduti. Tale facoltà riguarda esclusivamente il periodo quadrimestrale di rinnovo e non si applica al periodo di prova di 30 giorni disciplinato dal presente contratto, per il quale resta escluso il recesso anticipato.
+
+Il raggiungimento della soglia non modifica la natura di obbligazione di mezzi delle prestazioni del collaboratore e non costituisce garanzia di ulteriori risultati futuri. Qualora la soglia non venga raggiunta entro la durata della prova, alla scadenza nessuna penale né costo relativo ai servizi professionali del collaboratore sarà dovuto dal committente, che resterà comunque tenuto al pagamento del budget pubblicitario speso e dei costi maturati nei confronti di piattaforme o fornitori terzi.`;
+
+export const TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE = {
+  name: "Accordo Estetica Premium - Prova 30 giorni senza cauzione con rinnovo a 5K",
+  clientFields: TRIAL_CONTRACT_TEMPLATE.clientFields,
+  body: TRIAL_CONTRACT_TEMPLATE.body
+    .replace("Periodo di prova - 30 giorni", "Periodo di prova - 30 giorni con rinnovo al raggiungimento di € 5.000")
+    .replace(
+      "C) Creazione e gestione di campagne di e-mail e WhatsApp marketing sulla lista già clienti, inclusa configurazione piattaforme, sequenze automatiche e automazioni.\n",
+      ""
+    )
+    .replace(
+      "D) Creazione e gestione di campagne pubblicitarie online, inclusa configurazione account Facebook Ads, creazione di inserzioni e ottimizzazione settimanale.",
+      "C) Creazione e gestione di campagne pubblicitarie online, inclusa configurazione account Facebook Ads, creazione di inserzioni e ottimizzazione settimanale."
+    )
+    .replace(
+      "E) Messa a disposizione, a titolo gratuito per l'intera durata del periodo di prova, di un CRM per la gestione dei contatti e degli appuntamenti (valore di listino € 150,00 mensili).",
+      "D) Messa a disposizione, a titolo gratuito per l'intera durata del periodo di prova, di un CRM per la gestione dei contatti e degli appuntamenti (valore di listino € 150,00 mensili)."
+    )
+    .replace(
+      "H) Fornire esclusivamente liste, contatti e database raccolti lecitamente e legittimamente utilizzabili per le finalità di cui al presente contratto.\n",
+      ""
+    )
+    .replace(
+      "Il committente è responsabile della liceità della raccolta dei dati personali dei propri contatti e clienti e garantisce di fornire al collaboratore esclusivamente liste e database legittimamente utilizzabili, essendo a suo carico le informative, i consensi e le basi giuridiche necessari al trattamento.",
+      "Il committente è responsabile dei trattamenti di dati personali svolti nell'ambito della propria attività e delle informative, dei consensi e delle altre basi giuridiche di propria competenza. Il collaboratore tratta esclusivamente i dati dei contatti generati nell'ambito delle attività previste dal presente contratto e necessari alla gestione degli appuntamenti e del servizio."
+    )
+    .replace(STANDARD_DURATION_CLAUSE, RENEWAL_DURATION_CLAUSE)
+    .replace(STANDARD_COMPLETION_CLAUSE, RENEWAL_THRESHOLD_CLAUSE)
+    .replace(
+      "art. 7 (completamento del periodo di prova)",
+      "art. 7 (soglia di risultato, obbligo di rinnovo, durata, pagamento e recesso dal periodo quadrimestrale)"
+    ),
+} as const;
