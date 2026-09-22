@@ -181,6 +181,10 @@ export const TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE = {
   body: TRIAL_CONTRACT_TEMPLATE.body
     .replace("Periodo di prova - 30 giorni", "Periodo di prova - 30 giorni con rinnovo al raggiungimento di € 5.000")
     .replace(
+      "\n\nLe parti danno atto che il committente si avvale già di altro fornitore per attività pubblicitarie e che tale rapporto prosegue liberamente in parallelo al presente contratto. Ai fini del presente accordo rilevano esclusivamente i contatti e gli appuntamenti generati e tracciati dalle campagne del collaboratore, che opera su account, campagne e strumenti di tracciamento propri e distinti.",
+      ""
+    )
+    .replace(
       "C) Creazione e gestione di campagne di e-mail e WhatsApp marketing sulla lista già clienti, inclusa configurazione piattaforme, sequenze automatiche e automazioni.\n",
       ""
     )
