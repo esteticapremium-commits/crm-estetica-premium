@@ -1,7 +1,7 @@
-import { activityTimestamp } from "./salesKpi";
-import type { Lead, LeadActivity } from "./types";
+import type { Lead, LeadActivity, SalesTask } from "./types";
 
 type ActivityStamp = Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">;
+type CompletedTaskStamp = Pick<SalesTask, "lead_id" | "completed_at">;
 
 function validTime(value: string | null | undefined) {
   if (!value) return Number.NEGATIVE_INFINITY;
@@ -9,14 +9,23 @@ function validTime(value: string | null | undefined) {
   return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
 }
 
-/** Ultima attività commerciale per lead, indipendentemente dalla pagina dalla
- * quale è stata registrata (scheda lead, Attività o Calendario). */
-export function latestActivityByLead(activities: ActivityStamp[]) {
+/** Per l'inattività conta anche quando l'esito è stato registrato: una call
+ * svolta giorni fa ma compilata oggi non deve lasciare il lead "fermo".
+ * Anche completare una task collegata al lead è lavoro, senza creare una
+ * chiamata KPI. I KPI continuano a usare occurred_at, cioè il giorno reale. */
+export function latestActivityByLead(activities: ActivityStamp[], completedTasks: CompletedTaskStamp[] = []) {
   const latest = new Map<string, string>();
   for (const activity of activities) {
-    const timestamp = activityTimestamp(activity as LeadActivity);
+    const timestamp = activity.occurred_at && validTime(activity.occurred_at) > validTime(activity.created_at)
+      ? activity.occurred_at
+      : activity.created_at;
     if (validTime(timestamp) > validTime(latest.get(activity.lead_id))) {
       latest.set(activity.lead_id, timestamp);
+    }
+  }
+  for (const task of completedTasks) {
+    if (task.lead_id && task.completed_at && validTime(task.completed_at) > validTime(latest.get(task.lead_id))) {
+      latest.set(task.lead_id, task.completed_at);
     }
   }
   return latest;

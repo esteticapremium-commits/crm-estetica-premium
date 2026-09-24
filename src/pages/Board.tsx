@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
-import type { Client, Lead, Pipeline, Stage } from "../types";
+import type { Client, Lead, Pipeline, SalesTask, Stage } from "../types";
 import LeadModal from "./LeadModal";
 import { romeToday } from "../dates";
 import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
@@ -65,6 +65,7 @@ export default function Board({
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [activityStamps, setActivityStamps] = useState<ActivityStamp[]>([]);
+  const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -78,15 +79,17 @@ export default function Board({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }] = await withTimeout(Promise.all([
+      const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }] = await withTimeout(Promise.all([
         supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
         supabase.from("leads").select("*").eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
         supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
+        supabase.from("sales_tasks").select("lead_id,completed_at").eq("client_id", client.id).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(5000),
       ]), 20_000, "La pipeline sta impiegando troppo tempo a rispondere.");
-      if (stagesError || leadsError || activitiesError) setError((stagesError || leadsError || activitiesError)?.message ?? "Errore nel caricamento della pipeline.");
+      if (stagesError || leadsError || activitiesError || tasksError) setError((stagesError || leadsError || activitiesError || tasksError)?.message ?? "Errore nel caricamento della pipeline.");
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
       setActivityStamps((activityData as ActivityStamp[]) ?? []);
+      setCompletedTaskStamps((taskData as Pick<SalesTask, "lead_id" | "completed_at">[]) ?? []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Errore di connessione durante il caricamento della pipeline.");
     } finally {
@@ -121,13 +124,23 @@ export default function Board({
         },
         () => load()
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "sales_tasks",
+          filter: `client_id=eq.${client.id}`,
+        },
+        () => load()
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
     };
   }, [client.id, pipeline.id, load]);
 
-  const latestActivity = useMemo(() => latestActivityByLead(activityStamps), [activityStamps]);
+  const latestActivity = useMemo(() => latestActivityByLead(activityStamps, completedTaskStamps), [activityStamps, completedTaskStamps]);
 
   // Lead arrivato dalla ricerca globale: apri la sua scheda
   useEffect(() => {

@@ -274,6 +274,7 @@ export default function LeadModal({
       setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
       setActivitySaved(outcome === "no_answer" ? "Appuntamento segnato come non risposto" : "Esito della discovery in agenda registrato");
       await reloadActivityHistory();
+      onUpdated?.();
       return;
     }
 
@@ -317,6 +318,7 @@ export default function LeadModal({
     setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
     setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "answered" ? "Chiamata risposta registrata" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
     setBusy(false); commercialActionLock.current = false;
+    onUpdated?.();
   }
 
   async function recordClosingOutcome(outcome: "held" | "no_show") {
@@ -337,6 +339,7 @@ export default function LeadModal({
       setClosingAction(null); setClosingMinutes(""); setCommercialNote("");
       setActivitySaved(outcome === "held" ? "Closing in agenda registrata come svolta" : "No-show della closing registrato");
       await reloadActivityHistory();
+      onUpdated?.();
       return;
     }
 
@@ -362,6 +365,7 @@ export default function LeadModal({
     setActivityHistory((current) => [result.data as LeadActivity, ...current.filter((item) => item.id !== (result.data as LeadActivity).id)]);
     setClosingAction(null); setClosingMinutes(""); setCommercialNote("");
     setActivitySaved(outcome === "held" ? "Closing non pianificata registrata come svolta" : "No-show non pianificato registrato");
+    onUpdated?.();
   }
 
   function prepareDemo() {
@@ -377,6 +381,7 @@ export default function LeadModal({
     const result = await supabase.from("lead_activities").delete().eq("id", activity.id); setBusy(false);
     if (result.error) return setErr("Registrazione non eliminata: " + result.error.message);
     setActivityHistory((current) => current.filter((item) => item.id !== activity.id));
+    onUpdated?.();
   }
 
   async function recordRevenue() {

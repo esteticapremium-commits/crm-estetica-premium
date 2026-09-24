@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
-import type { Client, Lead, LeadActivity, Pipeline, Stage } from "../types";
+import type { Client, Lead, LeadActivity, Pipeline, SalesTask, Stage } from "../types";
 import { STAGE_PROBABILITY } from "./Board";
 import { romeDay, romeLastDays, romeToday } from "../dates";
 import { lastLeadWorkAt, latestActivityByLead } from "../leadRecency";
@@ -43,6 +43,7 @@ export default function Vendite({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [events, setEvents] = useState<StageEvent[]>([]);
   const [activities, setActivities] = useState<Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]>([]);
+  const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -59,11 +60,13 @@ export default function Vendite({
         .order("changed_at", { ascending: false })
         .limit(5000),
       supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
-    ]), 20_000, "I dati di vendita stanno impiegando troppo tempo a rispondere.").then(([{ data: st }, { data: ld }, { data: ev }, { data: activityData }]) => {
+      supabase.from("sales_tasks").select("lead_id,completed_at").eq("client_id", client.id).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(5000),
+    ]), 20_000, "I dati di vendita stanno impiegando troppo tempo a rispondere.").then(([{ data: st }, { data: ld }, { data: ev }, { data: activityData }, { data: taskData }]) => {
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
       setEvents((ev as StageEvent[]) ?? []);
       setActivities((activityData as Pick<LeadActivity, "lead_id" | "created_at" | "occurred_at">[]) ?? []);
+      setCompletedTaskStamps((taskData as Pick<SalesTask, "lead_id" | "completed_at">[]) ?? []);
       setLoading(false);
     }).catch((reason) => {
       setLoadError(reason instanceof Error ? reason.message : "Errore nel caricamento delle vendite.");
@@ -71,7 +74,7 @@ export default function Vendite({
     });
   }, [client.id, pipeline.id]);
 
-  const latestActivity = useMemo(() => latestActivityByLead(activities), [activities]);
+  const latestActivity = useMemo(() => latestActivityByLead(activities, completedTaskStamps), [activities, completedTaskStamps]);
   const lastWorkedAt = (lead: Lead) => lastLeadWorkAt(lead, latestActivity);
 
   const stageById = useMemo(() => {
