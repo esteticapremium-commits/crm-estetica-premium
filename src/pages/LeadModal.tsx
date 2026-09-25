@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { romeStamp } from "../dates";
-import { normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
-import { TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
+import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
+import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
 import { createAppointment, pendingAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 const BUILT_IN_TRIAL_5K_RENEWAL_TEMPLATE_ID = "built-in-trial-5k-renewal-contract";
+const BUILT_IN_PRIVATE_DEED_TEMPLATE_ID = "built-in-private-deed";
 const BUILT_IN_CONTRACT_TEMPLATE_IDS = new Set([
   BUILT_IN_TRIAL_TEMPLATE_ID,
   BUILT_IN_TRIAL_5K_RENEWAL_TEMPLATE_ID,
+  BUILT_IN_PRIVATE_DEED_TEMPLATE_ID,
 ]);
 const NOTE_SEPARATOR = "\n\n---\n\n";
 const localDateTime = (date: Date) => { const pad = (value: number) => String(value).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
@@ -22,6 +24,15 @@ const AUTOMATIC_CONTRACT_FIELDS = new Set([
   "data_decorrenza",
   "data_inizio_servizio",
 ]);
+
+/** Data scritta dal venditore (gg/mm/aaaa, anche con "." o "-") in formato italiano. */
+function normalizeItalianDate(value: string) {
+  const match = value.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  if (Number(day) < 1 || Number(day) > 31 || Number(month) < 1 || Number(month) > 12) return null;
+  return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
+}
 
 function formatContractDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -186,6 +197,7 @@ export default function LeadModal({
   const [ctVals, setCtVals] = useState<Record<string, string>>({});
   const [ctStartMode, setCtStartMode] = useState<"automatic" | "custom">("automatic");
   const [ctStartDate, setCtStartDate] = useState("");
+  const [ctErr, setCtErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!lead) return;
@@ -216,6 +228,14 @@ export default function LeadModal({
             name: TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE.name,
             body: TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE.body,
             client_fields: TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE.clientFields,
+            created_at: "",
+          },
+          {
+            id: BUILT_IN_PRIVATE_DEED_TEMPLATE_ID,
+            client_id: lead.client_id,
+            name: PRIVATE_DEED_TEMPLATE.name,
+            body: PRIVATE_DEED_TEMPLATE.body,
+            client_fields: PRIVATE_DEED_TEMPLATE.clientFields || null,
             created_at: "",
           },
         ];
@@ -440,6 +460,9 @@ export default function LeadModal({
   const placeholders = [
     ...new Set((tpl?.body ?? "").match(/\{\{(\w+)\}\}/g) ?? []),
   ].map((ph) => ph.slice(2, -2));
+  // La scrittura privata la compila il venditore: al lead arriva da firmare e basta.
+  const deedTemplate = isPrivateDeed(tpl?.body);
+  const defaultCtTitle = (deed: boolean) => `${deed ? "Scrittura privata" : "Contratto"} — ${lead?.name ?? "lead"}`;
 
   function openCtForm() {
     const defaults: Record<string, string> = {
@@ -449,27 +472,69 @@ export default function LeadModal({
       nome_venditore: meName ?? "",
     };
     setCtVals(defaults);
-    setCtTitle(`Contratto — ${lead?.name ?? "lead"}`);
+    setCtTitle(defaultCtTitle(deedTemplate));
     setCtTo(lead?.email ?? "");
     setCtStartMode("automatic");
     setCtStartDate("");
+    setCtErr(null);
     setCtForm(true);
+  }
+
+  function chooseCtTemplate(id: string) {
+    const deed = isPrivateDeed(templates.find((x) => x.id === id)?.body);
+    // Il titolo automatico segue il tipo di documento; uno scritto a mano resta.
+    setCtTitle((title) => (title === defaultCtTitle(true) || title === defaultCtTitle(false) ? defaultCtTitle(deed) : title));
+    setCtErr(null);
+    setCtTpl(id);
+  }
+
+  /** Dati del cliente scritti dal venditore: tutti obbligatori, puliti e
+   *  controllati, perché il lead riceve il documento già compilato. */
+  function privateDeedValues() {
+    const fields = placeholders.filter((ph) => !AUTOMATIC_CONTRACT_FIELDS.has(ph));
+    const label = (ph: string) => PRIVATE_DEED_TEMPLATE.sellerFields[ph]?.label ?? ph.replace(/_/g, " ");
+    const values: Record<string, string> = { ...ctVals };
+    for (const ph of fields) values[ph] = (ctVals[ph] ?? "").trim().replace(/\s+/g, " ");
+    const missing = fields.filter((ph) => !values[ph]);
+    if (missing.length) {
+      setCtErr(`Compila tutti i dati del cliente: ${missing.map(label).join(", ")}.`);
+      return null;
+    }
+    for (const ph of fields.filter((field) => field.includes("data_di_nascita"))) {
+      const date = normalizeItalianDate(values[ph]);
+      if (!date) {
+        setCtErr(`${label(ph)}: scrivi la data come gg/mm/aaaa.`);
+        return null;
+      }
+      values[ph] = date;
+    }
+    for (const ph of fields.filter((field) => field.includes("codice_fiscale"))) {
+      values[ph] = values[ph].replace(/\s+/g, "").toUpperCase();
+      if (!/^[A-Z0-9]{16}$/.test(values[ph])) {
+        setCtErr(`${label(ph)}: deve avere 16 caratteri tra lettere e numeri.`);
+        return null;
+      }
+    }
+    return values;
   }
 
   async function createContract() {
     const cid = clientId ?? lead?.client_id;
     if (!lead || !cid) return setErr("Cliente mancante: riapri la scheda del lead.");
     if (!ctTpl) return setErr("Scegli un modello.");
-    if (ctStartMode === "custom" && !ctStartDate) {
+    if (!deedTemplate && ctStartMode === "custom" && !ctStartDate) {
       return setErr("Seleziona la data di inizio del servizio.");
     }
+    const sellerValues = deedTemplate ? privateDeedValues() : ctVals;
+    if (!sellerValues) return;
+    setCtErr(null);
     setErr(null);
     let body = normalizeSpecificApprovalSignature(tpl?.body ?? "");
     const today = new Date().toLocaleDateString("it-IT");
     const serviceStart =
       ctStartMode === "custom" ? formatContractDate(ctStartDate) : today;
 
-    if (ctStartMode === "custom") {
+    if (!deedTemplate && ctStartMode === "custom") {
       const updatedBody = separateServiceStartDate(body);
       if (
         updatedBody === body &&
@@ -490,7 +555,7 @@ export default function LeadModal({
       .map((f) => f.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
       .filter(Boolean);
     const vals: Record<string, string> = {
-      ...ctVals,
+      ...sellerValues,
       data_oggi: today,
       data_firma: today,
       data_inizio: serviceStart,
@@ -518,8 +583,9 @@ export default function LeadModal({
         sent_to: ctTo.trim() || lead.email || null,
         created_by: meName ?? null,
         // Il valore viene congelato qui: correggere il lead più avanti non deve
-        // riscrivere il fatturato di una giornata già chiusa nei KPI.
-        deal_value: Number(value) || null,
+        // riscrivere il fatturato di una giornata già chiusa nei KPI. La
+        // scrittura privata (deposito) non è il contratto: nessun valore.
+        deal_value: deedTemplate ? null : Number(value) || null,
       })
       .select("id, sign_token")
       .single();
@@ -528,7 +594,7 @@ export default function LeadModal({
     const tok = (created as { sign_token?: string } | null)?.sign_token;
     if (tok) {
       const link = `${window.location.origin}/#/firma/${tok}`;
-      alert("Contratto generato (bozza). Link per il cliente:\n\n" + link + "\n\nNon è stato inviato nulla: usa Genera link o WhatsApp.");
+      alert((deedTemplate ? "Scrittura privata generata" : "Contratto generato") + " (bozza). Link per il cliente:\n\n" + link + "\n\nNon è stato inviato nulla: usa Genera link o WhatsApp.");
     }
     supabase
       .from("contracts")
@@ -992,7 +1058,15 @@ export default function LeadModal({
                           href={`mailto:${encodeURIComponent(c.sent_to ?? "")}?subject=${encodeURIComponent(
                             c.title
                           )}&body=${encodeURIComponent(
-                            `Buongiorno,
+                            isPrivateDeed(c.body)
+                              ? `Buongiorno,
+
+ti invio la scrittura privata da firmare: ${firmLink(c)}
+
+È già compilata con i tuoi dati: basta aprire il link, controllarli e firmare con il dito.
+
+Grazie!`
+                              : `Buongiorno,
 
 ti invio il contratto da firmare: ${firmLink(c)}
 
@@ -1023,7 +1097,7 @@ Grazie!`
                 <div className="ct-form">
                   <div className="field">
                     <label>Modello</label>
-                    <select value={ctTpl} onChange={(e) => setCtTpl(e.target.value)}>
+                    <select value={ctTpl} onChange={(e) => chooseCtTemplate(e.target.value)}>
                       {templates.map((tp) => (
                         <option key={tp.id} value={tp.id}>
                           {tp.name}
@@ -1039,23 +1113,31 @@ Grazie!`
                     <label>Email del cliente</label>
                     <input value={ctTo} onChange={(e) => setCtTo(e.target.value)} />
                   </div>
-                  <div className="field">
-                    <label>Inizio del servizio</label>
-                    <select
-                      value={ctStartMode}
-                      onChange={(e) =>
-                        setCtStartMode(e.target.value as "automatic" | "custom")
-                      }
-                    >
-                      <option value="automatic">Automatico — dalla data di firma</option>
-                      <option value="custom">Data di inizio personalizzata</option>
-                    </select>
-                    <small style={{ color: "var(--muted)" }}>
-                      La data della firma resta quella effettiva. La durata decorre
-                      dalla data di inizio scelta.
+                  {!deedTemplate && (
+                    <div className="field">
+                      <label>Inizio del servizio</label>
+                      <select
+                        value={ctStartMode}
+                        onChange={(e) =>
+                          setCtStartMode(e.target.value as "automatic" | "custom")
+                        }
+                      >
+                        <option value="automatic">Automatico — dalla data di firma</option>
+                        <option value="custom">Data di inizio personalizzata</option>
+                      </select>
+                      <small style={{ color: "var(--muted)" }}>
+                        La data della firma resta quella effettiva. La durata decorre
+                        dalla data di inizio scelta.
+                      </small>
+                    </div>
+                  )}
+                  {deedTemplate && (
+                    <small style={{ display: "block", margin: "0 0 10px", color: "var(--muted)" }}>
+                      Compila i dati del cliente: il lead riceve la scrittura privata già
+                      compilata e deve solo firmarla. La data si inserisce da sola alla firma.
                     </small>
-                  </div>
-                  {ctStartMode === "custom" && (
+                  )}
+                  {!deedTemplate && ctStartMode === "custom" && (
                     <div className="field">
                       <label>Data di inizio del servizio</label>
                       <input
@@ -1067,17 +1149,22 @@ Grazie!`
                   )}
                   {placeholders
                     .filter((ph) => !AUTOMATIC_CONTRACT_FIELDS.has(ph))
-                    .map((ph) => (
-                      <div className="field" key={ph}>
-                        <label>{ph.replace(/_/g, " ")}</label>
-                        <input
-                          value={ctVals[ph] ?? ""}
-                          onChange={(e) =>
-                            setCtVals((prev) => ({ ...prev, [ph]: e.target.value }))
-                          }
-                        />
-                      </div>
-                    ))}
+                    .map((ph) => {
+                      const deedField = deedTemplate ? PRIVATE_DEED_TEMPLATE.sellerFields[ph] : undefined;
+                      return (
+                        <div className="field" key={ph}>
+                          <label>{deedField?.label ?? ph.replace(/_/g, " ")}</label>
+                          <input
+                            value={ctVals[ph] ?? ""}
+                            placeholder={deedField?.hint}
+                            onChange={(e) =>
+                              setCtVals((prev) => ({ ...prev, [ph]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  {ctErr && <div className="notice err">{ctErr}</div>}
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                     <button className="btn" onClick={() => setCtForm(false)}>
                       Annulla

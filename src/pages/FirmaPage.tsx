@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { fillBody, openSignedContractPdf, splitContractClosing } from "../contractPdf";
+import { fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
 
 interface ContractPub {
   id: string;
@@ -51,6 +51,9 @@ export default function FirmaPage({ token }: { token: string }) {
         // .then() il contatore resterebbe fermo anche se il documento è aperto.
         void supabase.rpc("record_contract_view", { p_token: token }).then(() => undefined);
         document.title = row.title + " — Estetica Premium";
+        // La scrittura privata arriva già compilata: il firmatario è la persona
+        // indicata nel documento, al lead resta solo da disegnare la firma.
+        if (isPrivateDeed(row.body)) setName(privateDeedClientName(row.body));
         if (row.status === "signed") {
           setOk(true);
           try {
@@ -68,6 +71,8 @@ export default function FirmaPage({ token }: { token: string }) {
     .filter(Boolean);
   const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, false));
   const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
+  const deed = isPrivateDeed(doc?.body);
+  const deedClientName = deed ? privateDeedClientName(doc?.body) : "";
 
   function setupCanvas(c: HTMLCanvasElement | null) {
     if (!c || canvasRef.current === c) return;
@@ -140,7 +145,7 @@ export default function FirmaPage({ token }: { token: string }) {
       if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
     }
     if (!hasInk.current) {
-      return setErr("Disegna la firma nel riquadro prima di confermare il contratto.");
+      return setErr(deed ? "Disegna la firma nel riquadro prima di confermare la scrittura privata." : "Disegna la firma nel riquadro prima di confermare il contratto.");
     }
     if (draftParts.approval && !specificApproval) {
       return setErr("Conferma anche l'approvazione specifica delle clausole indicate nel contratto.");
@@ -149,7 +154,7 @@ export default function FirmaPage({ token }: { token: string }) {
     if (!c) return;
     setBusy(true);
     setErr(null);
-    const data = c.toDataURL("image/png");
+    const data = deed ? croppedSignature(c) : c.toDataURL("image/png");
     const { error } = await supabase.rpc("sign_contract", {
       p_token: token,
       p_name: name.trim(),
@@ -204,7 +209,7 @@ export default function FirmaPage({ token }: { token: string }) {
               {/* Thank you page: appare dopo la firma */}
               <div className="thankyou no-print">
                 <div className="thankyou-ic">✓</div>
-                <h2 className="thankyou-title">Grazie, contratto firmato!</h2>
+                <h2 className="thankyou-title">{deed ? "Grazie, scrittura privata firmata!" : "Grazie, contratto firmato!"}</h2>
                 <p className="thankyou-sub">
                   {doc.signed_name} ·{" "}
                   {doc.signed_at
@@ -221,7 +226,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   className="btn primary thankyou-dl"
                   onClick={downloadPdf}
                 >
-                  📄 Scarica il contratto firmato (PDF)
+                  {deed ? "📄 Scarica la scrittura privata firmata (PDF)" : "📄 Scarica il contratto firmato (PDF)"}
                 </button>
                 <p className="thankyou-note">
                   Il documento qui sotto è quello firmato: lo ricevi completo di
@@ -231,7 +236,7 @@ export default function FirmaPage({ token }: { token: string }) {
 
               {/* Riepilogo dati + data firma, sempre nel documento/PDF */}
               <div className="firma-recap">
-                <div className="recap-title">Dati dichiarati dal firmatario</div>
+                <div className="recap-title">{deed ? "Estremi della firma" : "Dati dichiarati dal firmatario"}</div>
                 <table className="recap-table">
                   <tbody>
                     {fields.map((f) => (
@@ -263,11 +268,17 @@ export default function FirmaPage({ token }: { token: string }) {
               </div>
 
               <b style={{ display: "block", margin: "16px 0 8px", fontSize: 15 }}>
-                Il contratto firmato
+                {deed ? "La scrittura privata firmata" : "Il contratto firmato"}
               </b>
-              <Document body={signedParts.main} />
-              <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
-              {signedParts.approval && <><Document body={signedParts.approval} plain /><SpecificApprovalSignature signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} /></>}
+              {deed ? (
+                <><PrivateDeedDocument body={doc.body ?? ""} signedAt={doc.signed_at} /><PrivateDeedSignatureBox signerName={doc.signed_name} signature={doc.signature_data} /></>
+              ) : (
+                <>
+                  <Document body={signedParts.main} />
+                  <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
+                  {signedParts.approval && <><Document body={signedParts.approval} plain /><SpecificApprovalSignature signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} /></>}
+                </>
+              )}
             </div>
           )}
 
@@ -275,12 +286,14 @@ export default function FirmaPage({ token }: { token: string }) {
             <>
               <div className="firma-brandbar">
                 <div className="firma-monogram">EP</div>
-                <div><b>Estetica Premium</b><span>Accordo di collaborazione</span></div>
+                <div><b>Estetica Premium</b><span>{deed ? "Scrittura privata" : "Accordo di collaborazione"}</span></div>
                 <small>Documento riservato</small>
               </div>
               <div className="firma-head">
-                <div className="firma-title">Accordo di collaborazione professionale</div>
-                {doc.lead_name && (
+                <div className="firma-title">{deed ? "Scrittura privata" : "Accordo di collaborazione professionale"}</div>
+                {deed ? (
+                  <div className="firma-sub">{`Deposito cauzionale${deedClientName || doc.lead_name ? ` · Destinata a ${deedClientName || doc.lead_name}` : ""}`}</div>
+                ) : doc.lead_name && (
                   <div className="firma-sub">Periodo di prova di 30 giorni · Destinato a {doc.lead_name}</div>
                 )}
               </div>
@@ -305,20 +318,38 @@ export default function FirmaPage({ token }: { token: string }) {
                 )}
 
                 {/* 2) poi il contratto, con i trattini dove va ogni risposta */}
-                <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
-                <Document body={draftParts.main} />
-                <ContractSignatureBox values={values} />
-                {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature /></>}
+                {deed ? (
+                  <>
+                    <div className="firma-step document-step"><span>01</span><div><b>Leggi la scrittura privata</b><small>È già compilata: controlla che i tuoi dati siano corretti prima di firmare.</small></div></div>
+                    <PrivateDeedDocument body={doc.body ?? ""} />
+                    <PrivateDeedSignatureBox signerName={deedClientName} />
+                  </>
+                ) : (
+                  <>
+                    <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
+                    <Document body={draftParts.main} />
+                    <ContractSignatureBox values={values} />
+                    {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature /></>}
+                  </>
+                )}
 
                 {/* 3) infine la firma */}
-                <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
+                {deed ? (
+                  <div className="firma-step document-step"><span>02</span><div><b>Firma la scrittura privata</b><small>La data della firma verrà inserita automaticamente nel documento.</small></div></div>
+                ) : (
+                  <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
+                )}
                 <div className="field" style={{ marginTop: 14 }}>
                   <label>Nome e cognome (firmatario)</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Scrivi qui il tuo nome e cognome"
-                  />
+                  {deed && deedClientName ? (
+                    <input value={name} readOnly aria-readonly="true" title="È il nome indicato nella scrittura privata" style={{ background: "#f7f4f1", color: "#2b2a26" }} />
+                  ) : (
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Scrivi qui il tuo nome e cognome"
+                    />
+                  )}
                 </div>
                 <div className="field">
                   <label>Firma (disegna qui con il dito o il mouse)</label>
@@ -347,7 +378,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   onClick={sign}
                   disabled={busy}
                 >
-                  {busy ? "Registrazione firma…" : "Conferma e firma il contratto"}
+                  {busy ? "Registrazione firma…" : deed ? "Conferma e firma" : "Conferma e firma il contratto"}
                 </button>
                 <p
                   style={{
@@ -385,6 +416,71 @@ function ContractSignatureBox({ values, signedName, signature, signedAt }: { val
 function SpecificApprovalSignature({ signedName, signature, signedAt }: { signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
   const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "____________________________";
   return <div className="specific-approval-signature"><div><b>Approvazione specifica del Committente</b><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><span>Firmato da</span><strong>{signedName || "____________________________"}</strong><span>Data</span><strong>{date}</strong></div>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente per approvazione specifica" /> : <i>La firma sarà riportata qui dopo la conferma.</i>}</div>;
+}
+
+/** Ritaglia la firma sul tratto disegnato (con un piccolo margine): nel
+ *  riquadro e nel PDF la firma occupa lo spazio, invece di restare piccola in
+ *  mezzo al bianco dell'area di disegno. */
+function croppedSignature(canvas: HTMLCanvasElement) {
+  const { width, height } = canvas;
+  const pixels = canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
+  let left = width, top = height, right = -1, bottom = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      if (pixels[i] < 200 || pixels[i + 1] < 200 || pixels[i + 2] < 200) {
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+  }
+  if (right < 0) return canvas.toDataURL("image/png");
+  const pad = Math.round(8 * (window.devicePixelRatio || 1));
+  left = Math.max(0, left - pad);
+  top = Math.max(0, top - pad);
+  right = Math.min(width - 1, right + pad);
+  bottom = Math.min(height - 1, bottom + pad);
+  const out = document.createElement("canvas");
+  out.width = right - left + 1;
+  out.height = bottom - top + 1;
+  const ctx = out.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, left, top, out.width, out.height, 0, 0, out.width, out.height);
+  return out.toDataURL("image/png");
+}
+
+/** Scrittura privata: testo già compilato, intestazioni in maiuscolo centrate
+ *  e data della firma in fondo, come nel modello cartaceo. */
+function PrivateDeedDocument({ body, signedAt }: { body: string; signedAt?: string | null }) {
+  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "________________";
+  const lines = fillBody(body, [], {}, true).split("\n").map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="firma-doc">
+      {lines.map((line, i) =>
+        isPrivateDeedHeading(line) ? (
+          <p key={i} style={{ margin: i === 0 ? "0 0 10px" : "16px 0 8px", textAlign: "center", fontWeight: 700, letterSpacing: 0.4, fontSize: i === 0 ? 17 : undefined }}>{line}</p>
+        ) : (
+          <p key={i} style={{ margin: "6px 0" }}>{line}</p>
+        )
+      )}
+      <p style={{ margin: "22px 0 0" }}>DATA <b>{date}</b></p>
+    </div>
+  );
+}
+
+/** Firme della scrittura privata: quella del Prestatore è già apposta, quella
+ *  del cliente compare dopo la conferma. */
+function PrivateDeedSignatureBox({ signerName, signature }: { signerName?: string | null; signature?: string | null }) {
+  const cellStyle = { minHeight: 0, alignContent: "start" } as const;
+  return (
+    <div className="contract-signature-box">
+      <div className="signature-cell" style={cellStyle}><b>FIRMA CLIENTE</b><span>Nome</span><strong>{signerName || "____________________________"}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del cliente" /> : <i />}</div>
+      <div className="signature-cell collaborator" style={cellStyle}><b>FIRMA PRESTATORE</b><span>Nome</span><strong>AI BUSINESS REVOLUTION</strong><span>Legale rappresentante</span><strong>Ettore Androsoni</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" /></div>
+    </div>
+  );
 }
 
 /** Il contratto in stile documento (carta bianca, intestazione serif). */

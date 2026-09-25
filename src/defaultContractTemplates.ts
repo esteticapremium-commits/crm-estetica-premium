@@ -175,6 +175,39 @@ Durante il successivo periodo quadrimestrale di rinnovo, il committente avrà fa
 
 Il raggiungimento della soglia non modifica la natura di obbligazione di mezzi delle prestazioni del collaboratore e non costituisce garanzia di ulteriori risultati futuri. Qualora la soglia non venga raggiunta entro la durata della prova, alla scadenza nessuna penale né costo relativo ai servizi professionali del collaboratore sarà dovuto dal committente, che resterà comunque tenuto al pagamento del budget pubblicitario speso e dei costi maturati nei confronti di piattaforme o fornitori terzi.`;
 
+/**
+ * Scrittura privata per il deposito cauzionale. La compila il venditore dal
+ * CRM prima dell'invio: al lead resta solo la firma. Data e riquadro firme
+ * ("FIRMA CLIENTE" / "FIRMA PRESTATORE") sono aggiunti dalla pagina di firma e
+ * dal PDF, con la data effettiva della firma.
+ */
+export const PRIVATE_DEED_TEMPLATE = {
+  name: "Scrittura privata - Deposito cauzionale 500 €",
+  clientFields: "",
+  sellerFields: {
+    nome_e_cognome_del_cliente: { label: "Nome e cognome del cliente", hint: "es. Maria Rossi" },
+    luogo_di_nascita_del_cliente: { label: "Luogo di nascita", hint: "es. Napoli" },
+    data_di_nascita_del_cliente: { label: "Data di nascita", hint: "gg/mm/aaaa" },
+    comune_di_residenza_del_cliente: { label: "Comune di residenza", hint: "es. Milano" },
+    indirizzo_di_residenza_del_cliente: { label: "Indirizzo di residenza", hint: "es. Via Roma 1" },
+    codice_fiscale_del_cliente: { label: "Codice fiscale", hint: "16 caratteri" },
+  } as Record<string, { label: string; hint: string }>,
+  body: `SCRITTURA PRIVATA TRA
+La società AI BUSINESS REVOLUTION, in persona del legale rappresentante p.t., con sede in Napoli alla Via Giuseppe Tropeano n. 48, p.i. 10743551219, di seguito denominato “Prestatore”
+E
+Il/La Sig./Sig.ra {{nome_e_cognome_del_cliente}} nato/a {{luogo_di_nascita_del_cliente}} il {{data_di_nascita_del_cliente}} e residente a {{comune_di_residenza_del_cliente}}, in {{indirizzo_di_residenza_del_cliente}} C.F. {{codice_fiscale_del_cliente}}
+PREMESSO
+Che il prestatore è una società che si occupa di marketing per Centri Estetici e rappresenta commercialmente privati, aziende e società di varia natura.
+Che il Committente è titolare di un Centro Estetico.
+Che il Committente ha espresso la propria disponibilità e interesse a collaborare con il Prestatore per ricevere il suo supporto professionale nelle attività di marketing, per dare maggiore visibilità a lui stesso, la sua professionalità e il suo Centro Estetico e renderlo disponibile a chiunque ne faccia richiesta;
+TUTTO CIÒ PREMESSO SI CONVIENE E SI STIPULA QUANTO SEGUE
+Il Committente si impegna a versare un deposito cauzionale di Euro 500 per bloccare l'offerta relativa al percorso marketing che prevede uno sconto sul prezzo di listino di Euro 10500 potendo accedere al percorso Estetica Premium per 4 mesi pagando Euro 4990 con la soluzione 30 giorni di prova gratuita.
+Qualora il Committente dovesse decidere di non partire con il percorso marketing il Prestatore è tenuto a restituire l'importo di 500 euro versato dal Committente contestualmente alla comunicazione della decisione.
+La comunicazione della decisione avverrà in una chiamata sulla piattaforma google meet o alternativamente via posta elettronica all'indirizzo: ettoreandrosoni@estetica-premium.it
+Resta inteso che, il Committente non è vincolato alla firma del contratto sottoscrivendo questa scrittura privata.
+Resta inteso che, in caso di conclusione del contratto, l'importo di Euro 500 versato a titolo di deposito sarà decurtato dalla cifra di cui sopra indicata di 4990.`,
+};
+
 export const TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE = {
   name: "Accordo Estetica Premium - Prova 30 giorni senza cauzione con rinnovo a 5K",
   clientFields: TRIAL_CONTRACT_TEMPLATE.clientFields,

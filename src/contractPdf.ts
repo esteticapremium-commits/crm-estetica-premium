@@ -72,6 +72,69 @@ export function splitContractClosing(body: string) {
   };
 }
 
+/** Scrittura privata (deposito cauzionale): testo già compilato dal venditore
+ *  e riquadro firme proprio. La riconosciamo dall'intestazione del documento. */
+export function isPrivateDeed(body: string | null | undefined) {
+  return /^\s*SCRITTURA PRIVATA\b/i.test(body ?? "");
+}
+
+/** Nome del cliente scritto nella scrittura privata ("Il/La Sig./Sig.ra ... nato/a"). */
+export function privateDeedClientName(body: string | null | undefined) {
+  const name = (body ?? "").match(/Il\/La Sig\.\/Sig\.ra\s+(.+?)\s+nato\/a\b/)?.[1]?.trim() ?? "";
+  return /^_*$/.test(name) || name.includes("{{") ? "" : name;
+}
+
+/** Righe interamente maiuscole ("PREMESSO", "E"...): intestazioni della scrittura. */
+export function isPrivateDeedHeading(line: string) {
+  const text = line.trim();
+  return /\p{Lu}/u.test(text) && text === text.toUpperCase();
+}
+
+/** La firma arriva dal browser del firmatario: nel PDF accettiamo solo
+ *  un'immagine incorporata, mai altro markup. */
+function signatureImageSrc(value: string | null | undefined) {
+  return /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+=*$/.test(value ?? "") ? String(value) : "";
+}
+
+function privateDeedPdfHtml(c: SignedContract) {
+  const collaboratorSignatureUrl = `${window.location.origin}/ettore-androsoni-signature.png`;
+  const signature = signatureImageSrc(c.signature_data);
+  const dataShort = c.signed_at ? new Date(c.signed_at).toLocaleDateString("it-IT") : "";
+  const dataLong = c.signed_at
+    ? new Date(c.signed_at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  const lines = fillBody(c.body ?? "", [], {}, true)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p${isPrivateDeedHeading(line) ? ' class="heading"' : ""}>${escapeHtml(line)}</p>`)
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(c.title)}</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; font-size: 13.5px; line-height: 1.5; }
+  .deed p { margin: 0 0 6px; }
+  .deed p.heading { margin: 12px 0 6px; text-align: center; font-weight: 700; letter-spacing: .4px; }
+  .deed p.heading:first-child { margin-top: 0; font-size: 17px; }
+  .deed-closing { break-inside: avoid; }
+  .deed-date { margin: 16px 0 0; }
+  .deed-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; }
+  .deed-signatures h3 { margin: 0 0 6px; font-size: 12.5px; letter-spacing: .5px; }
+  .deed-sign { display: flex; align-items: flex-end; height: 84px; border-bottom: 1px solid #111; }
+  .deed-sign img { max-width: 100%; max-height: 80px; mix-blend-mode: multiply; }
+  .deed-signatures small { display: block; margin-top: 5px; color: #333; font-size: 11.5px; }
+  .deed-audit { margin: 18px 0 0; padding-top: 6px; border-top: 1px solid #ccc; color: #555; font-size: 10.5px; }
+</style></head><body>
+  <div class="deed">${lines}</div>
+  <div class="deed-closing">
+  <p class="deed-date">DATA <b>${escapeHtml(dataShort)}</b></p>
+  <div class="deed-signatures"><div><h3>FIRMA CLIENTE</h3><div class="deed-sign">${signature ? `<img src="${escapeHtml(signature)}" alt="Firma del cliente"/>` : ""}</div><small>${escapeHtml(c.signed_name)}</small></div><div><h3>FIRMA PRESTATORE</h3><div class="deed-sign"><img src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/></div><small>AI BUSINESS REVOLUTION — Ettore Androsoni, legale rappresentante</small></div></div>
+  <p class="deed-audit">Firmata elettronicamente da ${escapeHtml(c.signed_name)} il ${escapeHtml(dataLong)}.</p>
+  </div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+</body></html>`;
+}
+
 /** I valori del firmatario finiscono in un documento HTML stampabile: mai
  * interpolarli senza escape, altrimenti un campo compilato dal cliente può
  * alterare il documento. */
@@ -96,6 +159,17 @@ export interface SignedContract {
 
 /** Apre una finestra col SOLO documento firmato e lancia la stampa/salva PDF. */
 export function openSignedContractPdf(c: SignedContract) {
+  if (isPrivateDeed(c.body)) {
+    const deedWindow = window.open("", "_blank");
+    if (!deedWindow) {
+      alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
+      return;
+    }
+    deedWindow.document.open();
+    deedWindow.document.write(privateDeedPdfHtml(c));
+    deedWindow.document.close();
+    return;
+  }
   const collaboratorSignatureUrl = `${window.location.origin}/ettore-androsoni-signature.png`;
   const fields = (c.client_fields ?? "")
     .split("\n")
