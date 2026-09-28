@@ -1184,6 +1184,7 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 .theme-premium.platform-shell .calendar-column header { min-height: 48px; padding: 5px 4px 12px; border-bottom: 1px solid #eee7e4; }
 .theme-premium.platform-shell .calendar-column header span { color: var(--ep-muted); font-size: 11px; font-family: inherit; font-weight: 750; text-transform: uppercase; }
 .theme-premium.platform-shell .calendar-column header b { color: var(--ep-ink-strong); font-size: 20px; }
+.theme-premium.platform-shell .calendar-column.today > header > b { color: var(--ep-surface-raised); background: var(--ep-brand); }
 .theme-premium.platform-shell .calendar-column header button { border-color: var(--ep-border); background: var(--ep-surface-raised); color: var(--ep-brand); }
 .theme-premium.platform-shell .calendar-event {
   padding: 9px 10px;
