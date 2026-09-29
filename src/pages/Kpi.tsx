@@ -189,7 +189,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const [costOpen, setCostOpen] = useState(false);
   const [forecastPreset, setForecastPreset] = useState<ForecastPreset>("week");
   const [forecastOrder, setForecastOrder] = useState<ForecastOrder>("asc");
-  const [forecastSeller, setForecastSeller] = useState(admin ? "all" : meName);
+  const [forecastSeller, setForecastSeller] = useState("all");
   const [forecastFrom, setForecastFrom] = useState(today());
   const [forecastTo, setForecastTo] = useState(addDays(today(), 30));
   const [forecastError, setForecastError] = useState<string | null>(null);
@@ -247,10 +247,14 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   }, [admin, client.id]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (!admin) { setSeller(meName); setForecastSeller(meName); } }, [admin, meName]);
+  useEffect(() => { if (!admin) { setSeller(meName); setForecastSeller("all"); } }, [admin, meName]);
 
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
-  const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map((activity) => activity.created_by), ...outreach.map((event) => event.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leads, outreach]);
+  const activityOwner = (activity: LeadActivity) => {
+    const assigned = activity.details?.assigned_to;
+    return leadById.get(activity.lead_id)?.assigned_to || (typeof assigned === "string" && assigned.trim()) || activity.created_by;
+  };
+  const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map(activityOwner), ...outreach.map((event) => event.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leadById, leads, outreach]);
   const forecastSellers = useMemo(() => [...new Set(futureAppointments.map((task) => task.assigned_to).filter(Boolean))].sort(), [futureAppointments]);
 
   const openFutureAppointments = useMemo(() => futureAppointments.filter((task) => {
@@ -303,6 +307,9 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     return source === channel;
   };
   const sellerMatches = (name: string | null | undefined) => seller === "all" || (name || "").trim().toLowerCase() === seller.trim().toLowerCase();
+  // Il filtro Venditore misura il responsabile del lead, non chi ha premuto
+  // prenota né chi ospita la call. L'ospite è separato nell'agenda futura.
+  const sellerMatchesActivity = (activity: LeadActivity) => sellerMatches(activityOwner(activity));
   const inRange = (day: string) => day >= range.from && day <= range.to;
 
   // Giornata in cui ogni appuntamento è stato prenotato: serve a riconoscere
@@ -369,7 +376,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     // conversione la persona resta una sola. Conserviamo tutti gli orari di
     // prenotazione per verificare che la closing sia successiva alla discovery.
     activities.forEach((activity) => {
-      if (activity.event_type !== "demo_booked" || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      if (activity.event_type !== "demo_booked" || !sellerMatchesActivity(activity) || !sourceMatches(activity.lead_id, activity.channel)) return;
       const bookings = demoBookingsByLead.get(activity.lead_id) || [];
       bookings.push(dayInRome(activityTimestamp(activity)));
       demoBookingsByLead.set(activity.lead_id, bookings);
@@ -408,7 +415,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (
         activity.scheduled_at &&
         (type === "discovery_booked" || type === "demo_booked") &&
-        sellerMatches(activity.created_by) &&
+        sellerMatchesActivity(activity) &&
         sourceMatches(activity.lead_id, activity.channel)
       ) {
         const scheduledDay = dayInRome(activity.scheduled_at);
@@ -430,7 +437,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       // richiami e attività manuali continuano a usare il momento dell'azione.
       const appointmentOutcome = fromAppointment && (type === "discovery_call" || type === "demo_call");
       const day = dayInRome(appointmentOutcome && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity));
-      if (!inRange(day) || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      if (!inRange(day) || !sellerMatchesActivity(activity) || !sourceMatches(activity.lead_id, activity.channel)) return;
       const row = rowOf(day);
       const outcome = activity.outcome || "";
       const callType = activity.call_type || "lead";
@@ -554,7 +561,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       const outcome = activity.outcome || "";
       if (outcome === "no_answer" || outcome === "Non risponde") return;
       const day = dayInRome(activityTimestamp(activity));
-      if (!inRange(day) || !sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      if (!inRange(day) || !sellerMatchesActivity(activity) || !sourceMatches(activity.lead_id, activity.channel)) return;
       uniqueReached.add(activity.lead_id);
     });
     aggregate.reachedLeads = uniqueReached.size;
@@ -562,7 +569,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     const heldDiscoveryByLead = new Map<string, string>();
     const demoBookingsByLead = new Map<string, string[]>();
     activities.forEach((activity) => {
-      if (!sellerMatches(activity.created_by) || !sourceMatches(activity.lead_id, activity.channel)) return;
+      if (!sellerMatchesActivity(activity) || !sourceMatches(activity.lead_id, activity.channel)) return;
       if (activity.event_type === "demo_booked") {
         const bookings = demoBookingsByLead.get(activity.lead_id) || [];
         bookings.push(dayInRome(activityTimestamp(activity)));

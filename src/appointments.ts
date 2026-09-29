@@ -77,9 +77,20 @@ export interface AppointmentResult {
  */
 export async function createAppointment(input: CreateAppointmentInput): Promise<AppointmentResult> {
   const { clientId, lead, type, audience, subject, startsAt, durationMinutes, note, meName } = input;
+  const assignedTo = lead?.assigned_to || meName || "Venditore";
   const title = appointmentTitle(type, subject);
   const end = new Date(startsAt.getTime() + durationMinutes * 60_000);
   const description = [lead ? `Lead: ${lead.name || "Senza nome"}` : "", lead?.phone ? `Telefono: ${lead.phone}` : "", note.trim()].filter(Boolean).join("\n");
+
+  if (lead) {
+    const { data, error } = await supabase.from("sales_tasks").select("id,due_at,appointment_status,completed_at")
+      .eq("client_id", clientId).eq("lead_id", lead.id).eq("appointment_type", type).is("completed_at", null);
+    if (error) return { ok: false, error: "Impossibile verificare gli appuntamenti già fissati: " + error.message };
+    const open = (data || []).find((task) => !isAppointmentClosed(task) && task.appointment_status !== "cancelled");
+    if (open) {
+      return { ok: false, error: `Questo lead ha già una ${type === "demo" ? "closing" : "discovery"} da svolgere il ${new Date(open.due_at).toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" })}. Modifica quella prenotazione o registra prima il suo esito.` };
+    }
+  }
 
   // Google Calendar è una comodità, non una condizione. Prima un token scaduto
   // impediva di registrare l'appuntamento: il venditore restava bloccato e il
@@ -100,7 +111,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
 
   const taskResult = await supabase.from("sales_tasks").insert({
     client_id: clientId, lead_id: lead?.id || null, title, description: description || null,
-    due_at: startsAt.toISOString(), assigned_to: lead?.assigned_to || meName || "Venditore", created_by: meName || null,
+    due_at: startsAt.toISOString(), assigned_to: assignedTo, created_by: meName || null,
     appointment_type: type, appointment_status: "scheduled", audience, duration_minutes: durationMinutes,
     google_event_id: googleEventId,
   }).select("id").single();
@@ -118,7 +129,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
       call_type: audience === "client" ? "client" : "lead",
       outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: startsAt.toISOString(),
       duration_minutes: durationMinutes, note: note.trim() || null, created_by: meName || null,
-      details: { task_id: taskId }, event_key: bookingKey(taskId),
+      details: { task_id: taskId, assigned_to: assignedTo }, event_key: bookingKey(taskId),
     }, { onConflict: "client_id,event_key" });
 
     if (tracked.error) {
@@ -136,36 +147,27 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
  * la task CRM e la data pianificata nell'attività KPI.
  */
 export async function updateAppointment(task: SalesTask, changes: { subject: string; startsAt: Date; note: string; durationMinutes?: number }): Promise<AppointmentResult> {
+  if (isAppointmentClosed(task) || task.completed_at) return { ok: false, error: "Questa call ha già un esito: non spostarla. Crea una nuova prenotazione per il secondo tentativo." };
   const type = (task.appointment_type as AppointmentType | null) || null;
   const title = type ? appointmentTitle(type, changes.subject) : changes.subject.trim();
   const minutes = changes.durationMinutes || task.duration_minutes || 60;
   const end = new Date(changes.startsAt.getTime() + minutes * 60_000);
-
-  const updated = await supabase.from("sales_tasks")
-    .update({ title, due_at: changes.startsAt.toISOString(), description: changes.note.trim() || null, duration_minutes: minutes })
-    .eq("id", task.id);
+  const updated = await supabase.rpc("reschedule_crm_appointment", {
+    p_task_id: task.id, p_expected_updated_at: task.updated_at,
+    p_title: title, p_starts_at: changes.startsAt.toISOString(),
+    p_note: changes.note.trim() || null, p_duration_minutes: minutes,
+  });
   if (updated.error) return { ok: false, error: "Modifica non salvata: " + updated.error.message };
-
-  // L'evento si ritrova sempre dal suo id, mai dal titolo: rinominare
-  // l'appuntamento non deve far perdere il collegamento con Google.
+  // Google si aggiorna dopo il CRM: se fallisce, prenotazione e storico restano coerenti.
   let googleWarning: string | undefined;
   if (task.google_event_id) {
     try {
       await updateGoogleCalendarEvent(task.google_event_id, { title, start: changes.startsAt.toISOString(), end: end.toISOString(), description: changes.note.trim() });
     } catch {
-      // Lo spostamento nel CRM è già avvenuto: segnalarlo come errore farebbe
-      // credere che non sia stato salvato nulla, e il venditore lo rifarebbe.
-      googleWarning = "Appuntamento spostato nel CRM, ma Google Calendar non ha accettato la modifica. Apri Calendario e premi “Collega Google Calendar”.";
+      googleWarning = "Appuntamento spostato nel CRM e nello storico, ma Google Calendar non ha accettato la modifica. Ricollega Google Calendar.";
     }
   } else {
     googleWarning = "Appuntamento spostato nel CRM. Non era collegato a Google Calendar, quindi lì non cambia nulla.";
-  }
-
-  if (task.lead_id && type) {
-    await supabase.from("lead_activities")
-      .update({ scheduled_at: changes.startsAt.toISOString(), duration_minutes: minutes })
-      .eq("client_id", task.client_id).eq("event_key", bookingKey(task.id));
-    await supabase.from("leads").update({ next_action_date: romeDayOf(changes.startsAt) }).eq("id", task.lead_id);
   }
   return { ok: true, taskId: task.id, warning: googleWarning };
 }
@@ -179,12 +181,10 @@ export async function deleteAppointment(task: SalesTask): Promise<AppointmentRes
   const deleted = await supabase.from("sales_tasks").delete().eq("id", task.id);
   if (deleted.error) return { ok: false, error: "Attività non eliminata: " + deleted.error.message };
 
+  // Prenotazione, esito e spostamenti appartengono alla stessa task: quando
+  // l'appuntamento viene eliminato non devono restare KPI o storico orfani.
   await supabase.from("lead_activities").delete()
-    .eq("client_id", task.client_id)
-    .in("event_key", [bookingKey(task.id), outcomeKey(task.id)]);
-  // Lo storico precedente al tracciamento con chiave resta agganciato solo da details.
-  await supabase.from("lead_activities").delete()
-    .eq("client_id", task.client_id).is("event_key", null).contains("details", { task_id: task.id });
+    .eq("client_id", task.client_id).contains("details", { task_id: task.id });
   await rollbackGoogle(task.google_event_id || null);
 
   if (task.lead_id) {
@@ -242,7 +242,7 @@ export async function recordAppointmentOutcome(
     call_type: task.audience === "client" ? "client" : "lead",
     outcome, occurred_at: occurredAt, scheduled_at: task.due_at,
     duration_minutes: status === "held" ? actualMinutes || task.duration_minutes || 60 : null,
-    created_by: meName || null, details: { task_id: task.id }, event_key: outcomeKey(task.id),
+    created_by: meName || null, details: { task_id: task.id, assigned_to: task.assigned_to }, event_key: outcomeKey(task.id),
   }, { onConflict: "client_id,event_key" });
 
   if (tracked.error) {
@@ -252,15 +252,14 @@ export async function recordAppointmentOutcome(
   return { ok: true, taskId: task.id };
 }
 
-/** Appuntamenti ancora da chiudere per un lead: servono alla scheda lead per
- *  capire se l'esito che stai registrando appartiene a un incontro già in
- *  agenda, invece di creare una seconda attività scollegata. */
-export async function pendingAppointments(clientId: string, leadId: string) {
+/** Storico completo degli appuntamenti del lead, inclusi esiti già chiusi:
+ *  la scheda deve mostrarli prima di permettere una nuova prenotazione. */
+export async function leadAppointments(clientId: string, leadId: string) {
   const { data } = await supabase.from("sales_tasks").select("*")
     .eq("client_id", clientId).eq("lead_id", leadId)
     .not("appointment_type", "is", null)
-    .order("due_at", { ascending: false }).limit(20);
-  return ((data as SalesTask[]) || []).filter((task) => !isAppointmentClosed(task));
+    .order("created_at", { ascending: false }).limit(50);
+  return (data as SalesTask[]) || [];
 }
 
 async function rollbackGoogle(googleEventId: string | null) {

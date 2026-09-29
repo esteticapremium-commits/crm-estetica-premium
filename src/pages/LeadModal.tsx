@@ -4,7 +4,7 @@ import { romeStamp } from "../dates";
 import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
-import { createAppointment, pendingAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
+import { createAppointment, isAppointmentClosed, leadAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -17,6 +17,8 @@ const BUILT_IN_CONTRACT_TEMPLATE_IDS = new Set([
 ]);
 const NOTE_SEPARATOR = "\n\n---\n\n";
 const localDateTime = (date: Date) => { const pad = (value: number) => String(value).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
+const appointmentStamp = (value: string) => new Date(value).toLocaleString("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const activityTaskId = (activity: LeadActivity) => String(activity.details?.task_id || "");
 const AUTOMATIC_CONTRACT_FIELDS = new Set([
   "data_oggi",
   "data_firma",
@@ -251,24 +253,34 @@ export default function LeadModal({
 
   async function reloadActivityHistory() {
     if (!lead) return;
-    const { data } = await supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(20);
+    const { data } = await supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(50);
     setActivityHistory((data as LeadActivity[]) ?? []);
+  }
+
+  async function reloadAppointments() {
+    if (!lead) return;
+    setAppointments(await leadAppointments(lead.client_id, lead.id));
   }
 
   useEffect(() => {
     if (!lead) return;
     void reloadActivityHistory();
-    // Appuntamenti ancora da chiudere: se ce n'è uno, l'esito registrato da qui
-    // deve aggiornare quello invece di creare una seconda attività.
-    void pendingAppointments(lead.client_id, lead.id).then(setAppointments);
+    void reloadAppointments();
   }, [lead?.id]);
 
   // Solo gli appuntamenti la cui ora è già passata possono avere un esito: una
   // discovery fissata per la settimana prossima non deve essere chiusa da un
   // "non risponde" registrato oggi.
-  const dueAppointments = appointments.filter((task) => new Date(task.due_at).getTime() <= Date.now());
+  const dueAppointments = appointments.filter((task) => !isAppointmentClosed(task) && !task.completed_at && task.appointment_status !== "cancelled" && new Date(task.due_at).getTime() <= Date.now());
   const openDiscovery = dueAppointments.find((task) => task.appointment_type === "discovery") ?? null;
   const openDemo = dueAppointments.find((task) => task.appointment_type === "demo") ?? null;
+  const activeAppointments = appointments.filter((task) => !isAppointmentClosed(task) && !task.completed_at && task.appointment_status !== "cancelled").sort((a, b) => a.due_at.localeCompare(b.due_at));
+  const appointmentAttempts = new Map<string, number>();
+  const attemptsByType = { discovery: 0, demo: 0 };
+  [...appointments].sort((a, b) => a.created_at.localeCompare(b.created_at)).forEach((task) => {
+    const type = task.appointment_type;
+    if (type === "discovery" || type === "demo") appointmentAttempts.set(task.id, ++attemptsByType[type]);
+  });
 
   async function recordQuickActivity(outcome: "no_answer" | "answered" | "qualified" | "not_qualified" | "completed" | "lost") {
     if (!lead || commercialActionLock.current) return;
@@ -290,7 +302,7 @@ export default function LeadModal({
       const tracked = await recordAppointmentOutcome(linkedAppointment, outcome as "qualified" | "not_qualified" | "no_answer", meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
       setBusy(false); commercialActionLock.current = false;
       if (!tracked.ok) return setErr(tracked.error || "Esito non registrato.");
-      setAppointments((current) => current.filter((task) => task.id !== linkedAppointment.id));
+      void reloadAppointments();
       setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null);
       setActivitySaved(outcome === "no_answer" ? "Appuntamento segnato come non risposto" : "Esito della discovery in agenda registrato");
       await reloadActivityHistory();
@@ -355,7 +367,7 @@ export default function LeadModal({
       const tracked = await recordAppointmentOutcome(openDemo, outcome, meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
       setBusy(false); commercialActionLock.current = false;
       if (!tracked.ok) return setErr(tracked.error || "Esito della closing non registrato.");
-      setAppointments((current) => current.filter((task) => task.id !== openDemo.id));
+      void reloadAppointments();
       setClosingAction(null); setClosingMinutes(""); setCommercialNote("");
       setActivitySaved(outcome === "held" ? "Closing in agenda registrata come svolta" : "No-show della closing registrato");
       await reloadActivityHistory();
@@ -396,6 +408,7 @@ export default function LeadModal({
   }
 
   async function removeCommercialActivity(activity: LeadActivity) {
+    if (activityTaskId(activity)) return setErr("Le registrazioni collegate a un appuntamento si correggono dal Calendario, per non separare storico e KPI.");
     if (!confirm("Eliminare questa registrazione dai KPI?")) return;
     setBusy(true);
     const result = await supabase.from("lead_activities").delete().eq("id", activity.id); setBusy(false);
@@ -731,7 +744,8 @@ export default function LeadModal({
       planLock.current = false; setBusy(false);
       if (!result.ok) { setErr(result.error || "Appuntamento non salvato."); return false; }
       if (result.warning) setErr(result.warning);
-      void pendingAppointments(lead.client_id, lead.id).then(setAppointments);
+      void reloadAppointments();
+      void reloadActivityHistory();
       setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
       if (closeAfterSave) onSaved();
       return true;
@@ -784,6 +798,22 @@ export default function LeadModal({
           </div>
 
           {!isNew && (
+            <div className="lead-appointment-overview" aria-label="Appuntamenti del lead">
+              <b>Appuntamenti del lead</b>
+              {activeAppointments.length === 0 ? <p>Nessun appuntamento da svolgere.</p> : activeAppointments.map((task) => (
+                <div className="lead-appointment-overview-row" key={task.id}>
+                  <span><strong>{task.appointment_type === "demo" ? "Closing" : "Discovery"}{(appointmentAttempts.get(task.id) || 0) > 1 ? ` · ${appointmentAttempts.get(task.id)}ª prenotazione` : ""}</strong><small>{appointmentStamp(task.due_at)} · {task.assigned_to}</small></span>
+                  <em>Da svolgere</em>
+                </div>
+              ))}
+              {appointments.filter((task) => isAppointmentClosed(task)).slice(0, 2).map((task) => {
+                const outcome = activityHistory.find((activity) => activityTaskId(activity) === task.id && (activity.event_type === "demo_call" || activity.event_type === "discovery_call"));
+                return <div className="lead-appointment-overview-row past" key={task.id}><span><strong>{task.appointment_type === "demo" ? "Closing" : "Discovery"} · {task.appointment_status === "no_show" ? "No-show" : "Svolta"}</strong><small>{appointmentStamp(outcome?.scheduled_at || task.due_at)} · {task.assigned_to}</small></span></div>;
+              })}
+            </div>
+          )}
+
+          {!isNew && (
             <div className="activity-box commercial-tracker quick-commercial-tracker">
               <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
               {openDiscovery && <div className="notice warn quick-linked-appointment">Stai registrando l’esito della discovery del {new Date(openDiscovery.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: conta una volta sola, anche se l’hai già aperta dal Calendario.</div>}
@@ -813,7 +843,14 @@ export default function LeadModal({
                 <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setClosingAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordClosingOutcome(closingAction)}>{busy ? "Salvataggio…" : "Conferma esito closing"}</button></div>
               </div>}
               {activitySaved && <div className="commercial-saved">✓ {activitySaved}</div>}
-              {activityHistory.length > 0 && <details className="tracker-history"><summary>Storico commerciale ({activityHistory.length})</summary>{activityHistory.slice(0, 8).map((activity) => <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}</b><small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"} · {CHANNEL_LABELS[activity.channel || ""] || activity.channel || "CRM"} · {new Date(activity.occurred_at || activity.created_at).toLocaleString("it-IT")}</small></span><button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button></div>)}</details>}
+              {activityHistory.length > 0 && <div className="tracker-history" aria-label="Storico commerciale"><b className="tracker-history-title">Storico commerciale ({activityHistory.length})</b>{activityHistory.slice(0, 15).map((activity) => {
+                const isBooking = activity.event_type === "discovery_booked" || activity.event_type === "demo_booked";
+                const isReschedule = activity.event_type === "appointment_rescheduled";
+                const previousAt = typeof activity.details?.previous_at === "string" ? activity.details.previous_at : null;
+                const nextAt = typeof activity.details?.new_at === "string" ? activity.details.new_at : activity.scheduled_at;
+                const attempt = isBooking ? appointmentAttempts.get(activityTaskId(activity)) : null;
+                return <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}{isBooking && attempt && attempt > 1 ? ` · ${attempt}ª prenotazione` : ""}</b><small>Registrato il {appointmentStamp(activity.created_at)} · {activity.created_by || "CRM"}</small>{isBooking && activity.scheduled_at && <small>Fissata per il {appointmentStamp(activity.scheduled_at)}</small>}{isReschedule && previousAt && nextAt && <small>Spostata dal {appointmentStamp(previousAt)} al {appointmentStamp(nextAt)}</small>}{!isBooking && !isReschedule && <small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"}{activity.scheduled_at ? ` · Appuntamento del ${appointmentStamp(activity.scheduled_at)}` : ""}</small>}{activity.note && <small>{activity.note}</small>}</span>{!activityTaskId(activity) && <button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button>}</div>;
+              })}</div>}
             </div>
           )}
           {!isNew && (

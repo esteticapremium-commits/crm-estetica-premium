@@ -258,6 +258,18 @@
 .theme-premium.platform-shell .channel-choice button.active { border-color: var(--ep-brand); background: #f8e9eb; color: var(--ep-brand); box-shadow: 0 0 0 2px rgba(104, 22, 47, .07); }
 .theme-premium.platform-shell .tracker-save { width: 100%; margin-top: 2px; }
 .theme-premium.platform-shell .tracker-history { margin-top: 11px; border-top: 1px solid var(--ep-line); padding-top: 9px; }
+.theme-premium.platform-shell .tracker-history-title { display: block; margin-bottom: 3px; color: var(--ep-ink); font-size: 12px; }
+.theme-premium.platform-shell .lead-appointment-overview { padding: 12px 14px; border: 1px solid var(--ep-line); border-left: 3px solid var(--ep-brand); border-radius: 11px; background: var(--ep-surface, #fff); }
+.theme-premium.platform-shell .lead-appointment-overview > b { display: block; margin-bottom: 7px; color: var(--ep-ink); font-size: 12px; }
+.theme-premium.platform-shell .lead-appointment-overview > p { margin: 0; color: var(--ep-muted); font-size: 11px; }
+.theme-premium.platform-shell .lead-appointment-overview-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--ep-line); }
+.theme-premium.platform-shell .lead-appointment-overview-row span { min-width: 0; }
+.theme-premium.platform-shell .lead-appointment-overview-row strong,
+.theme-premium.platform-shell .lead-appointment-overview-row small { display: block; }
+.theme-premium.platform-shell .lead-appointment-overview-row strong { color: var(--ep-ink); font-size: 11px; }
+.theme-premium.platform-shell .lead-appointment-overview-row small { margin-top: 3px; color: var(--ep-muted); font-size: 10px; }
+.theme-premium.platform-shell .lead-appointment-overview-row em { flex: 0 0 auto; font-size: 10px; color: var(--ep-brand); font-style: normal; font-weight: 700; }
+.theme-premium.platform-shell .lead-appointment-overview-row.past { opacity: .78; }
 .theme-premium.platform-shell .tracker-history summary { color: var(--ep-muted); font-size: 10px; font-weight: 800; cursor: pointer; }
 .theme-premium.platform-shell .tracker-history > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee5e2; }
 .theme-premium.platform-shell .tracker-history > div span,
