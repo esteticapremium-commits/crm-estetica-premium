@@ -64,6 +64,7 @@ export default function Board({
 }) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalLeads, setTotalLeads] = useState(0);
   const [activityStamps, setActivityStamps] = useState<ActivityStamp[]>([]);
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,15 +80,16 @@ export default function Board({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ data: st, error: stagesError }, { data: ld, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }] = await withTimeout(Promise.all([
+      const [{ data: st, error: stagesError }, { data: ld, count: leadCount, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }] = await withTimeout(Promise.all([
         supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
-        supabase.from("leads").select("*").eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
+        supabase.from("leads").select("*", { count: "exact" }).eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
         supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
         supabase.from("sales_tasks").select("lead_id,completed_at").eq("client_id", client.id).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(5000),
       ]), 20_000, "La pipeline sta impiegando troppo tempo a rispondere.");
       if (stagesError || leadsError || activitiesError || tasksError) setError((stagesError || leadsError || activitiesError || tasksError)?.message ?? "Errore nel caricamento della pipeline.");
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
+      setTotalLeads(leadCount ?? ld?.length ?? 0);
       setActivityStamps((activityData as ActivityStamp[]) ?? []);
       setCompletedTaskStamps((taskData as Pick<SalesTask, "lead_id" | "completed_at">[]) ?? []);
     } catch (reason) {
@@ -110,7 +112,8 @@ export default function Board({
           event: "*",
           schema: "public",
           table: "leads",
-          filter: `pipeline_id=eq.${pipeline.id}`,
+          // Receive transfers out as well as into the current pipeline.
+          filter: `client_id=eq.${client.id}`,
         },
         () => load()
       )
@@ -250,7 +253,7 @@ export default function Board({
           {isPremium && (
             <div className="board-header">
               <div>
-                <div className="board-title">Pipeline</div>
+                <div className="board-title">Pipeline <span className="board-lead-total" role="status">{totalLeads.toLocaleString("it-IT")} lead totali</span></div>
                 <div className="board-sub">
                   {pipeline.name} · Lavora i lead e aggiorna la fase quando necessario.
                 </div>

@@ -5,7 +5,7 @@ import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPd
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
 import { createAppointment, isAppointmentClosed, leadAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
-import type { Contract, ContractTemplate, Lead, LeadActivity, SalesRevenueEvent, SalesTask, Stage } from "../types";
+import type { Contract, ContractTemplate, Lead, LeadActivity, Pipeline, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
 const BUILT_IN_TRIAL_5K_RENEWAL_TEMPLATE_ID = "built-in-trial-5k-renewal-contract";
@@ -141,6 +141,24 @@ export default function LeadModal({
   onUpdated,
 }: Props) {
   const isNew = !lead;
+  const originalPipelineId = lead?.pipeline_id ?? pipelineId ?? "";
+  const [selectedPipelineId, setSelectedPipelineId] = useState(originalPipelineId);
+  const [availablePipelines, setAvailablePipelines] = useState<Pipeline[]>([]);
+  const [pipelineError, setPipelineError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    const owner = lead?.client_id ?? clientId;
+    if (!owner) return;
+    void Promise.resolve(supabase.from("pipelines").select("*").eq("client_id", owner).order("position"))
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setPipelineError("Impossibile caricare le pipeline. Riapri la scheda per riprovare.");
+        else setAvailablePipelines((data ?? []) as Pipeline[]);
+      }).catch(() => {
+        if (!cancelled) setPipelineError("Impossibile caricare le pipeline. Riapri la scheda per riprovare.");
+      });
+    return () => { cancelled = true; };
+  }, [lead?.client_id, clientId]);
   const [name, setName] = useState(lead?.name ?? "");
   const [phone, setPhone] = useState(lead?.phone ?? "");
   const [email, setEmail] = useState(lead?.email ?? "");
@@ -658,8 +676,36 @@ export default function LeadModal({
   };
 
   async function save() {
+    if (busy) return;
     setBusy(true);
     setErr(null);
+    let destinationStageId = isNew ? settingStageId : stageId;
+    let destinationPosition: number | undefined;
+    const changingPipeline = selectedPipelineId !== originalPipelineId;
+    if (changingPipeline) {
+      try {
+        const owner = lead?.client_id ?? clientId;
+        const stageName = isNew ? "SETTING" : stages.find((stage) => stage.id === stageId)?.name;
+        if (!availablePipelines.some((pipeline) => pipeline.id === selectedPipelineId) || !stageName) {
+          throw new Error("Seleziona una pipeline e una fase valide.");
+        }
+        const target = await supabase.from("stages").select("id")
+          .eq("client_id", owner).eq("pipeline_id", selectedPipelineId).eq("name", stageName).single();
+        if (target.error || !target.data) {
+          throw new Error(`La pipeline scelta non contiene una fase univoca «${stageName}». Nessun dato è stato salvato.`);
+        }
+        destinationStageId = target.data.id;
+        const first = await supabase.from("leads").select("position")
+          .eq("client_id", owner).eq("pipeline_id", selectedPipelineId).eq("stage_id", destinationStageId)
+          .order("position").limit(1).maybeSingle();
+        if (first.error) throw first.error;
+        destinationPosition = Math.min(0, first.data?.position ?? 0) - 1;
+      } catch (error) {
+        setBusy(false);
+        setErr(error instanceof Error ? error.message : "Impossibile preparare lo spostamento. Riprova.");
+        return;
+      }
+    }
     // Nota rapida: aggiunta in cima allo storico con data e ora (fuso Roma).
     const qn = quickNote.trim();
     const finalNotes = qn ? appendNote(notes, qn) : notes;
@@ -670,7 +716,8 @@ export default function LeadModal({
       source: source.trim() || null,
       assigned_to: canReassign ? assigned.trim() || null : meName?.trim() || assigned.trim() || null,
       value: Number(value) || 0,
-      stage_id: isNew ? settingStageId : stageId,
+      stage_id: destinationStageId,
+      ...(changingPipeline ? { pipeline_id: selectedPipelineId, position: destinationPosition } : {}),
       notes: finalNotes.trim() || null,
       next_action_date: nextAction.trim() || null,
       closing_date: closingDate.trim() || null,
@@ -680,18 +727,43 @@ export default function LeadModal({
     let error;
     let newLeadId: string | null = null;
     if (isNew) {
+      // Come nel trascinamento: un nuovo lead precede le card già in SETTING.
+      // Leggi la posizione al salvataggio, non all'apertura della scheda.
+      const firstLead = await supabase
+        .from("leads")
+        .select("position")
+        .eq("client_id", clientId)
+        .eq("pipeline_id", selectedPipelineId)
+        .eq("stage_id", destinationStageId)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (firstLead.error) {
+        setBusy(false);
+        setErr("Impossibile determinare la posizione del nuovo lead: " + firstLead.error.message);
+        return;
+      }
+      const position = Math.min(0, firstLead.data?.position ?? 0) - 1;
       const res = await supabase
         .from("leads")
-        .insert({ ...payload, client_id: clientId, pipeline_id: pipelineId })
+        .insert({ ...payload, client_id: clientId, pipeline_id: selectedPipelineId, position })
         .select("id")
         .single();
       error = res.error;
       newLeadId = (res.data as { id: string } | null)?.id ?? null;
     } else {
-      ({ error } = await supabase
+      let update = supabase
         .from("leads")
         .update(payload)
-        .eq("id", lead!.id));
+        .eq("id", lead!.id);
+      if (changingPipeline) update = update.eq("pipeline_id", originalPipelineId).eq("stage_id", lead!.stage_id);
+      const result = await update.select("id").single();
+      error = result.error;
+      if (changingPipeline && error?.code === "PGRST116") {
+        setBusy(false);
+        setErr("Il lead è stato spostato da un altro utente. Riapri la scheda prima di riprovare.");
+        return;
+      }
     }
     setBusy(false);
     if (error) setErr(error.message);
@@ -884,6 +956,18 @@ export default function LeadModal({
             <div className="field" style={{ flex: 1 }}>
               <label>Email</label>
               <input value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          </div>
+          <div className="modal-row">
+            <div className="field" style={{ flex: 1 }}>
+              <label htmlFor="lead-pipeline">Pipeline</label>
+              <select id="lead-pipeline" value={selectedPipelineId} disabled={busy || !availablePipelines.length}
+                onChange={(event) => setSelectedPipelineId(event.target.value)}>
+                {!availablePipelines.length && <option value={originalPipelineId}>Pipeline attuale</option>}
+                {availablePipelines.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>)}
+              </select>
+              {pipelineError && <small role="alert">{pipelineError}</small>}
+              {selectedPipelineId !== originalPipelineId && <small>Premi Salva per spostare il lead in cima alla stessa fase della pipeline scelta. Note, attività e contratti rimangono collegati.</small>}
             </div>
           </div>
           <div className="modal-row">

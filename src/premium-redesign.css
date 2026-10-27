@@ -1018,6 +1018,8 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 }
 
 .theme-premium.platform-shell .board-header > div:first-child { min-width: 210px; }
+.theme-premium.platform-shell .board-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.theme-premium.platform-shell .board-lead-total { display: inline-flex; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--brand); font-size: 13px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
 .theme-premium.platform-shell .board-header .section-header-actions { margin-left: auto; }
 
 .theme-premium.platform-shell .board-title {
