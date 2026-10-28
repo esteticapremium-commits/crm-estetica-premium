@@ -25,3 +25,12 @@
 .daily-revenue-goal { margin-top: 28px; }
 .daily-revenue > .daily-revenue-date { width: fit-content; margin: 24px auto 0; text-align: center; }
 @media (max-width: 600px) { .daily-revenue-center { padding-top: 0; } }
+
+.monthly-goal-progress { margin-top: 8px; }
+.monthly-goal-totals { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; color: #5b102a; }
+.monthly-goal-track { margin: 12px 0; height: 14px; overflow: hidden; border-radius: 99px; background: #5b102a18; }
+.monthly-goal-track > span { display: block; height: 100%; border-radius: inherit; background: #68132f; transition: width .3s ease; }
+.control-page .monthly-goal-remaining { margin: 14px 0 0; color: #5b102a; font-size: 18px; line-height: 1.5; }
+.monthly-goal-remaining strong { font-weight: 800; }
+@media (max-width: 600px) { .monthly-goal-totals { font-size: 12px; } .control-page .monthly-goal-remaining { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .monthly-goal-track > span { transition: none; } }
