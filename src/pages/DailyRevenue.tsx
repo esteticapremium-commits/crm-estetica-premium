@@ -46,16 +46,14 @@ export default function DailyRevenue({ clientId }: { clientId: string }) {
   const label = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Rome" }).format(new Date(`${day}T12:00:00Z`));
 
   return <section className="daily-revenue" aria-labelledby="daily-revenue-heading">
-    <div className="daily-revenue-top">
-      <span className="daily-revenue-eyebrow">IL RISULTATO DELLA SQUADRA</span>
-      <div className="daily-revenue-date"><label htmlFor="revenue-day">Visualizza un giorno</label><div><input id="revenue-day" type="date" value={day} max={today} onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && e.target.value <= today) setChosenDay(e.target.value === today ? null : e.target.value); }} />{chosenDay && <button type="button" onClick={() => setChosenDay(null)}>Oggi</button>}</div></div>
-    </div>
-    <div className="daily-revenue-center"><h2 id="daily-revenue-heading">{day === today ? "Incasso del giorno" : "Incasso del giorno selezionato"}</h2><span className="daily-revenue-day">{label}</span>
+    <div className="daily-revenue-center">
     {error ? <div className="daily-revenue-error" role="alert">Il totale non è disponibile. <button type="button" onClick={() => setRetry((n) => n + 1)}>Riprova</button></div> : <>
       <div className="daily-revenue-amount" aria-live="polite">{amount === null ? <span className="daily-revenue-loading">Caricamento risultato…</span> : euros(amount)}</div>
     </>}
+    <h2 id="daily-revenue-heading">{day === today ? "Incasso del giorno" : "Incasso del giorno selezionato"}</h2><span className="daily-revenue-day">{label}</span>
     <div className="daily-revenue-goal"><span>Obiettivo del mese · {month}</span><strong>{monthlyGoal ?? "Obiettivo da definire"}</strong></div>
     </div>
+      <div className="daily-revenue-date"><label htmlFor="revenue-day">Visualizza un giorno</label><div><input id="revenue-day" type="date" value={day} max={today} onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && e.target.value <= today) setChosenDay(e.target.value === today ? null : e.target.value); }} />{chosenDay && <button type="button" onClick={() => setChosenDay(null)}>Oggi</button>}</div></div>
     <p className="daily-revenue-note">Incassi aziendali registrati nel CRM nella data selezionata, inclusi rinnovi e upsell. Esclusi importi previsti e annullati. Orario italiano.</p>
   </section>;
 }

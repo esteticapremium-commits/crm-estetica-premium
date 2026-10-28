@@ -327,7 +327,7 @@ export default function App() {
       )}
 
       {tab === "control" && currentClient && (
-        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} headerTools={headerTools} />
+        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} />
       )}
 
       {tab === "editorial" && isAdmin && currentClient && (
