@@ -294,7 +294,7 @@ export default function FirmaPage({ token }: { token: string }) {
                 {deed ? (
                   <div className="firma-sub">{`Deposito cauzionale${deedClientName || doc.lead_name ? ` · Destinata a ${deedClientName || doc.lead_name}` : ""}`}</div>
                 ) : doc.lead_name && (
-                  <div className="firma-sub">Periodo di prova di 30 giorni · Destinato a {doc.lead_name}</div>
+                  <div className="firma-sub">Destinato a {doc.lead_name}</div>
                 )}
               </div>
               <div className="firma-body">
