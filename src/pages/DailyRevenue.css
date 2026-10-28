@@ -1,21 +1,20 @@
-.control-page .daily-revenue { margin: 0 0 24px; padding: clamp(22px, 3vw, 40px); border-radius: 24px; background: var(--ep-brand, #5b102a); color: #fff8ef; box-shadow: 0 12px 32px #5b102a16; }
-.daily-revenue .daily-revenue-top { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
-.daily-revenue .daily-revenue-eyebrow { display: block; font-size: 11px; font-weight: 700; letter-spacing: .14em; opacity: .75; margin-bottom: 10px; }
-.theme-premium.platform-shell .control-page .daily-revenue h2 { color: #fff8ef; margin: 0 0 6px; font-size: 24px; }
-.daily-revenue-top > div > span:last-child { font-size: 14px; }
+.control-page .daily-revenue { margin: 0 0 24px; padding: clamp(22px, 3vw, 40px); border: 1px solid #5b102a18; border-radius: 24px; background: var(--ep-ivory, #f3eee6); color: var(--ep-brand, #5b102a); box-shadow: 0 12px 32px #5b102a08; }
+.daily-revenue .daily-revenue-top { display: flex; justify-content: space-between; gap: 24px; align-items: center; }
+.daily-revenue .daily-revenue-eyebrow { display: block; font-size: 11px; font-weight: 750; letter-spacing: .16em; }
 .daily-revenue-date label { display: block; margin-bottom: 7px; font-size: 12px; }
-.daily-revenue-date > div { display: flex; gap: 8px; }
-.control-page .daily-revenue input, .control-page .daily-revenue button { background: #fff8ef; color: #5b102a; border: 1px solid #fff8ef; border-radius: 10px; padding: 10px 12px; min-height: 42px; font: inherit; }
+.daily-revenue-date > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.control-page .daily-revenue input, .control-page .daily-revenue button { background: #fffcf7; color: #5b102a; border: 1px solid #5b102a30; border-radius: 10px; padding: 10px 12px; min-height: 42px; font: inherit; }
 .daily-revenue button { cursor: pointer; }
-.daily-revenue button:hover { opacity: .9; }
-.daily-revenue :is(input,button):focus-visible { outline: 3px solid #fff8ef; outline-offset: 4px; }
-.control-page .daily-revenue-amount { margin: 24px 0 12px; color: #fff8ef; font-size: clamp(44px, 7vw, 88px); font-weight: 850; letter-spacing: -.045em; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.daily-revenue-loading { font-size: 22px; letter-spacing: normal; }
-.control-page .daily-revenue-message { margin: 0 0 24px; color: inherit; font-size: 18px; }
-.daily-revenue-track { height: 10px; border-radius: 8px; overflow: hidden; background: #fff8ef30; }
-.daily-revenue-track > span { display: block; height: 100%; background: #fff8ef; border-radius: inherit; transition: width .3s ease; }
-.daily-revenue-target { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
-.control-page .daily-revenue-note { color: #fff8ef; opacity: .75; font-size: 12px; line-height: 1.5; margin: 24px 0 0; max-width: 780px; }
-.daily-revenue-error { padding: 24px 0; }
-@media (max-width: 600px) { .daily-revenue .daily-revenue-top { flex-direction: column; gap: 18px; } .daily-revenue-target { flex-direction: column; gap: 6px; } .control-page .daily-revenue-message { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .daily-revenue-track > span { transition: none; } }
+.daily-revenue button:hover { background: #ede2dc; }
+.daily-revenue :is(input,button):focus-visible { outline: 3px solid #5b102a; outline-offset: 3px; }
+.daily-revenue-center { text-align: center; padding: clamp(24px, 4vw, 56px) 0 16px; }
+.theme-premium.platform-shell .control-page .daily-revenue h2 { color: #5b102a; margin: 0 0 8px; font-size: clamp(22px, 3vw, 32px); font-weight: 700; }
+.daily-revenue-day { font-size: 14px; color: #78635f; }
+.control-page .daily-revenue-amount { margin: 20px 0 28px; color: #68132f; font-size: clamp(64px, 9vw, 132px); font-weight: 900; letter-spacing: -.055em; line-height: 1.12; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.daily-revenue-loading { font-size: 22px; letter-spacing: normal; font-weight: 600; }
+.daily-revenue-goal { display: grid; gap: 12px; max-width: 680px; margin: 0 auto; padding: 24px 12px 8px; border-top: 1px solid #5b102a26; }
+.daily-revenue-goal > span { text-transform: uppercase; font-size: 11px; letter-spacing: .16em; font-weight: 700; color: #78635f; }
+.daily-revenue-goal > strong { color: #5b102a; font-size: clamp(24px, 3.5vw, 40px); font-weight: 800; line-height: 1.2; letter-spacing: -.025em; }
+.control-page .daily-revenue-note { color: #78635f; font-size: 12px; line-height: 1.5; margin: 24px auto 0; max-width: 780px; text-align: center; }
+.daily-revenue-error { padding: 28px 0; }
+@media (max-width: 600px) { .daily-revenue .daily-revenue-top { flex-direction: column; align-items: center; gap: 18px; } .daily-revenue-date label { text-align: center; } .daily-revenue-center { padding-top: 30px; } .control-page .daily-revenue-amount { font-size: clamp(48px, 13vw, 76px); } }
