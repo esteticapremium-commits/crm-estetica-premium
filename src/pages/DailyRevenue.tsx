@@ -5,7 +5,7 @@ import { withTimeout } from "../async";
 import "./DailyRevenue.css";
 
 const GOAL = 1000;
-const euros = (value: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(value);
+const euros = (value: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
 
 /** Company totals only: never fetch other sellers' individual financial records. */
 export default function DailyRevenue({ clientId }: { clientId: string }) {

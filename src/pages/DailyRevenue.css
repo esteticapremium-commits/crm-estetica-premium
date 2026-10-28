@@ -1,7 +1,7 @@
 .control-page .daily-revenue { margin: 0 0 24px; padding: clamp(22px, 3vw, 40px); border-radius: 24px; background: var(--ep-brand, #5b102a); color: #fff8ef; box-shadow: 0 12px 32px #5b102a16; }
 .daily-revenue .daily-revenue-top { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
 .daily-revenue .daily-revenue-eyebrow { display: block; font-size: 11px; font-weight: 700; letter-spacing: .14em; opacity: .75; margin-bottom: 10px; }
-.control-page .daily-revenue h2 { color: inherit; margin: 0 0 6px; font-size: 24px; }
+.theme-premium.platform-shell .control-page .daily-revenue h2 { color: #fff8ef; margin: 0 0 6px; font-size: 24px; }
 .daily-revenue-top > div > span:last-child { font-size: 14px; }
 .daily-revenue-date label { display: block; margin-bottom: 7px; font-size: 12px; }
 .daily-revenue-date > div { display: flex; gap: 8px; }
