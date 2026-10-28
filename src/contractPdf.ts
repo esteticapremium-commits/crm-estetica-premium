@@ -96,13 +96,20 @@ function signatureImageSrc(value: string | null | undefined) {
   return /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+=*$/.test(value ?? "") ? String(value) : "";
 }
 
+/** La data è quella registrata dal server alla firma, sempre nel fuso italiano. */
+export function contractSignatureDate(value: string | null | undefined, withTime = false) {
+  if (!value || Number.isNaN(new Date(value).getTime())) return "";
+  return new Date(value).toLocaleString("it-IT", {
+    timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } as const : {}),
+  });
+}
+
 function privateDeedPdfHtml(c: SignedContract) {
   const collaboratorSignatureUrl = `${window.location.origin}/ettore-androsoni-signature.png`;
   const signature = signatureImageSrc(c.signature_data);
-  const dataShort = c.signed_at ? new Date(c.signed_at).toLocaleDateString("it-IT") : "";
-  const dataLong = c.signed_at
-    ? new Date(c.signed_at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
-    : "";
+  const dataShort = contractSignatureDate(c.signed_at);
+  const dataLong = contractSignatureDate(c.signed_at, true);
   const lines = fillBody(c.body ?? "", [], {}, true)
     .split("\n")
     .map((line) => line.trim())
@@ -158,17 +165,18 @@ export interface SignedContract {
 }
 
 /** Apre una finestra col SOLO documento firmato e lancia la stampa/salva PDF. */
-export function openSignedContractPdf(c: SignedContract) {
+export function openSignedContractPdf(c: SignedContract, options?: { onBlocked: () => void }) {
   if (isPrivateDeed(c.body)) {
     const deedWindow = window.open("", "_blank");
     if (!deedWindow) {
-      alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
-      return;
+      if (options) options.onBlocked();
+      else alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
+      return false;
     }
     deedWindow.document.open();
     deedWindow.document.write(privateDeedPdfHtml(c));
     deedWindow.document.close();
-    return;
+    return true;
   }
   const collaboratorSignatureUrl = `${window.location.origin}/ettore-androsoni-signature.png`;
   const fields = (c.client_fields ?? "")
@@ -181,24 +189,15 @@ export function openSignedContractPdf(c: SignedContract) {
   } catch {
     values = {};
   }
+  const signature = signatureImageSrc(c.signature_data);
   const fullBody = fillBody(c.body ?? "", fields, values, true);
   const contractParts = splitContractClosing(fullBody);
   const rows = fields
     .map((f) => `<tr><td>${escapeHtml(f)}</td><td><b>${escapeHtml(values[f] || "—")}</b></td></tr>`)
     .join("");
-  const dataLong = c.signed_at
-    ? new Date(c.signed_at).toLocaleString("it-IT", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "";
-  const dataShort = c.signed_at
-    ? new Date(c.signed_at).toLocaleDateString("it-IT")
-    : "";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
+  const dataLong = contractSignatureDate(c.signed_at, true);
+  const dataShort = contractSignatureDate(c.signed_at);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(c.title)}</title>
 <style>
   @page { size: A4; margin: 22mm 18mm; }
   body { font-family: Georgia, 'Times New Roman', serif; color: #111; font-size: 13.5px; line-height: 1.55; }
@@ -210,11 +209,11 @@ export function openSignedContractPdf(c: SignedContract) {
   table { width: 100%; border-collapse: collapse; }
   .recap td { padding: 3px 4px; border-bottom: 1px solid #eee; }
   .recap td:first-child { color: #666; width: 42%; }
-  .doc p { margin: 6px 0; white-space: pre-wrap; }
-  .signature-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 24px 0 18px; border: 1px solid #111; break-inside: avoid; }
-  .signature-cell { display: grid; gap: 4px; min-height: 260px; padding: 14px 16px; border-right: 1px solid #111; }
+  .doc p { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .signature-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin: 24px 0 18px; border: 1px solid #111; break-inside: avoid; }
+  .signature-cell { min-width: 0; overflow-wrap: anywhere; display: grid; gap: 4px; min-height: 260px; padding: 14px 16px; border-right: 1px solid #111; }
   .signature-cell:last-child { border-right: 0; }.signature-cell h3 { margin: -14px -16px 10px; padding: 11px 16px; border-bottom: 1px solid #111; font-size: 16px; }.signature-cell span { margin-top: 4px; font-size: 12px; font-weight: 700; }.signature-cell strong { min-height: 22px; padding-bottom: 4px; border-bottom: 1px solid #333; font-size: 14px; font-weight: 500; }
-  .sig-img { max-width: 340px; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
+  .sig-img { box-sizing: border-box; max-width: 100%; max-height: 130px; border: 1px solid #ddd; padding: 4px; background: #fff; }
   .collaborator-sig { width: 210px; height: auto; border: 0; padding: 0; }
   .approval-signature { margin-top: 14px; padding: 14px 16px; border: 1px solid #111; break-inside: avoid; }
   .approval-signature h3 { margin: 0 0 5px; font-size: 14px; }
@@ -223,7 +222,7 @@ export function openSignedContractPdf(c: SignedContract) {
   .approval-signature .approval-person { display: grid; gap: 3px; }
   .approval-signature .approval-person span { font-size: 11px; font-weight: 700; }
   .approval-signature .approval-person strong { font-size: 13px; }
-  .approval-signature .sig-img { max-width: 260px; max-height: 100px; }
+  .approval-signature .sig-img { width: 260px; max-width: 100%; max-height: 100px; }
 </style></head><body>
   <div class="company">ESTETICA PREMIUM</div>
   <div class="type">Contratto di collaborazione professionale</div>
@@ -237,16 +236,18 @@ export function openSignedContractPdf(c: SignedContract) {
     </tbody></table>
   </div>
   <div class="doc">${contractParts.main.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
-  <div class="signature-grid"><div class="signature-cell"><h3>Committente</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong><span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong><span>Firma</span>${c.signature_data ? `<img class="sig-img" src="${c.signature_data}"/>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>Collaboratore</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/><span>Data</span><strong>${dataShort}</strong></div></div>
-  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div><div class="approval-signature"><h3>Approvazione specifica del Committente</h3><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><div class="approval-data"><div class="approval-person"><span>Firmato da</span><strong>${escapeHtml(c.signed_name)}</strong><span>Data</span><strong>${dataShort}</strong></div>${c.signature_data ? `<img class="sig-img" src="${c.signature_data}" alt="Firma del committente per approvazione specifica"/>` : ""}</div></div>` : ""}
+  <div class="signature-grid"><div class="signature-cell"><h3>Committente</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong><span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong><span>Firma</span>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}"/>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>Collaboratore</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/><span>Data</span><strong>${dataShort}</strong></div></div>
+  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div><div class="approval-signature"><h3>Approvazione specifica del Committente</h3><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><div class="approval-data"><div class="approval-person"><span>Firmato da</span><strong>${escapeHtml(c.signed_name)}</strong><span>Data</span><strong>${dataShort}</strong></div>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}" alt="Firma del committente per approvazione specifica"/>` : ""}</div></div>` : ""}
   <script>window.onload = function(){ window.print(); }<\/script>
 </body></html>`;
   const w = window.open("", "_blank");
   if (!w) {
-    alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
-    return;
+    if (options) options.onBlocked();
+    else alert("Il browser ha bloccato la finestra. Consenti i popup per questo sito.");
+    return false;
   }
   w.document.open();
   w.document.write(html);
   w.document.close();
+  return true;
 }

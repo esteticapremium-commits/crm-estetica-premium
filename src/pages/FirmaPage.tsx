@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
+import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
+import { contractLinkMessage, isVerifiedSignedContract } from "../contractSigning";
 
 interface ContractPub {
   id: string;
@@ -30,6 +31,12 @@ export default function FirmaPage({ token }: { token: string }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [specificApproval, setSpecificApproval] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [confirmationPending, setConfirmationPending] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const errorRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   // Una pressione sul riquadro non e una firma: registriamo almeno un tratto
@@ -37,13 +44,32 @@ export default function FirmaPage({ token }: { token: string }) {
   const hasInk = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    supabase
-      .rpc("get_contract_by_token", { p_token: token })
-      .then(({ data, error }) => {
-        if (error) return setErr("Documento non trovato o link non valido.");
+  async function unavailableLinkMessage() {
+    try {
+      const result = await supabase.rpc("contract_link_state", { p_token: token });
+      // Compatibilità finché la migrazione non è applicata: non indovinare
+      // se il link è scaduto, revocato o inesistente.
+      if (result.error) return "Il documento non è disponibile. Il link potrebbe essere scaduto, disattivato o non valido: contatta Estetica Premium per verificarlo.";
+      return contractLinkMessage(result.data);
+    } catch {
+      return "Non riesco a verificare il link. Controlla la connessione e riprova.";
+    }
+  }
+
+  async function loadDocument() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+        const { data, error } = await supabase.rpc("get_contract_by_token", { p_token: token });
+        if (error) {
+          setLoadError("Non riesco a caricare il documento. Controlla la connessione e riprova. Se il problema continua, contatta Estetica Premium.");
+          return;
+        }
         const row = (data as ContractPub[])?.[0];
-        if (!row) return setErr("Documento non trovato o link non valido.");
+        if (!row) {
+          setLoadError(await unavailableLinkMessage());
+          return;
+        }
         setDoc(row);
         // L'apertura viene registrata dal database senza raccogliere IP,
         // dispositivo o altri dati personali del firmatario.
@@ -55,15 +81,31 @@ export default function FirmaPage({ token }: { token: string }) {
         // indicata nel documento, al lead resta solo da disegnare la firma.
         if (isPrivateDeed(row.body)) setName(privateDeedClientName(row.body));
         if (row.status === "signed") {
-          setOk(true);
+          setOk(isVerifiedSignedContract(row));
+          if (!isVerifiedSignedContract(row)) {
+            setConfirmationPending(true);
+            setErr("Il documento risulta firmato, ma non riesco a verificarne la copia completa. Non firmare di nuovo: riprova la verifica o contatta Estetica Premium.");
+          }
           try {
             setValues(JSON.parse(row.client_data ?? "{}"));
           } catch {
             setValues({});
           }
         }
-      });
+    } catch {
+      setLoadError("Connessione interrotta durante il caricamento. Riprova: non è stata inviata alcuna firma.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadDocument();
   }, [token]);
+
+  useEffect(() => {
+    if (err) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [err]);
 
   const fields = (doc?.client_fields ?? "")
     .split("\n")
@@ -93,7 +135,12 @@ export default function FirmaPage({ token }: { token: string }) {
 
   function pos(e: React.PointerEvent, c: HTMLCanvasElement) {
     const r = c.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    // Conserva le coordinate del bitmap anche dopo rotazione/resize mobile.
+    const scale = c.getContext("2d")!.getTransform();
+    return {
+      x: (e.clientX - r.left) * c.width / r.width / scale.a,
+      y: (e.clientY - r.top) * c.height / r.height / scale.d,
+    };
   }
   function down(e: React.PointerEvent) {
     const c = canvasRef.current!;
@@ -127,7 +174,12 @@ export default function FirmaPage({ token }: { token: string }) {
    *  niente dipendenze dal CSS della pagina, funziona su ogni browser. */
   function downloadPdf() {
     if (!doc) return;
-    openSignedContractPdf(doc);
+    setPdfError(null);
+    try {
+      openSignedContractPdf(doc, { onBlocked: () => setPdfError("Il browser ha bloccato l'apertura del documento. Consenti i popup e riprova. Se sei in WhatsApp, apri questo link in Safari o Chrome e premi di nuovo il pulsante.") });
+    } catch {
+      setPdfError("Non riesco ad aprire la copia per la stampa. Riprova oppure apri questo link in Safari o Chrome. Il contratto resta firmato.");
+    }
   }
 
   function clear() {
@@ -140,6 +192,7 @@ export default function FirmaPage({ token }: { token: string }) {
   }
 
   async function sign() {
+    if (submitting.current || confirmationPending) return;
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
     for (const f of fields) {
       if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
@@ -152,55 +205,80 @@ export default function FirmaPage({ token }: { token: string }) {
     }
     const c = canvasRef.current;
     if (!c) return;
+    submitting.current = true;
     setBusy(true);
     setErr(null);
+    try {
     const data = deed ? croppedSignature(c) : c.toDataURL("image/png");
-    const { error } = await supabase.rpc("sign_contract", {
+    const { data: accepted, error } = await supabase.rpc("sign_contract", {
       p_token: token,
       p_name: name.trim(),
       p_sig: data,
       p_data: JSON.stringify({ ...values, __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
     });
     if (error) {
+      // In caso di risposta persa, la transazione potrebbe essere riuscita.
+      // Verifica lo stato prima di permettere un nuovo invio.
+      setConfirmationPending(true);
+      return setErr("Non riesco a confermare il salvataggio della firma. Non firmare di nuovo: premi «Verifica firma» per controllare lo stato.");
+    }
+    if (accepted !== true) {
+      // false NON è una conferma: il link può essere scaduto/revocato,
+      // oppure firmato da un'altra scheda nel frattempo.
+      setConfirmationPending(true);
+      await verifySignature();
+      return;
+    }
+    setConfirmationPending(true);
+    await verifySignature();
+    } catch {
+      setConfirmationPending(true);
+      setErr("Connessione interrotta: non posso confermare se la firma è stata salvata. Premi «Verifica firma» prima di riprovare.");
+    } finally {
+      submitting.current = false;
       setBusy(false);
-      return setErr("Firma non riuscita: " + error.message);
     }
-    // Ricarica il documento ORA firmato dal database (con data e firma salvate).
-    // Senza questo passaggio, data e firma restano vuote nella copia scaricata,
-    // perché "doc" era stato caricato PRIMA della firma.
-    const { data: fresh } = await supabase.rpc("get_contract_by_token", {
-      p_token: token,
-    });
-    const row = (fresh as ContractPub[])?.[0];
-    if (row) {
-      setDoc(row);
-    } else {
-      // Fallback: aggiorna localmente con ciò che è stato appena firmato.
-      setDoc((d) =>
-        d
-          ? {
-              ...d,
-              status: "signed",
-              signed_name: name.trim(),
-              signature_data: data,
-              signed_at: new Date().toISOString(),
-              client_data: JSON.stringify(values),
-            }
-          : d
-      );
+  }
+
+  async function verifySignature() {
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("get_contract_by_token", { p_token: token });
+      if (error) {
+        setErr("Verifica non disponibile. Controlla la connessione e riprova: non inviare una seconda firma.");
+        return;
+      }
+      const row = (data as ContractPub[])?.[0];
+      if (isVerifiedSignedContract(row)) {
+        setDoc(row);
+        try { setValues(JSON.parse(row.client_data ?? "{}")); } catch { setValues({}); }
+        setOk(true);
+        setConfirmationPending(false);
+        setErr(null);
+      } else if (!row) {
+        setErr(await unavailableLinkMessage());
+      } else if (row.status === "signed") {
+        setErr("Il documento risulta firmato, ma la copia completa non è verificabile. Contatta Estetica Premium prima di scaricarlo.");
+      } else {
+        setConfirmationPending(false);
+        setErr("La firma non risulta registrata. I dati e il disegno sono ancora qui: puoi riprovare a confermare.");
+      }
+    } catch {
+      setErr("Verifica interrotta. Controlla la connessione e riprova: non inviare una seconda firma.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    setOk(true);
   }
 
   return (
     <div className="firma-page">
       <div className="firma-wrap">
         <div className="firma-card">
-          {!doc && !err && <div className="center-msg">Caricamento documento…</div>}
-          {err && (
+          {!doc && loading && <div className="center-msg">Caricamento documento…</div>}
+          {!doc && loadError && (
             <div className="firma-body">
-              <div className="notice err">{err}</div>
+              <div className="notice err" role="alert">{loadError}</div>
+              <button className="btn" onClick={() => void loadDocument()} disabled={loading}>Riprova caricamento</button>
             </div>
           )}
 
@@ -213,25 +291,21 @@ export default function FirmaPage({ token }: { token: string }) {
                 <p className="thankyou-sub">
                   {doc.signed_name} ·{" "}
                   {doc.signed_at
-                    ? new Date(doc.signed_at).toLocaleString("it-IT", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
+                    ? contractSignatureDate(doc.signed_at, true)
                     : ""}
                 </p>
                 <button
                   className="btn primary thankyou-dl"
                   onClick={downloadPdf}
                 >
-                  {deed ? "📄 Scarica la scrittura privata firmata (PDF)" : "📄 Scarica il contratto firmato (PDF)"}
+                  Apri e salva il documento firmato in PDF
                 </button>
                 <p className="thankyou-note">
                   Il documento qui sotto è quello firmato: lo ricevi completo di
                   dati, data e firma.
                 </p>
+                <p className="thankyou-note">Si apre la schermata di stampa del browser, non un download automatico. Su computer scegli «Salva come PDF» e disattiva «Intestazioni e piè di pagina» per evitare che il browser aggiunga la data di stampa. Su iPhone ingrandisci con due dita l’anteprima di stampa, poi premi Condividi → Salva su File. Da WhatsApp, se non si apre, usa «Apri in Safari» e riprova.</p>
+                {pdfError && <div className="notice err" role="alert">{pdfError}</div>}
               </div>
 
               {/* Riepilogo dati + data firma, sempre nel documento/PDF */}
@@ -253,13 +327,7 @@ export default function FirmaPage({ token }: { token: string }) {
                       <td>Data della firma</td>
                       <td><b>
                         {doc.signed_at
-                          ? new Date(doc.signed_at).toLocaleString("it-IT", {
-                              day: "2-digit",
-                              month: "2-digit",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
+                          ? contractSignatureDate(doc.signed_at, true)
                           : ""}
                       </b></td>
                     </tr>
@@ -305,8 +373,10 @@ export default function FirmaPage({ token }: { token: string }) {
                     <div className="firma-step"><span>01</span><div><b>Verifica i dati aziendali</b><small>Servono per completare correttamente l’accordo.</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label>{f}</label>
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f}</label>
                         <input
+                          id={`contract-field-${fields.indexOf(f)}`}
+                          disabled={busy || confirmationPending}
                           value={values[f] ?? ""}
                           onChange={(e) =>
                             setValues((prev) => ({ ...prev, [f]: e.target.value }))
@@ -340,11 +410,13 @@ export default function FirmaPage({ token }: { token: string }) {
                   <div className="firma-step document-step"><span>03</span><div><b>Firma il contratto</b><small>La firma e la data verranno registrate nel documento.</small></div></div>
                 )}
                 <div className="field" style={{ marginTop: 14 }}>
-                  <label>Nome e cognome (firmatario)</label>
+                  <label htmlFor="contract-signer">Nome e cognome (firmatario)</label>
                   {deed && deedClientName ? (
-                    <input value={name} readOnly aria-readonly="true" title="È il nome indicato nella scrittura privata" style={{ background: "#f7f4f1", color: "#2b2a26" }} />
+                    <input id="contract-signer" value={name} readOnly aria-readonly="true" title="È il nome indicato nella scrittura privata" style={{ background: "#f7f4f1", color: "#2b2a26" }} />
                   ) : (
                     <input
+                      id="contract-signer"
+                      disabled={busy || confirmationPending}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Scrivi qui il tuo nome e cognome"
@@ -360,6 +432,8 @@ export default function FirmaPage({ token }: { token: string }) {
                     onPointerMove={move}
                     onPointerUp={up}
                     onPointerLeave={up}
+                    onPointerCancel={up}
+                    aria-label="Disegna la tua firma"
                   />
                   <button
                     type="button"
@@ -371,12 +445,13 @@ export default function FirmaPage({ token }: { token: string }) {
                   </button>
                 </div>
                 {draftParts.approval && <label className="specific-approval-check"><input type="checkbox" checked={specificApproval} onChange={(event) => setSpecificApproval(event.target.checked)} /><span>Dichiaro di approvare specificamente le clausole richiamate ai sensi degli artt. 1341 e 1342 c.c. La firma disegnata sopra sarà applicata anche al relativo riquadro.</span></label>}
-                {err && <div className="notice err">{err}</div>}
+                {err && <div className="notice err" role="alert" ref={errorRef}>{err}</div>}
+                {confirmationPending && <button className="btn" onClick={() => void verifySignature()} disabled={busy} style={{ width: "100%", marginBottom: 12 }}>{busy ? "Verifica in corso…" : "Verifica firma"}</button>}
                 <button
                   className="btn primary"
                   style={{ width: "100%", padding: 13, fontSize: 16 }}
                   onClick={sign}
-                  disabled={busy}
+                  disabled={busy || confirmationPending}
                 >
                   {busy ? "Registrazione firma…" : deed ? "Conferma e firma" : "Conferma e firma il contratto"}
                 </button>
@@ -404,7 +479,7 @@ export default function FirmaPage({ token }: { token: string }) {
 function ContractSignatureBox({ values, signedName, signature, signedAt }: { values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
   const company = values["Ragione sociale del committente"] || "____________________________";
   const signer = signedName || values["Rappresentante legale del committente"] || "____________________________";
-  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "____________________________";
+  const date = signedAt ? contractSignatureDate(signedAt) : "____________________________";
   return (
     <div className="contract-signature-box">
       <div className="signature-cell"><b>Committente</b><span>Nome</span><strong>{signer}</strong><span>Ragione sociale</span><strong>{company}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : <i /> }<span>Data</span><strong>{date}</strong></div>
@@ -414,7 +489,7 @@ function ContractSignatureBox({ values, signedName, signature, signedAt }: { val
 }
 
 function SpecificApprovalSignature({ signedName, signature, signedAt }: { signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
-  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "____________________________";
+  const date = signedAt ? contractSignatureDate(signedAt) : "____________________________";
   return <div className="specific-approval-signature"><div><b>Approvazione specifica del Committente</b><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><span>Firmato da</span><strong>{signedName || "____________________________"}</strong><span>Data</span><strong>{date}</strong></div>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente per approvazione specifica" /> : <i>La firma sarà riportata qui dopo la conferma.</i>}</div>;
 }
 
@@ -455,7 +530,7 @@ function croppedSignature(canvas: HTMLCanvasElement) {
 /** Scrittura privata: testo già compilato, intestazioni in maiuscolo centrate
  *  e data della firma in fondo, come nel modello cartaceo. */
 function PrivateDeedDocument({ body, signedAt }: { body: string; signedAt?: string | null }) {
-  const date = signedAt ? new Date(signedAt).toLocaleDateString("it-IT") : "________________";
+  const date = signedAt ? contractSignatureDate(signedAt) : "________________";
   const lines = fillBody(body, [], {}, true).split("\n").map((line) => line.trim()).filter(Boolean);
   return (
     <div className="firma-doc">
