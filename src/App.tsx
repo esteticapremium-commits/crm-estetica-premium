@@ -26,6 +26,14 @@ const Kpi = lazyPage(() => import("./pages/Kpi"));
 const TeamActivity = lazyPage(() => import("./pages/TeamActivity"));
 
 type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team";
+const sharedTabs: Tab[] = ["board", "sales", "kpi", "tasks", "calendar", "control", "contracts"];
+const adminTabs: Tab[] = ["admin", "editorial", "personal", "team"];
+function readNavigation(key: string) {
+  try { return window.sessionStorage.getItem(key); } catch { return null; }
+}
+function saveNavigation(key: string, value: string) {
+  try { window.sessionStorage.setItem(key, value); } catch { /* Lo storage non blocca la navigazione. */ }
+}
 type NavIconName = "home" | "pipeline" | "tasks" | "calendar" | "sales" | "kpi" | "contracts" | "company" | "editorial" | "revenue" | "comp" | "settings";
 
 function NavIcon({ name }: { name: NavIconName }) {
@@ -77,6 +85,8 @@ class ModuleBoundary extends Component<{ children: ReactNode; resetKey?: string 
 export default function App() {
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>("control");
+  const [navigationOwner, setNavigationOwner] = useState<string | null>(null);
+  const navigationKey = auth.userId && auth.profile ? `ep-navigation:${auth.userId}:${auth.profile.role}` : null;
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string | null>(null);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -121,11 +131,27 @@ export default function App() {
     };
   }, [tab]);
 
-  // Il venditore entra direttamente nella sua bacheca: qui lavora i lead.
-  // La Panoramica rimane disponibile dal menu per seguire l'andamento generale.
+  // Ripristina solo sezioni consentite dopo aver identificato l'utente.
+  // Ogni scheda del browser mantiene la propria posizione.
   useEffect(() => {
-    if (auth.profile?.role === "venditore") setTab("board");
-  }, [auth.profile?.role]);
+    if (!navigationKey) { setNavigationOwner(null); return; }
+    const saved = readNavigation(navigationKey) as Tab | null;
+    const allowed = [...sharedTabs, ...(auth.profile?.role === "admin" ? adminTabs : [])];
+    setTab(saved && allowed.includes(saved) ? saved : auth.profile?.role === "venditore" ? "board" : "control");
+    setNavigationOwner(navigationKey);
+  }, [navigationKey]);
+
+  useEffect(() => {
+    if (navigationKey && navigationOwner === navigationKey && !/^#\/firma\//.test(window.location.hash)) {
+      saveNavigation(navigationKey, tab);
+    }
+  }, [navigationKey, navigationOwner, tab]);
+
+  useEffect(() => {
+    if (navigationKey && navigationOwner === navigationKey && clientId && pipelineId && pipelines.some((p) => p.id === pipelineId && p.client_id === clientId)) {
+      saveNavigation(`${navigationKey}:pipeline:${clientId}`, pipelineId);
+    }
+  }, [navigationKey, navigationOwner, clientId, pipelineId, pipelines]);
 
   // Ricerca globale: per nome o telefono, su tutti i lead visibili
   useEffect(() => {
@@ -209,10 +235,11 @@ export default function App() {
       .then(({ data }) => {
         const list = (data as Pipeline[]) ?? [];
         setPipelines(list);
-        setPipelineId((prev) => (list.find((p) => p.id === prev) ? prev : list[0]?.id ?? null));
+        const saved = navigationKey ? readNavigation(`${navigationKey}:pipeline:${clientId}`) : null;
+        setPipelineId((prev) => (list.find((p) => p.id === prev) ? prev : list.find((p) => p.id === saved)?.id ?? list[0]?.id ?? null));
       })
       .catch((reason) => setWorkspaceError(reason instanceof Error ? reason.message : "Pipeline non disponibile."));
-  }, [clientId]);
+  }, [clientId, navigationKey]);
 
   if (!isSupabaseConfigured) {
     return <div className="center-msg">Configurazione mancante. Imposta <b>VITE_SUPABASE_URL</b> e <b>VITE_SUPABASE_ANON_KEY</b> nelle variabili d’ambiente di Vercel.</div>;
@@ -225,7 +252,7 @@ export default function App() {
     return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento documento…</div>}><FirmaPage token={firmaMatch[1]} /></Suspense></ModuleBoundary>;
   }
 
-  if (auth.loading) {
+  if (auth.loading || (navigationKey && navigationOwner !== navigationKey)) {
     return <div className="center-msg">Caricamento…</div>;
   }
   if (auth.error) {
