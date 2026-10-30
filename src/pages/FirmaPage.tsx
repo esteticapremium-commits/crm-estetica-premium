@@ -43,6 +43,7 @@ export default function FirmaPage({ token }: { token: string }) {
   // reale prima di consentire la conferma del documento.
   const hasInk = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  const activeTouch = useRef<number | null>(null);
 
   async function unavailableLinkMessage() {
     try {
@@ -131,39 +132,76 @@ export default function FirmaPage({ token }: { token: string }) {
     ctx.strokeStyle = "#0b0b0b";
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, w, 160);
+    // Listener non passivi: Safari e i browser in-app non devono trasformare
+    // il tratto in scroll/zoom. Il mouse e la penna usano invece Pointer Events.
+    c.addEventListener("touchstart", (event) => {
+      event.preventDefault();
+      if (activeTouch.current !== null) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      activeTouch.current = touch.identifier;
+      beginStroke(touch.clientX, touch.clientY, c);
+    }, { passive: false });
+    c.addEventListener("touchmove", (event) => {
+      event.preventDefault();
+      const touch = Array.from(event.changedTouches).find((item) => item.identifier === activeTouch.current);
+      if (touch) extendStroke(touch.clientX, touch.clientY, c);
+    }, { passive: false });
+    const finishTouch = (event: TouchEvent) => {
+      event.preventDefault();
+      const touch = Array.from(event.changedTouches).find((item) => item.identifier === activeTouch.current);
+      if (!touch) return;
+      if (event.type === "touchend") extendStroke(touch.clientX, touch.clientY, c);
+      activeTouch.current = null;
+      up();
+    };
+    c.addEventListener("touchend", finishTouch, { passive: false });
+    c.addEventListener("touchcancel", finishTouch, { passive: false });
   }
 
-  function pos(e: React.PointerEvent, c: HTMLCanvasElement) {
+  function pos(clientX: number, clientY: number, c: HTMLCanvasElement) {
     const r = c.getBoundingClientRect();
-    // Conserva le coordinate del bitmap anche dopo rotazione/resize mobile.
     const scale = c.getContext("2d")!.getTransform();
     return {
-      x: (e.clientX - r.left) * c.width / r.width / scale.a,
-      y: (e.clientY - r.top) * c.height / r.height / scale.d,
+      x: (clientX - r.left) * c.width / r.width / scale.a,
+      y: (clientY - r.top) * c.height / r.height / scale.d,
     };
   }
-  function down(e: React.PointerEvent) {
-    const c = canvasRef.current!;
+  function beginStroke(clientX: number, clientY: number, c: HTMLCanvasElement) {
     drawing.current = true;
-    c.setPointerCapture(e.pointerId);
-    const { x, y } = pos(e, c);
+    const { x, y } = pos(clientX, clientY, c);
     const ctx = c.getContext("2d")!;
     ctx.beginPath();
     ctx.moveTo(x, y);
     lastPoint.current = { x, y };
   }
-  function move(e: React.PointerEvent) {
+  function extendStroke(clientX: number, clientY: number, c: HTMLCanvasElement) {
     if (!drawing.current) return;
-    const c = canvasRef.current!;
-    const { x, y } = pos(e, c);
+    const { x, y } = pos(clientX, clientY, c);
     const ctx = c.getContext("2d")!;
     ctx.lineTo(x, y);
     ctx.stroke();
     const previous = lastPoint.current;
-    if (previous && Math.hypot(x - previous.x, y - previous.y) > 1) {
-      hasInk.current = true;
-    }
+    if (previous && Math.hypot(x - previous.x, y - previous.y) > 1) hasInk.current = true;
     lastPoint.current = { x, y };
+  }
+  function down(e: React.PointerEvent) {
+    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    const c = canvasRef.current!;
+    beginStroke(e.clientX, e.clientY, c);
+    // La cattura non è disponibile in alcuni browser incorporati.
+    // Un suo errore non deve impedire l'inizio del tratto.
+    try { c.setPointerCapture(e.pointerId); } catch { /* Continua nel riquadro. */ }
+  }
+  function move(e: React.PointerEvent) {
+    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    extendStroke(e.clientX, e.clientY, canvasRef.current!);
+  }
+  function endPointer(e: React.PointerEvent) {
+    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    up();
   }
   function up() {
     drawing.current = false;
@@ -188,7 +226,8 @@ export default function FirmaPage({ token }: { token: string }) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, c.width, c.height);
     hasInk.current = false;
-    lastPoint.current = null;
+    activeTouch.current = null;
+    up();
   }
 
   async function sign() {
@@ -430,9 +469,9 @@ export default function FirmaPage({ token }: { token: string }) {
                     className="firma-canvas"
                     onPointerDown={down}
                     onPointerMove={move}
-                    onPointerUp={up}
-                    onPointerLeave={up}
-                    onPointerCancel={up}
+                    onPointerUp={endPointer}
+                    onPointerLeave={endPointer}
+                    onPointerCancel={endPointer}
                     aria-label="Disegna la tua firma"
                   />
                   <button

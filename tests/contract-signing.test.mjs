@@ -48,13 +48,13 @@ function signingHarness(rpc) {
     useEffect() {},
   };
   const source = readFileSync(new URL('../src/pages/FirmaPage.tsx', import.meta.url), 'utf8')
-    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, canvasRef, hasInk, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
+    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, canvasRef, hasInk, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
   const component = compile(source, {
     react,
     '../supabaseClient': { supabase: { rpc } },
     '../contractSigning': helpers,
     '../contractPdf': { isPrivateDeed: () => false, fillBody: () => '', splitContractClosing: () => ({ main: '', approval: '' }) },
-  }).default;
+  }, { window: { devicePixelRatio: 2 } }).default;
   const render = () => { stateIndex = refIndex = 0; return component({ token: 'test-token' }); };
   let api = render();
   api.setDoc({ ...signed, status: 'sent', signature_data: null });
@@ -196,4 +196,57 @@ test('i dati e la firma inviati sono quelli compilati dal cliente', async () => 
   assert.equal(payload.p_name, 'Cliente Test');
   assert.equal(payload.p_sig, signed.signature_data);
   assert.equal(JSON.parse(payload.p_data).PEC, 'test@pec.example');
+});
+
+function drawingHarness() {
+  const render = signingHarness(async () => ({ data: false }));
+  const listeners = {}, strokes = [];
+  const ctx = { scale() {}, getTransform: () => ({ a: 2, d: 2 }),
+    fillRect() {}, beginPath() {}, moveTo() {}, lineTo: (x, y) => strokes.push([x, y]), stroke() {} };
+  const canvas = { clientWidth: 400, width: 0, height: 0, getContext: () => ctx,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 80 }),
+    addEventListener: (name, handler, options) => { assert.equal(options.passive, false); listeners[name] = handler; },
+    setPointerCapture() { throw new Error('capture unsupported'); } };
+  render().hasInk.current = false;
+  render().setupCanvas(canvas);
+  const touch = (type, x, y, identifier = 1) => {
+    let prevented = false;
+    listeners[type]({ type, changedTouches: [{ identifier, clientX: x, clientY: y }], preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+  };
+  return { render, touch, strokes };
+}
+
+test('touch mobile disegna con coordinate corrette anche dopo resize e salva la presenza di inchiostro', () => {
+  const { render, touch, strokes } = drawingHarness();
+  touch('touchstart', 10, 10);
+  assert.equal(render().hasInk.current, false);
+  touch('touchmove', 30, 20);
+  assert.deepEqual(strokes[0], [60, 40]);
+  assert.equal(render().hasInk.current, true);
+  touch('touchend', 40, 25);
+  render().clear();
+  assert.equal(render().hasInk.current, false);
+});
+
+test('pointercancel touch non interrompe la firma nativa; secondo dito ignorato', () => {
+  const { render, touch, strokes } = drawingHarness();
+  touch('touchstart', 10, 10);
+  render().endPointer({ pointerType: 'touch' });
+  touch('touchmove', 20, 20, 2);
+  assert.equal(strokes.length, 0);
+  touch('touchmove', 20, 20);
+  assert.equal(render().hasInk.current, true);
+  touch('touchcancel', 20, 20);
+  const count = strokes.length;
+  touch('touchmove', 40, 40);
+  assert.equal(strokes.length, count);
+});
+
+test('mouse continua a disegnare anche se setPointerCapture fallisce', () => {
+  const { render, strokes } = drawingHarness();
+  render().down({ pointerType: 'mouse', button: 0, clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
+  render().move({ pointerType: 'mouse', clientX: 30, clientY: 20 });
+  assert.equal(strokes.length, 1);
+  assert.equal(render().hasInk.current, true);
 });
