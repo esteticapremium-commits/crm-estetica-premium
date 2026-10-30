@@ -48,7 +48,7 @@ function signingHarness(rpc) {
     useEffect() {},
   };
   const source = readFileSync(new URL('../src/pages/FirmaPage.tsx', import.meta.url), 'utf8')
-    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, canvasRef, hasInk, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
+    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, setGeneralApproval, canvasRef, hasInk, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
   const component = compile(source, {
     react,
     '../supabaseClient': { supabase: { rpc } },
@@ -270,4 +270,22 @@ test('dati aziendali vuoti non bloccano la firma e non vengono inventati', async
   await render().sign();
   assert.equal(render().ok, true);
   assert.equal(JSON.parse(payload.p_data).PEC, undefined);
+});
+
+test('accettazione generale solo sui contratti configurati, obbligatoria e salvata separatamente', async () => {
+  let payload;
+  const render = signingHarness(async (name, args) => {
+    if (name === 'sign_contract') { payload = args; return { data: true, error: null }; }
+    return { data: [signed], error: null };
+  });
+  assert.equal(helpers.requiresGeneralAcceptance(null), false);
+  assert.equal(helpers.requiresGeneralAcceptance('bad json'), false);
+  render().setDoc({ ...signed, status: 'draft', client_data: '{"__requires_general_acceptance":true}' });
+  await render().sign();
+  assert.equal(payload, undefined);
+  assert.match(render().err, /accettato le condizioni/);
+  render().setGeneralApproval(true);
+  await render().sign();
+  assert.equal(JSON.parse(payload.p_data).__accettazione_condizioni, 'accettata');
+  assert.equal(JSON.parse(payload.p_data).__approvazione_specifica_1341_1342, 'non prevista');
 });

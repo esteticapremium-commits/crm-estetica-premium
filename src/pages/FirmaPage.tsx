@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
-import { contractLinkMessage, isVerifiedSignedContract } from "../contractSigning";
+import { contractLinkMessage, isVerifiedSignedContract, requiresGeneralAcceptance } from "../contractSigning";
 
 interface ContractPub {
   id: string;
@@ -31,6 +31,7 @@ export default function FirmaPage({ token }: { token: string }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [specificApproval, setSpecificApproval] = useState(false);
+  const [generalApproval, setGeneralApproval] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmationPending, setConfirmationPending] = useState(false);
@@ -114,6 +115,7 @@ export default function FirmaPage({ token }: { token: string }) {
     .filter(Boolean);
   const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, false));
   const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
+  const needsGeneralApproval = requiresGeneralAcceptance(doc?.client_data);
   const deed = isPrivateDeed(doc?.body);
   const deedClientName = deed ? privateDeedClientName(doc?.body) : "";
 
@@ -239,6 +241,7 @@ export default function FirmaPage({ token }: { token: string }) {
     if (draftParts.approval && !specificApproval) {
       return setErr("Conferma anche l'approvazione specifica delle clausole indicate nel contratto.");
     }
+    if (needsGeneralApproval && !generalApproval) return setErr("Conferma di aver letto e accettato le condizioni del contratto.");
     const c = canvasRef.current;
     if (!c) return;
     submitting.current = true;
@@ -250,7 +253,7 @@ export default function FirmaPage({ token }: { token: string }) {
       p_token: token,
       p_name: name.trim(),
       p_sig: data,
-      p_data: JSON.stringify({ ...values, __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
+      p_data: JSON.stringify({ ...values, ...(needsGeneralApproval ? { __requires_general_acceptance: true, __accettazione_condizioni: "accettata" } : {}), __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
     });
     if (error) {
       // In caso di risposta persa, la transazione potrebbe essere riuscita.
@@ -481,6 +484,7 @@ export default function FirmaPage({ token }: { token: string }) {
                     Cancella firma
                   </button>
                 </div>
+                {needsGeneralApproval && <label className="specific-approval-check"><input type="checkbox" checked={generalApproval} disabled={busy || confirmationPending} onChange={(event) => setGeneralApproval(event.target.checked)} /><span>Ho letto e accetto le condizioni del contratto.</span></label>}
                 {draftParts.approval && <label className="specific-approval-check"><input type="checkbox" checked={specificApproval} onChange={(event) => setSpecificApproval(event.target.checked)} /><span>Dichiaro di approvare specificamente le clausole richiamate ai sensi degli artt. 1341 e 1342 c.c. La firma disegnata sopra sarà applicata anche al relativo riquadro.</span></label>}
                 {err && <div className="notice err" role="alert" ref={errorRef}>{err}</div>}
                 {confirmationPending && <button className="btn" onClick={() => void verifySignature()} disabled={busy} style={{ width: "100%", marginBottom: 12 }}>{busy ? "Verifica in corso…" : "Verifica firma"}</button>}

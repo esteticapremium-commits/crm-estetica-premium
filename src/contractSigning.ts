@@ -14,3 +14,8 @@ export function isVerifiedSignedContract(doc: {
 } | null | undefined): boolean {
   return Boolean(doc?.status === "signed" && doc.signed_at && doc.signed_name?.trim() && doc.signature_data?.startsWith("data:image/png;base64,"));
 }
+
+export function requiresGeneralAcceptance(clientData: string | null | undefined): boolean {
+  try { return JSON.parse(clientData || "{}")?.__requires_general_acceptance === true; }
+  catch { return false; }
+}
