@@ -233,9 +233,6 @@ export default function FirmaPage({ token }: { token: string }) {
   async function sign() {
     if (submitting.current || confirmationPending) return;
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
-    for (const f of fields) {
-      if (!(values[f] ?? "").trim()) return setErr(`Compila il campo: ${f}`);
-    }
     if (!hasInk.current) {
       return setErr(deed ? "Disegna la firma nel riquadro prima di confermare la scrittura privata." : "Disegna la firma nel riquadro prima di confermare il contratto.");
     }
@@ -409,10 +406,10 @@ export default function FirmaPage({ token }: { token: string }) {
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
-                    <div className="firma-step"><span>01</span><div><b>Verifica i dati aziendali</b><small>Servono per completare correttamente l’accordo.</small></div></div>
+                    <div className="firma-step"><span>01</span><div><b>Verifica i dati aziendali</b><small>Compila i dati disponibili: questi campi sono facoltativi.</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f}</label>
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>(facoltativo)</small></label>
                         <input
                           id={`contract-field-${fields.indexOf(f)}`}
                           disabled={busy || confirmationPending}

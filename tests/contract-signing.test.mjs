@@ -166,7 +166,7 @@ test('PDF non interpola markup nell’immagine della firma', () => {
 });
 
 
-test('nome, campi obbligatori e disegno sono necessari prima di chiamare il server', async () => {
+test('nome e disegno restano necessari anche con dati aziendali facoltativi', async () => {
   let calls = 0;
   const render = signingHarness(async () => { calls++; return { data: true, error: null }; });
   render().setName('   ');
@@ -174,9 +174,6 @@ test('nome, campi obbligatori e disegno sono necessari prima di chiamare il serv
   assert.match(render().err, /nome e cognome/);
   render().setName('Cliente');
   render().setDoc({ ...signed, status: 'sent', client_fields: 'PEC' });
-  await render().sign();
-  assert.match(render().err, /Compila il campo: PEC/);
-  render().setValues({ PEC: 'test@pec.example' });
   render().hasInk.current = false;
   await render().sign();
   assert.match(render().err, /Disegna la firma/);
@@ -260,4 +257,17 @@ test('browser mobile con soli Pointer Events: il dito disegna senza Touch Events
   render().endPointer({ pointerType: 'touch' });
   render().move({ pointerType: 'touch', clientX: 40, clientY: 30 });
   assert.equal(strokes.length, 1);
+});
+
+test('dati aziendali vuoti non bloccano la firma e non vengono inventati', async () => {
+  let payload;
+  const render = signingHarness(async (name, args) => {
+    if (name === 'sign_contract') { payload = args; return { data: true, error: null }; }
+    return { data: [signed], error: null };
+  });
+  render().setDoc({ ...signed, status: 'sent', client_fields: 'PEC\nPartita IVA\nSede legale' });
+  render().setValues({});
+  await render().sign();
+  assert.equal(render().ok, true);
+  assert.equal(JSON.parse(payload.p_data).PEC, undefined);
 });
