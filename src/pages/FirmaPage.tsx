@@ -186,7 +186,7 @@ export default function FirmaPage({ token }: { token: string }) {
     lastPoint.current = { x, y };
   }
   function down(e: React.PointerEvent) {
-    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    if (activeTouch.current !== null) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     const c = canvasRef.current!;
@@ -196,11 +196,11 @@ export default function FirmaPage({ token }: { token: string }) {
     try { c.setPointerCapture(e.pointerId); } catch { /* Continua nel riquadro. */ }
   }
   function move(e: React.PointerEvent) {
-    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    if (activeTouch.current !== null) return;
     extendStroke(e.clientX, e.clientY, canvasRef.current!);
   }
   function endPointer(e: React.PointerEvent) {
-    if (e.pointerType === "touch" || activeTouch.current !== null) return;
+    if (activeTouch.current !== null) return;
     up();
   }
   function up() {
@@ -437,7 +437,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   <>
                     <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
                     <Document body={draftParts.main} />
-                    <ContractSignatureBox values={values} />
+                    <ContractSignatureBox values={values} onDraw={() => canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} />
                     {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature /></>}
                   </>
                 )}
@@ -463,10 +463,11 @@ export default function FirmaPage({ token }: { token: string }) {
                   )}
                 </div>
                 <div className="field">
-                  <label>Firma (disegna qui con il dito o il mouse)</label>
+                  <label>Disegna la firma nel riquadro bordeaux qui sotto</label>
                   <canvas
                     ref={setupCanvas}
                     className="firma-canvas"
+                    style={{ touchAction: "none", userSelect: "none", border: "2px solid #68132f" }}
                     onPointerDown={down}
                     onPointerMove={move}
                     onPointerUp={endPointer}
@@ -515,13 +516,13 @@ export default function FirmaPage({ token }: { token: string }) {
   );
 }
 
-function ContractSignatureBox({ values, signedName, signature, signedAt }: { values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
+function ContractSignatureBox({ values, signedName, signature, signedAt, onDraw }: { onDraw?: () => void; values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
   const company = values["Ragione sociale del committente"] || "____________________________";
   const signer = signedName || values["Rappresentante legale del committente"] || "____________________________";
   const date = signedAt ? contractSignatureDate(signedAt) : "____________________________";
   return (
     <div className="contract-signature-box">
-      <div className="signature-cell"><b>Committente</b><span>Nome</span><strong>{signer}</strong><span>Ragione sociale</span><strong>{company}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : <i /> }<span>Data</span><strong>{date}</strong></div>
+      <div className="signature-cell"><b>Committente</b><span>Nome</span><strong>{signer}</strong><span>Ragione sociale</span><strong>{company}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : onDraw ? <button type="button" className="btn" onClick={onDraw}>Tocca qui per andare al riquadro firma</button> : <i /> }<span>Data</span><strong>{date}</strong></div>
       <div className="signature-cell collaborator"><b>Collaboratore</b><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" /><span>Data</span><strong>{date}</strong></div>
     </div>
   );

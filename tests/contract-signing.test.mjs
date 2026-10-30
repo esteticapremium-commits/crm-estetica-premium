@@ -250,3 +250,14 @@ test('mouse continua a disegnare anche se setPointerCapture fallisce', () => {
   assert.equal(strokes.length, 1);
   assert.equal(render().hasInk.current, true);
 });
+
+test('browser mobile con soli Pointer Events: il dito disegna senza Touch Events', () => {
+  const { render, strokes } = drawingHarness();
+  render().down({ pointerType: 'touch', button: 0, clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
+  render().move({ pointerType: 'touch', clientX: 30, clientY: 20 });
+  assert.equal(strokes.length, 1);
+  assert.equal(render().hasInk.current, true);
+  render().endPointer({ pointerType: 'touch' });
+  render().move({ pointerType: 'touch', clientX: 40, clientY: 30 });
+  assert.equal(strokes.length, 1);
+});
