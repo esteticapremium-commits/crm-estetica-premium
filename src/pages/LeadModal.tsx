@@ -219,6 +219,7 @@ export default function LeadModal({
   const [revenueContractValue, setRevenueContractValue] = useState("");
   const [revenueAt, setRevenueAt] = useState(() => localDateTime(new Date()));
   const [revenueNote, setRevenueNote] = useState("");
+  const [revenueSaved, setRevenueSaved] = useState("");
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -450,52 +451,58 @@ export default function LeadModal({
   async function recordRevenue() {
     if (!lead || !canRecordRevenue || revenueLock.current) return;
     if (!Number.isFinite(Number(revenueAmount)) || Number(revenueAmount) <= 0 || !revenueAt || !Number.isFinite(new Date(revenueAt).getTime())) return setErr("Inserisci importo incassato, data e ora.");
-    revenueLock.current = true; setBusy(true); setErr(null);
-    const amount = Number(revenueAmount);
-    const occurredAt = new Date(revenueAt).toISOString();
-    // Stesso lead, stesso tipo, stesso momento e stesso importo = stesso incasso.
-    // Il reinvio della stessa registrazione non aggiunge una seconda riga.
-    const key = revenueKey(lead.id, revenueType, occurredAt, amount);
-    const result = await supabase.from("sales_revenue_events").upsert({
-      client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
-      revenue_type: revenueType, amount, contract_value: Number(revenueContractValue) || null,
-      status: "collected", occurred_at: occurredAt, assigned_to: lead.assigned_to || meName || null,
-      created_by: meName || null, note: revenueNote.trim() || null, event_key: key,
-    }, { onConflict: "client_id,event_key", ignoreDuplicates: !admin });
-    if (result.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
-    // La prima cauzione/incasso nuovo rende la vendita vinta. Lo scriviamo
-    // automaticamente nello storico: l'amministratore non deve compilare un
-    // secondo esito e un nuovo tentativo con la stessa chiave non duplica nulla.
-    if (revenueType === "new") {
-      const wonResult = await supabase.from("lead_activities").upsert({
-        lead_id: lead.id,
-        client_id: lead.client_id,
-        pipeline_id: lead.pipeline_id,
-        activity_type: "meeting",
-        event_type: "sale_outcome",
-        channel: "other",
-        call_type: "lead",
-        outcome: "won",
-        amount,
-        occurred_at: occurredAt,
-        note: revenueNote.trim() || "Vendita vinta con incasso registrato",
-        created_by: meName || null,
-        event_key: `revenue-won:${key}`,
-      }, { onConflict: "client_id,event_key" });
-      if (wonResult.error) {
-        revenueLock.current = false; setBusy(false);
-        return setErr("Incasso registrato, ma la chiusura vinta non è entrata nello storico: " + wonResult.error.message);
+    revenueLock.current = true; setBusy(true); setErr(null); setRevenueSaved("");
+    try {
+      const amount = Number(revenueAmount);
+      const occurredAt = new Date(revenueAt).toISOString();
+      // Stesso lead, stesso tipo, stesso momento e stesso importo = stesso incasso.
+      // Il reinvio della stessa registrazione non aggiunge una seconda riga.
+      const key = revenueKey(lead.id, revenueType, occurredAt, amount);
+      const result = await supabase.from("sales_revenue_events").upsert({
+        client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
+        revenue_type: revenueType, amount, contract_value: Number(revenueContractValue) || null,
+        status: "collected", occurred_at: occurredAt, assigned_to: lead.assigned_to || meName || null,
+        created_by: meName || null, note: revenueNote.trim() || null, event_key: key,
+      }, { onConflict: "client_id,event_key", ignoreDuplicates: !admin });
+      if (result.error) { return setErr("Incasso non registrato: " + result.error.message); }
+      // La prima cauzione/incasso nuovo rende la vendita vinta. Lo scriviamo
+      // automaticamente nello storico: l'amministratore non deve compilare un
+      // secondo esito e un nuovo tentativo con la stessa chiave non duplica nulla.
+      if (revenueType === "new") {
+        const wonResult = await supabase.from("lead_activities").upsert({
+          lead_id: lead.id,
+          client_id: lead.client_id,
+          pipeline_id: lead.pipeline_id,
+          activity_type: "meeting",
+          event_type: "sale_outcome",
+          channel: "other",
+          call_type: "lead",
+          outcome: "won",
+          amount,
+          occurred_at: occurredAt,
+          note: revenueNote.trim() || "Vendita vinta con incasso registrato",
+          created_by: meName || null,
+          event_key: `revenue-won:${key}`,
+        }, { onConflict: "client_id,event_key" });
+        if (wonResult.error) {
+          return setErr("Incasso registrato, ma la chiusura vinta non è entrata nello storico: " + wonResult.error.message);
+        }
       }
+      // Il valore aggiornato resta la previsione corrente del lead. I KPI già
+      // chiusi non cambiano: leggono il valore congelato sul contratto firmato.
+      if (revenueType === "new" && Number(revenueContractValue) > 0) {
+        const valueResult = await supabase.from("leads").update({ value: Number(revenueContractValue) }).eq("id", lead.id);
+        if (valueResult.error) { return setErr("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
+        setValue(String(Number(revenueContractValue)));
+      }
+      setRevenueSaved(`Incasso di ${amount.toLocaleString("it-IT", { style: "currency", currency: "EUR" })} registrato per ${lead.name}. Data incasso: ${new Date(occurredAt).toLocaleString("it-IT")}.`);
+      setRevenueAmount(""); setRevenueContractValue(""); setRevenueNote(""); setRevenueAt(localDateTime(new Date()));
+      onUpdated?.();
+    } catch (error) {
+      setErr(`Non è stato possibile confermare il salvataggio. Mantieni importo e data invariati prima di riprovare: ${error instanceof Error ? error.message : "errore di connessione"}`);
+    } finally {
+      revenueLock.current = false; setBusy(false);
     }
-    // Il valore aggiornato resta la previsione corrente del lead. I KPI già
-    // chiusi non cambiano: leggono il valore congelato sul contratto firmato.
-    if (revenueType === "new" && Number(revenueContractValue) > 0) {
-      const valueResult = await supabase.from("leads").update({ value: Number(revenueContractValue) }).eq("id", lead.id);
-      if (valueResult.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
-      setValue(String(Number(revenueContractValue)));
-    }
-    revenueLock.current = false; setBusy(false);
-    setRevenueAmount(""); setRevenueContractValue(""); setRevenueNote(""); setRevenueAt(localDateTime(new Date()));
   }
 
   // placeholders del modello selezionato
@@ -1048,6 +1055,9 @@ export default function LeadModal({
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
               <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
+              {revenueSaved && <div className="commercial-saved" role="status">✓ {revenueSaved}</div>}
+              {err?.includes("Incasso") && <div className="notice err" role="alert">{err}</div>}
+              <p className="muted">Per salvare il pagamento premi «Registra incasso». Il pulsante «Salva» in fondo aggiorna solo la scheda lead.</p>
               <button className="btn primary tracker-save" type="button" disabled={busy || !revenueAmount} onClick={() => void recordRevenue()}>{busy ? "Registrazione…" : "Registra incasso"}</button>
             </div>
           )}
