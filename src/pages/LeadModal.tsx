@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { withTimeout } from "../async";
 import { romeStamp } from "../dates";
 import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
@@ -141,6 +142,17 @@ export default function LeadModal({
   onUpdated,
 }: Props) {
   const isNew = !lead;
+  const [canRecordRevenue, setCanRecordRevenue] = useState(admin);
+  useEffect(() => {
+    let active = true;
+    setCanRecordRevenue(admin);
+    if (!admin) {
+      void withTimeout(supabase.rpc("can_record_revenue", {}))
+        .then(({ data, error }) => { if (active) setCanRecordRevenue(!error && data === true); })
+        .catch(() => { if (active) setCanRecordRevenue(false); });
+    }
+    return () => { active = false; };
+  }, [admin]);
   const originalPipelineId = lead?.pipeline_id ?? pipelineId ?? "";
   const [selectedPipelineId, setSelectedPipelineId] = useState(originalPipelineId);
   const [availablePipelines, setAvailablePipelines] = useState<Pipeline[]>([]);
@@ -436,20 +448,20 @@ export default function LeadModal({
   }
 
   async function recordRevenue() {
-    if (!lead || revenueLock.current) return;
-    if (Number(revenueAmount) <= 0 || !revenueAt) return setErr("Inserisci importo incassato, data e ora.");
+    if (!lead || !canRecordRevenue || revenueLock.current) return;
+    if (!Number.isFinite(Number(revenueAmount)) || Number(revenueAmount) <= 0 || !revenueAt || !Number.isFinite(new Date(revenueAt).getTime())) return setErr("Inserisci importo incassato, data e ora.");
     revenueLock.current = true; setBusy(true); setErr(null);
     const amount = Number(revenueAmount);
     const occurredAt = new Date(revenueAt).toISOString();
     // Stesso lead, stesso tipo, stesso momento e stesso importo = stesso incasso.
-    // Un secondo pagamento reale differisce sempre per importo o per orario.
+    // Il reinvio della stessa registrazione non aggiunge una seconda riga.
     const key = revenueKey(lead.id, revenueType, occurredAt, amount);
     const result = await supabase.from("sales_revenue_events").upsert({
       client_id: lead.client_id, pipeline_id: lead.pipeline_id, lead_id: lead.id,
       revenue_type: revenueType, amount, contract_value: Number(revenueContractValue) || null,
       status: "collected", occurred_at: occurredAt, assigned_to: lead.assigned_to || meName || null,
       created_by: meName || null, note: revenueNote.trim() || null, event_key: key,
-    }, { onConflict: "client_id,event_key" });
+    }, { onConflict: "client_id,event_key", ignoreDuplicates: !admin });
     if (result.error) { revenueLock.current = false; setBusy(false); return setErr("Incasso non registrato: " + result.error.message); }
     // La prima cauzione/incasso nuovo rende la vendita vinta. Lo scriviamo
     // automaticamente nello storico: l'amministratore non deve compilare un
@@ -911,7 +923,7 @@ export default function LeadModal({
                 <p className="quick-closing-explanation">{openDemo ? "L’esito aggiornerà la closing già presente in agenda." : "La closing verrà registrata come non pianificata: conterà nelle closing svolte e nel CR, ma non nello show-up."}</p>
                 {closingAction === "held" && <><label>Durata closing</label><div className="duration-chips">{[15, 30, 45, 60, 75, 90].map((minutes) => <button type="button" key={minutes} className={closingMinutes === String(minutes) ? "active" : ""} onClick={() => setClosingMinutes(String(minutes))}>{minutes} min</button>)}</div></>}
                 <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={commercialNote} onChange={(e) => setCommercialNote(e.target.value)} placeholder="Esito o dettaglio utile" /></div>
-                {closingAction === "held" && admin && <p className="quick-closing-explanation"><b>Se il lead ha pagato:</b> dopo questo passaggio registra sotto l’incasso nuovo. La prima cauzione lo segnerà automaticamente come vendita vinta.</p>}
+                {closingAction === "held" && canRecordRevenue && <p className="quick-closing-explanation"><b>Se il lead ha pagato:</b> dopo questo passaggio registra sotto l’incasso nuovo. La prima cauzione lo segnerà automaticamente come vendita vinta.</p>}
                 <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setClosingAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordClosingOutcome(closingAction)}>{busy ? "Salvataggio…" : "Conferma esito closing"}</button></div>
               </div>}
               {activitySaved && <div className="commercial-saved">✓ {activitySaved}</div>}
@@ -1030,9 +1042,9 @@ export default function LeadModal({
               />
             </div>
           </div>
-          {!isNew && admin && (
+          {!isNew && canRecordRevenue && (
             <div className="activity-box revenue-tracker">
-              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Riservato all’amministratore.</p></div><span>€</span></div>
+              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Registra soltanto pagamenti effettivamente ricevuti.</p></div><span>€</span></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
               <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
               <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
