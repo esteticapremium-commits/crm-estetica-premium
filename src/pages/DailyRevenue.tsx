@@ -4,7 +4,7 @@ import { romeToday } from "../dates";
 import { withTimeout } from "../async";
 import "./DailyRevenue.css";
 
-const MONTHLY_GOALS: Record<string, number> = { "2026-10": 10000 };
+const MONTHLY_GOALS: Record<string, number> = { "2026-10": 10000, "2026-11": 20000 };
 const euros = (value: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
 
 /** Company totals only: never fetch other sellers' individual financial records. */
