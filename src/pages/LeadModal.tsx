@@ -1,3 +1,4 @@
+import { appendLeadNote } from "../leadNotes";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
@@ -143,6 +144,44 @@ export default function LeadModal({
   onUpdated,
 }: Props) {
   const isNew = !lead;
+  const [section, setSection] = useState("work");
+  const [actionGroup, setActionGroup] = useState(stages.find(s => s.id === lead?.stage_id)?.name === "CLOSING" ? "closing" : stages.find(s => s.id === lead?.stage_id)?.name === "DISCOVERY" ? "discovery" : "contact");
+  const [selectedAppointment, setSelectedAppointment] = useState("");
+  const [noteSaved, setNoteSaved] = useState("");
+  const [payments, setPayments] = useState<SalesRevenueEvent[]>([]);
+  const [paymentsError, setPaymentsError] = useState("");
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [followUps, setFollowUps] = useState<SalesTask[]>([]);
+  async function reloadFollowUps() {
+    if (!lead) return;
+    const result = await supabase.from("sales_tasks").select("*").eq("lead_id", lead.id).is("completed_at", null).is("appointment_type", null).order("due_at");
+    if (result.error) { setErr("Richiami non disponibili: " + result.error.message); return; }
+    setFollowUps((result.data || []) as SalesTask[]);
+  }
+  async function reloadPayments() {
+    if (!lead) return;
+    setPaymentsLoading(true);
+    const result = await supabase.from("sales_revenue_events").select("*").eq("lead_id", lead.id).order("occurred_at", { ascending: false });
+    setPaymentsLoading(false);
+    setPaymentsError(result.error ? "Elenco incassi non disponibile: " + result.error.message : "");
+    if (!result.error) setPayments((result.data || []) as SalesRevenueEvent[]);
+  }
+  async function completeFollowUp(task: SalesTask) {
+    setBusy(true); setErr(null);
+    try {
+      const result = await supabase.from("sales_tasks").update({ completed_at: new Date().toISOString(), completed_by: meName || null }).eq("id", task.id).is("completed_at", null);
+      if (result.error) throw result.error;
+      const remaining = await supabase.from("sales_tasks").select("due_at,appointment_status").eq("lead_id", task.lead_id).is("completed_at", null).order("due_at");
+      if (remaining.error) throw remaining.error;
+      const next = remaining.data?.find(t => !["cancelled", "held", "no_show"].includes(t.appointment_status || ""))?.due_at;
+      const nextDay = next ? new Date(next).toLocaleDateString("en-CA", {timeZone:"Europe/Rome"}) : null;
+      const updated = await supabase.from("leads").update({ next_action_date: nextDay }).eq("id", task.lead_id);
+      if (updated.error) throw updated.error;
+      setNextAction(nextDay || ""); await reloadFollowUps(); onUpdated?.();
+    } catch (error) { setErr(error instanceof Error ? error.message : "Richiamo non aggiornato."); }
+    finally { setBusy(false); }
+  }
+
   const [canRecordRevenue, setCanRecordRevenue] = useState(admin);
   useEffect(() => {
     let active = true;
@@ -233,7 +272,8 @@ export default function LeadModal({
     } catch { /* La registrazione resta disponibile se lo storage è disabilitato. */ }
   }, [revenueDraftKey, revenueType, revenueAmount, revenueContractValue, revenueAt, revenueNote]);
   function closeLead() {
-    if (revenueLock.current) return;
+    if (busy || revenueLock.current) return;
+    if ((quickNote.trim() || commercialNote.trim() || planDue) && !confirm("Ci sono note o un prossimo passo non salvati. Vuoi chiudere comunque?")) return;
     if (revenueAmount && !confirm("Questo incasso non è ancora confermato. Chiudere la scheda? La bozza rimane disponibile in questa scheda del browser.")) return;
     onClose();
   }
@@ -315,14 +355,16 @@ export default function LeadModal({
     if (!lead) return;
     void reloadActivityHistory();
     void reloadAppointments();
+    void reloadFollowUps();
   }, [lead?.id]);
+  useEffect(() => { if (section === "payments" && canRecordRevenue) void reloadPayments(); }, [section, lead?.id, canRecordRevenue]);
 
   // Solo gli appuntamenti la cui ora è già passata possono avere un esito: una
   // discovery fissata per la settimana prossima non deve essere chiusa da un
   // "non risponde" registrato oggi.
   const dueAppointments = appointments.filter((task) => !isAppointmentClosed(task) && !task.completed_at && task.appointment_status !== "cancelled" && new Date(task.due_at).getTime() <= Date.now());
-  const openDiscovery = dueAppointments.find((task) => task.appointment_type === "discovery") ?? null;
-  const openDemo = dueAppointments.find((task) => task.appointment_type === "demo") ?? null;
+  const openDiscovery = dueAppointments.find((task) => task.id === selectedAppointment && task.appointment_type === "discovery") ?? (dueAppointments.filter(t => t.appointment_type === "discovery").length === 1 ? dueAppointments.find(t => t.appointment_type === "discovery")! : null);
+  const openDemo = dueAppointments.find((task) => task.id === selectedAppointment && task.appointment_type === "demo") ?? (dueAppointments.filter(t => t.appointment_type === "demo").length === 1 ? dueAppointments.find(t => t.appointment_type === "demo")! : null);
   const activeAppointments = appointments.filter((task) => !isAppointmentClosed(task) && !task.completed_at && task.appointment_status !== "cancelled").sort((a, b) => a.due_at.localeCompare(b.due_at));
   const appointmentAttempts = new Map<string, number>();
   const attemptsByType = { discovery: 0, demo: 0 };
@@ -337,6 +379,7 @@ export default function LeadModal({
     // Solo "in target" e "fuori target" dichiarano una discovery svolta: un
     // recall a cui il cliente risponde e' una chiamata risposta, non una discovery.
     const isDiscovery = ["qualified", "not_qualified"].includes(outcome);
+    if ((isDiscovery || outcome === "no_answer") && dueAppointments.filter(t => t.appointment_type === "discovery").length > 1 && !openDiscovery) return setErr("Seleziona la discovery a cui si riferisce l’esito.");
     const minutes = Number(commercialMinutes) || 0;
     if (["qualified", "not_qualified"].includes(outcome) && minutes <= 0) return setErr("Seleziona la durata della discovery.");
     if (outcome === "lost" && !lostReason.trim()) return setErr("Scegli il motivo della perdita.");
@@ -348,7 +391,7 @@ export default function LeadModal({
     // sola anche se l'esito lo segni da qui invece che dal Calendario.
     const linkedAppointment = isDiscovery || outcome === "no_answer" ? openDiscovery : null;
     if (linkedAppointment) {
-      const tracked = await recordAppointmentOutcome(linkedAppointment, outcome as "qualified" | "not_qualified" | "no_answer", meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
+      const tracked = await recordAppointmentOutcome(linkedAppointment, outcome as "qualified" | "not_qualified" | "no_answer", meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined, commercialNote);
       setBusy(false); commercialActionLock.current = false;
       if (!tracked.ok) return setErr(tracked.error || "Esito non registrato.");
       void reloadAppointments();
@@ -412,8 +455,9 @@ export default function LeadModal({
     // Se la closing esiste in agenda aggiorniamo quella stessa registrazione.
     // In caso contrario salviamo una call non pianificata: entra nelle closing
     // svolte e nel CR, ma non falsa lo show-up perché non aveva un appuntamento.
+    if (dueAppointments.filter(t => t.appointment_type === "demo").length > 1 && !openDemo) { commercialActionLock.current = false; setBusy(false); setErr("Seleziona la closing a cui si riferisce l’esito."); return; }
     if (openDemo) {
-      const tracked = await recordAppointmentOutcome(openDemo, outcome, meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined);
+      const tracked = await recordAppointmentOutcome(openDemo, outcome, meName?.trim() || "", lead.pipeline_id ?? null, minutes || undefined, commercialNote);
       setBusy(false); commercialActionLock.current = false;
       if (!tracked.ok) return setErr(tracked.error || "Esito della closing non registrato.");
       void reloadAppointments();
@@ -514,6 +558,7 @@ export default function LeadModal({
         if (valueResult.error) { return setRevenueError("Incasso registrato, ma valore contratto non aggiornato: " + valueResult.error.message); }
         setValue(String(Number(revenueContractValue)));
       }
+      void reloadPayments();
       setRevenueSaved(`${savedState === "existing" ? "Incasso già presente (nessun doppione)" : "Incasso registrato"}: ${amount.toLocaleString("it-IT", { style: "currency", currency: "EUR" })} per ${lead.name}. Data incasso: ${new Date(occurredAt).toLocaleString("it-IT")}.`);
       setRevenueAmount(""); setRevenueContractValue(""); setRevenueNote(""); setRevenueAt(localDateTime(new Date()));
       onUpdated?.();
@@ -761,7 +806,7 @@ export default function LeadModal({
       value: Number(value) || 0,
       stage_id: destinationStageId,
       ...(changingPipeline ? { pipeline_id: selectedPipelineId, position: destinationPosition } : {}),
-      notes: finalNotes.trim() || null,
+      ...(isNew ? { notes: finalNotes.trim() || null } : {}),
       next_action_date: nextAction.trim() || null,
       closing_date: closingDate.trim() || null,
       lost_reason: lostReason.trim() || null,
@@ -811,8 +856,10 @@ export default function LeadModal({
     setBusy(false);
     if (error) setErr(error.message);
     else {
-      setNotes(finalNotes);
-      setQuickNote("");
+      if (!isNew && qn) {
+        try { setNotes(await appendLeadNote(supabase, lead!.id, appendNote("", qn))); setQuickNote(""); }
+        catch (reason) { setErr("Dati della scheda salvati, nota non confermata: " + (reason instanceof Error ? reason.message : "riprova")); return; }
+      }
       // Se è stato compilato il prossimo passo, il Salva generale crea anche
       // la task/appuntamento: il venditore non deve fare un secondo passaggio.
       if (!isNew && planDue) {
@@ -829,18 +876,11 @@ export default function LeadModal({
     if (!lead || !quickNote.trim()) return;
     setBusy(true);
     setErr(null);
-    const finalNotes = appendNote(notes, quickNote);
-    const { error } = await supabase
-      .from("leads")
-      .update({ notes: finalNotes })
-      .eq("id", lead.id);
-    setBusy(false);
-    if (error) return setErr("Nota non salvata: " + error.message);
-    setNotes(finalNotes);
-    setQuickNote("");
-    // Aggiorna la card nella pipeline senza usare il callback del salvataggio
-    // completo, che chiude intenzionalmente il drawer.
-    onUpdated?.();
+    try {
+      setNotes(await appendLeadNote(supabase, lead.id, appendNote("", quickNote)));
+      setQuickNote(""); setNoteSaved("Nota salvata"); onUpdated?.();
+    } catch (reason) { setErr("Nota non confermata: " + (reason instanceof Error ? reason.message : "riprova")); }
+    finally { setBusy(false); }
   }
 
   async function savePlan(closeAfterSave = true): Promise<boolean> {
@@ -876,6 +916,7 @@ export default function LeadModal({
     if (!taskResult.error) await supabase.from("leads").update({ next_action_date: planDue.slice(0, 10) }).eq("id", lead.id);
     planLock.current = false; setBusy(false);
     if (taskResult.error) { setErr("Pianificazione non salvata: " + taskResult.error.message); return false; }
+    setNextAction(planDue.slice(0, 10)); void reloadFollowUps(); onUpdated?.();
     setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
     if (closeAfterSave) onSaved();
     return true;
@@ -904,15 +945,17 @@ export default function LeadModal({
             ×
           </button>
         </header>
+        {!isNew && <><div className="lead-context"><span>{stages.find((s) => s.id === stageId)?.name} · {assigned || "Non assegnato"}</span>{callablePhone && <a className="btn primary" href={`tel:${callablePhone}`}>Chiama</a>}</div><nav className="lead-sections" aria-label="Sezioni del lead">{[["work", "Lavora lead"], ["data", "Dati"], ["history", "Storico"], ["contracts", "Contratti"], ...(canRecordRevenue ? [["payments", "Incassi"]] : [])].map(([id, label]) => <button type="button" key={id} aria-pressed={section === id} onClick={() => setSection(id)}>{label}</button>)}</nav></>}
         <div className="content">
           {err && <div className="notice err">{err}</div>}
 
-          <div className="field">
+          <section hidden={!isNew && section !== "work"}>
+          {isNew && <>           <div className="field">
             <label>Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
+          </div> </>}
 
-          {!isNew && (
+          {!isNew && appointments.length > 0 && (
             <div className="lead-appointment-overview" aria-label="Appuntamenti del lead">
               <b>Appuntamenti del lead</b>
               {activeAppointments.length === 0 ? <p>Nessun appuntamento da svolgere.</p> : activeAppointments.map((task) => (
@@ -933,17 +976,19 @@ export default function LeadModal({
               <div className="tracker-heading"><div><b>Com’è andata?</b><p>Scegli soltanto l’esito reale. Ora, venditore e lead vengono compilati automaticamente.</p></div><span>1 CLIC</span></div>
               {openDiscovery && <div className="notice warn quick-linked-appointment">Stai registrando l’esito della discovery del {new Date(openDiscovery.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: conta una volta sola, anche se l’hai già aperta dal Calendario.</div>}
               {openDemo && <div className="notice quick-linked-appointment">C’è una closing in agenda il {new Date(openDemo.due_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" })}: puoi registrarne l’esito qui oppure dal Calendario, senza duplicarla.</div>}
-              {!openDiscovery && <div className="field quick-call-type"><label>Tipo di chiamata</label><div className="channel-choice">{([["lead", "Richiamo"], ["outbound", "Outbound"], ["client", "Già cliente"], ["other", "Altro"]] as const).map(([value, label]) => <button type="button" key={value} className={callType === value ? "active" : ""} onClick={() => setCallTypeOverride(value)}>{label}</button>)}</div></div>}
-              <div className="commercial-quick-actions">
-                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
-                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
-                <button type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => { setClosingAction(null); setQuickAction("qualified"); }}><b>In target</b><small>Discovery svolta</small></button>
-                <button type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => { setClosingAction(null); setQuickAction("not_qualified"); }}><b>Fuori target</b><small>Discovery svolta</small></button>
-                <button type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
-                <button type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota closing</b><small>Vai a data e ora</small></button>
-                <button type="button" disabled={busy} className={closingAction === "held" ? "active success" : "success"} onClick={() => { setQuickAction(null); setClosingAction("held"); }}><b>Closing svolta</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
-                <button type="button" disabled={busy} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
-                <button type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
+              {!openDiscovery && actionGroup === "contact" && <div className="field quick-call-type"><label htmlFor="quick-call-type">Tipo di contatto</label><select id="quick-call-type" value={callType} onChange={e => setCallTypeOverride(e.target.value as CallType)}><option value="lead">Richiamo</option><option value="outbound">Outbound</option><option value="client">Già cliente</option><option value="other">Altro</option></select></div>}
+              {dueAppointments.length > 1 && <label>Appuntamento da aggiornare<select value={selectedAppointment} onChange={e => setSelectedAppointment(e.target.value)}><option value="">Seleziona l’appuntamento</option>{dueAppointments.map(t => <option key={t.id} value={t.id}>{t.appointment_type === "demo" ? "Closing" : "Discovery"} · {appointmentStamp(t.due_at)}</option>)}</select></label>}
+              <div className="lead-action-groups">{[["contact", "Contatto"], ["discovery", "Discovery"], ["closing", "Closing"], ["other", "Altre azioni"]].map(([id, label]) => <button type="button" key={id} aria-pressed={actionGroup === id} onClick={() => { setActionGroup(id); setQuickAction(null); setClosingAction(null); }}>{label}</button>)}</div>
+              <div className={"commercial-quick-actions action-group-" + actionGroup}>
+                <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
+                <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
+                <button data-action-group="discovery" type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => { setClosingAction(null); setQuickAction("qualified"); }}><b>In target</b><small>Discovery svolta</small></button>
+                <button data-action-group="discovery" type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => { setClosingAction(null); setQuickAction("not_qualified"); }}><b>Fuori target</b><small>Discovery svolta</small></button>
+                <button data-action-group="other" type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
+                <button data-action-group="discovery" type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota closing</b><small>Vai a data e ora</small></button>
+                <button data-action-group="closing" type="button" disabled={busy} className={closingAction === "held" ? "active success" : "success"} onClick={() => { setQuickAction(null); setClosingAction("held"); }}><b>Closing svolta</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
+                <button data-action-group="closing" type="button" disabled={busy} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
+                <button data-action-group="other" type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
               {quickAction && <div className="commercial-quick-detail">
                 {quickAction !== "lost" ? <><label>Durata discovery</label><div className="duration-chips">{[5, 10, 15, 20, 30, 45, 60].map((minutes) => <button type="button" key={minutes} className={commercialMinutes === String(minutes) ? "active" : ""} onClick={() => setCommercialMinutes(String(minutes))}>{minutes} min</button>)}</div></> : <div className="field"><label>Motivo della perdita</label><select value={lostReason} onChange={(e) => setLostReason(e.target.value)}><option value="">— scegli —</option><option>Prezzo troppo alto</option><option>Nessuna differenza percepita</option><option>Ha scelto un concorrente</option><option>Non interessato più</option><option>Irraggiungibile</option><option>Budget fermo</option><option>Altro</option></select></div>}
@@ -954,32 +999,50 @@ export default function LeadModal({
                 <p className="quick-closing-explanation">{openDemo ? "L’esito aggiornerà la closing già presente in agenda." : "La closing verrà registrata come non pianificata: conterà nelle closing svolte e nel CR, ma non nello show-up."}</p>
                 {closingAction === "held" && <><label>Durata closing</label><div className="duration-chips">{[15, 30, 45, 60, 75, 90].map((minutes) => <button type="button" key={minutes} className={closingMinutes === String(minutes) ? "active" : ""} onClick={() => setClosingMinutes(String(minutes))}>{minutes} min</button>)}</div></>}
                 <div className="field"><label>Nota <small>(facoltativa)</small></label><input value={commercialNote} onChange={(e) => setCommercialNote(e.target.value)} placeholder="Esito o dettaglio utile" /></div>
-                {closingAction === "held" && canRecordRevenue && <p className="quick-closing-explanation"><b>Se il lead ha pagato:</b> dopo questo passaggio registra sotto l’incasso nuovo. La prima cauzione lo segnerà automaticamente come vendita vinta.</p>}
+                {closingAction === "held" && canRecordRevenue && <p className="quick-closing-explanation"><b>Se il lead ha pagato:</b> dopo questo passaggio apri Incassi e registra il pagamento. La prima cauzione lo segnerà automaticamente come vendita vinta.</p>}
                 <div className="commercial-quick-confirm"><button className="btn" type="button" onClick={() => setClosingAction(null)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void recordClosingOutcome(closingAction)}>{busy ? "Salvataggio…" : "Conferma esito closing"}</button></div>
               </div>}
               {activitySaved && <div className="commercial-saved">✓ {activitySaved}</div>}
-              {activityHistory.length > 0 && <div className="tracker-history" aria-label="Storico commerciale"><b className="tracker-history-title">Storico commerciale ({activityHistory.length})</b>{activityHistory.slice(0, 15).map((activity) => {
-                const isBooking = activity.event_type === "discovery_booked" || activity.event_type === "demo_booked";
-                const isReschedule = activity.event_type === "appointment_rescheduled";
-                const previousAt = typeof activity.details?.previous_at === "string" ? activity.details.previous_at : null;
-                const nextAt = typeof activity.details?.new_at === "string" ? activity.details.new_at : activity.scheduled_at;
-                const attempt = isBooking ? appointmentAttempts.get(activityTaskId(activity)) : null;
-                return <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}{isBooking && attempt && attempt > 1 ? ` · ${attempt}ª prenotazione` : ""}</b><small>Registrato il {appointmentStamp(activity.created_at)} · {activity.created_by || "CRM"}</small>{isBooking && activity.scheduled_at && <small>Fissata per il {appointmentStamp(activity.scheduled_at)}</small>}{isReschedule && previousAt && nextAt && <small>Spostata dal {appointmentStamp(previousAt)} al {appointmentStamp(nextAt)}</small>}{!isBooking && !isReschedule && <small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"}{activity.scheduled_at ? ` · Appuntamento del ${appointmentStamp(activity.scheduled_at)}` : ""}</small>}{activity.note && <small>{activity.note}</small>}</span>{!activityTaskId(activity) && <button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button>}</div>;
-              })}</div>}
+
             </div>
           )}
           {!isNew && (
-            <div className="activity-box lead-plan-box" id="lead-next-step">
-              <b>Prossimo passo</b><p>Fissa qui la task o l'appuntamento: comparirà subito in Attività e Calendario.</p>
-              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Attività / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
-              {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudienceOverride("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudienceOverride("client")}>Già cliente</button></div></div></>}
-              <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
-              {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenziala nell’Agenda e mostrala prima delle altre.</small></span></label>}
-              <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
-              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
-              <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: l’appuntamento verrà creato insieme alle modifiche della scheda.</p>
+            <div className="field new-lead-note">
+              <label>Aggiungi una nuova nota</label>
+              <textarea
+                value={quickNote}
+                onChange={(e) => setQuickNote(e.target.value)}
+                placeholder="Es. Richiamato: vuole essere ricontattato venerdì dopo le 16."
+                rows={3}
+              />
+              <small>
+                Viene salvata come aggiornamento separato con data e ora. La card
+                si aggiorna e il lead conta come lavorato oggi.
+              </small>
+              <button className="btn small primary" type="button" disabled={busy || !quickNote.trim()} onClick={() => void saveQuickNote()} style={{ marginTop: 9 }}>
+                {busy ? "Salvataggio…" : "Salva nota"}
+              </button>
             </div>
           )}
+          {noteSaved && <p role="status" className="commercial-saved">✓ {noteSaved}</p>}
+          {!isNew && (
+            <div className="activity-box lead-plan-box" id="lead-next-step">
+              <b>Prossimo passo</b><p>Pianifica un richiamo sulla card oppure un appuntamento nel Calendario.</p>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Richiamo / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
+              {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudienceOverride("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudienceOverride("client")}>Già cliente</button></div></div></>}
+              <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
+              {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenzia il richiamo come prioritario.</small></span></label>}
+              <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
+              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
+              <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: il prossimo passo verrà creato insieme alle modifiche della scheda.</p>
+            </div>
+          )}
+          {!isNew && followUps.length > 0 && <section className="lead-followups"><h4>Richiami pianificati</h4>{followUps.map((task) => <div key={task.id}><span><b>{task.title}</b><small>{appointmentStamp(task.due_at)}</small></span><button type="button" className="btn small" disabled={busy} onClick={() => void completeFollowUp(task)}>Fatto</button></div>)}</section>}
+          </section><section hidden={!isNew && section !== "data"}>
+          {!isNew && <>           <div className="field">
+            <label>Nome</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </div> </>}
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Telefono</label>
@@ -1056,12 +1119,12 @@ export default function LeadModal({
             <div className="field" style={{ flex: 1 }}>
               <label>Fonte</label>
               <select value={source} onChange={(e) => setSource(e.target.value)}>
-                {source && !["Instantly", "DM Instagram", "DM Facebook", "DM LinkedIn", "DM Altro"].includes(source) && <option value={source}>{source} · storico</option>}
+                {source && !["Instantly", "DM Instagram", "DM Facebook", "DM LinkedIn", "DM Altro", "Meta Ads", "Cold call", "Altro"].includes(source) && <option value={source}>{source} · storico</option>}
                 <option value="Instantly">Instantly · email</option>
                 <option value="DM Instagram">DM Instagram</option>
                 <option value="DM Facebook">DM Facebook</option>
                 <option value="DM LinkedIn">DM LinkedIn</option>
-                <option value="DM Altro">DM altro</option>
+                <option value="DM Altro">DM altro</option><option value="Meta Ads">Meta Ads</option><option value="Cold call">Chiamata a freddo</option><option value="Altro">Altro</option>
               </select>
             </div>
             <div className="field" style={{ flex: 1 }}>
@@ -1073,18 +1136,6 @@ export default function LeadModal({
               />
             </div>
           </div>
-          {!isNew && canRecordRevenue && (
-            <div className="activity-box revenue-tracker">
-              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Registra soltanto pagamenti effettivamente ricevuti.</p></div><span>€</span></div>
-              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select disabled={busy} value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input disabled={busy} type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
-              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input disabled={busy} type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input disabled={busy} type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
-              <div className="field"><label>Nota <small>(facoltativa)</small></label><input disabled={busy} value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
-              {revenueSaved && <div className="commercial-saved" role="status">✓ {revenueSaved}</div>}
-              {revenueError && <div className="notice err" role="alert">{revenueError}</div>}
-              <p className="muted">Per salvare il pagamento premi «Registra incasso». Il pulsante «Salva» in fondo aggiorna solo la scheda lead.</p>
-              <button className="btn primary tracker-save" type="button" disabled={busy || !revenueAmount} onClick={() => void recordRevenue()}>{busy ? "Registrazione…" : "Registra incasso"}</button>
-            </div>
-          )}
           <div className="modal-row">
             <div className="field" style={{ flex: 1 }}>
               <label>Prossima azione</label>
@@ -1129,29 +1180,6 @@ export default function LeadModal({
               placeholder="es. VIP, da richiamare"
             />
           </div>
-          {!isNew && (
-            <div className="field new-lead-note">
-              <label>Aggiungi una nuova nota</label>
-              <textarea
-                value={quickNote}
-                onChange={(e) => setQuickNote(e.target.value)}
-                placeholder="Es. Richiamato: vuole essere ricontattato venerdì dopo le 16."
-                rows={3}
-              />
-              <small>
-                Viene salvata come aggiornamento separato con data e ora. La card
-                si aggiorna e il lead conta come lavorato oggi.
-              </small>
-              <button className="btn small primary" type="button" disabled={busy || !quickNote.trim()} onClick={() => void saveQuickNote()} style={{ marginTop: 9 }}>
-                {busy ? "Salvataggio…" : "Salva nota"}
-              </button>
-            </div>
-          )}
-          <div className="field lead-note-history">
-            <label>Storico note</label>
-            {notes.trim() ? <div className="note-history-list">{splitNoteHistory(notes).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
-          </div>
-
           {!isNew && canDelete && (
             <div style={{ color: "var(--muted)", fontSize: 12 }}>
               Creato il{" "}
@@ -1159,6 +1187,34 @@ export default function LeadModal({
             </div>
           )}
 
+          </section>
+          <section hidden={isNew || section !== "history"}>              {activityHistory.length > 0 && <div className="tracker-history" aria-label="Storico commerciale"><b className="tracker-history-title">Storico commerciale ({activityHistory.length})</b>{activityHistory.slice(0, 15).map((activity) => {
+                const isBooking = activity.event_type === "discovery_booked" || activity.event_type === "demo_booked";
+                const isReschedule = activity.event_type === "appointment_rescheduled";
+                const previousAt = typeof activity.details?.previous_at === "string" ? activity.details.previous_at : null;
+                const nextAt = typeof activity.details?.new_at === "string" ? activity.details.new_at : activity.scheduled_at;
+                const attempt = isBooking ? appointmentAttempts.get(activityTaskId(activity)) : null;
+                return <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}{isBooking && attempt && attempt > 1 ? ` · ${attempt}ª prenotazione` : ""}</b><small>Registrato il {appointmentStamp(activity.created_at)} · {activity.created_by || "CRM"}</small>{isBooking && activity.scheduled_at && <small>Fissata per il {appointmentStamp(activity.scheduled_at)}</small>}{isReschedule && previousAt && nextAt && <small>Spostata dal {appointmentStamp(previousAt)} al {appointmentStamp(nextAt)}</small>}{!isBooking && !isReschedule && <small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"}{activity.scheduled_at ? ` · Appuntamento del ${appointmentStamp(activity.scheduled_at)}` : ""}</small>}{activity.note && <small>{activity.note}</small>}</span>{!activityTaskId(activity) && <button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button>}</div>;
+              })}</div>}          <div className="field lead-note-history">
+            <label>Storico note</label>
+            {notes.trim() ? <div className="note-history-list">{splitNoteHistory(notes).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
+          </div>
+
+</section>
+          <section hidden={isNew || section !== "payments"}>          {!isNew && canRecordRevenue && (
+            <div className="activity-box revenue-tracker">
+              <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Registra soltanto pagamenti effettivamente ricevuti.</p></div><span>€</span></div>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select disabled={busy} value={revenueType} onChange={(e) => setRevenueType(e.target.value as SalesRevenueEvent["revenue_type"])}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></div><div className="field" style={{ flex: 1 }}><label>Incassato (€)</label><input disabled={busy} type="number" min="0" step="0.01" value={revenueAmount} onChange={(e) => setRevenueAmount(e.target.value)} /></div></div>
+              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Valore totale contratto (€)</label><input disabled={busy} type="number" min="0" step="0.01" value={revenueContractValue} onChange={(e) => setRevenueContractValue(e.target.value)} placeholder="Facoltativo" /></div><div className="field" style={{ flex: 1 }}><label>Data e ora incasso</label><input disabled={busy} type="datetime-local" value={revenueAt} onChange={(e) => setRevenueAt(e.target.value)} /></div></div>
+              <div className="field"><label>Nota <small>(facoltativa)</small></label><input disabled={busy} value={revenueNote} onChange={(e) => setRevenueNote(e.target.value)} placeholder="Es. prima rata, saldo…" /></div>
+              {revenueSaved && <div className="commercial-saved" role="status">✓ {revenueSaved}</div>}
+              {revenueError && <div className="notice err" role="alert">{revenueError}</div>}
+              <p className="muted">Per salvare il pagamento premi «Registra incasso». Il pulsante «Salva» in fondo aggiorna solo la scheda lead.</p>
+              <button className="btn primary tracker-save" type="button" disabled={busy || !revenueAmount} onClick={() => void recordRevenue()}>{busy ? "Registrazione…" : "Registra incasso"}</button>
+            </div>
+          )}
+<h4>Pagamenti registrati</h4>{!paymentsLoading && !paymentsError && payments.length > 0 && <p><b>Totale incassato: {payments.filter(p => p.status === "collected").reduce((sum,p) => sum + Number(p.amount),0).toLocaleString("it-IT", {style:"currency",currency:"EUR"})}</b></p>}{paymentsLoading ? <p>Caricamento pagamenti…</p> : paymentsError ? <p role="alert">{paymentsError}</p> : payments.length ? payments.map((payment) => <div className="lead-payment-row" key={payment.id}><b>{payment.amount.toLocaleString("it-IT", {style:"currency", currency:"EUR"})}</b><span>{appointmentStamp(payment.occurred_at)} · {payment.status === "collected" ? "Incassato" : payment.status === "cancelled" ? "Annullato" : "Previsto"}</span><small>{payment.created_by} {payment.note}</small></div>) : <p>Nessun pagamento visibile per questo lead.</p>}</section>
+          <section hidden={isNew || section !== "contracts"}>
           {!isNew && (
             <div className="contracts-box">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1344,9 +1400,10 @@ Grazie!`
               )}
             </div>
           )}
+          </section>
         </div>
         <footer>
-          {!isNew && (
+          {!isNew && canDelete && section === "data" && (
             <button
               className="btn danger"
               onClick={remove}
@@ -1357,11 +1414,11 @@ Grazie!`
             </button>
           )}
           <button className="btn" onClick={closeLead} disabled={busy}>
-            Annulla
+            Chiudi
           </button>
-          <button className="btn primary" onClick={save} disabled={busy}>
+          {(isNew || section === "work" || section === "data") && <button className="btn primary" onClick={save} disabled={busy}>
             {busy ? "Salvataggio…" : "Salva"}
-          </button>
+          </button>}
         </footer>
       </div>
     </div>

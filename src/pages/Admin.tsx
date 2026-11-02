@@ -980,7 +980,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
       <h2>Accessi (venditori)</h2>
       <p style={{ color: "var(--muted)", marginTop: -6 }}>
         Crea gli accessi del team vendita, cambia le password o rimuovi chi non
-        lavora più. Ogni venditore vede solo il cliente assegnato.
+        lavora più. Gli accessi sono limitati all’azienda assegnata e ai permessi del profilo.
       </p>
       {err && <div className="notice err">{err}</div>}
       {msg && <div className="notice ok">{msg}</div>}
@@ -1049,7 +1049,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
           <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="es. Mario Rossi" />
         </div>
         <div className="field">
-          <label>Cliente assegnato</label>
+          <label>Azienda assegnata</label>
           <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>

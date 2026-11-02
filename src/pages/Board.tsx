@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { nextSteps, matchesWork, type WorkFilter } from "../leadWork";
+import { createContext, useContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -16,6 +17,8 @@ import type { Client, Lead, Pipeline, SalesTask, Stage } from "../types";
 import LeadModal from "./LeadModal";
 import { romeToday } from "../dates";
 import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
+
+const NextStepContext = createContext(new Map<string, SalesTask>());
 
 type ActivityStamp = { lead_id: string; created_at: string; occurred_at?: string | null };
 
@@ -67,6 +70,8 @@ export default function Board({
   const [totalLeads, setTotalLeads] = useState(0);
   const [activityStamps, setActivityStamps] = useState<ActivityStamp[]>([]);
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
+  const [pendingTasks, setPendingTasks] = useState<SalesTask[]>([]);
+  const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -80,13 +85,15 @@ export default function Board({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ data: st, error: stagesError }, { data: ld, count: leadCount, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }] = await withTimeout(Promise.all([
+      const [{ data: st, error: stagesError }, { data: ld, count: leadCount, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }, { data: pendingData, error: pendingError }] = await withTimeout(Promise.all([
         supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
         supabase.from("leads").select("*", { count: "exact" }).eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
         supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
         supabase.from("sales_tasks").select("lead_id,completed_at").eq("client_id", client.id).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(5000),
+        supabase.from("sales_tasks").select("*").eq("client_id", client.id).is("completed_at", null).order("due_at").limit(5000),
       ]), 20_000, "La pipeline sta impiegando troppo tempo a rispondere.");
-      if (stagesError || leadsError || activitiesError || tasksError) setError((stagesError || leadsError || activitiesError || tasksError)?.message ?? "Errore nel caricamento della pipeline.");
+      if (stagesError || leadsError || activitiesError || tasksError || pendingError) setError((stagesError || leadsError || activitiesError || tasksError || pendingError)?.message ?? "Errore nel caricamento della pipeline.");
+      setPendingTasks((pendingData || []) as SalesTask[]);
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
       setTotalLeads(leadCount ?? ld?.length ?? 0);
@@ -143,6 +150,7 @@ export default function Board({
     };
   }, [client.id, pipeline.id, load]);
 
+  const steps = useMemo(() => nextSteps(pendingTasks), [pendingTasks]);
   const latestActivity = useMemo(() => latestActivityByLead(activityStamps, completedTaskStamps), [activityStamps, completedTaskStamps]);
 
   // Lead arrivato dalla ricerca globale: apri la sua scheda
@@ -243,7 +251,7 @@ export default function Board({
   const isPremium = client.name.startsWith("Estetica");
   const settingStage = stages.find((stage) => stage.name === "SETTING") ?? stages[0];
   return (
-    <>
+    <NextStepContext.Provider value={steps}>
       <DndContext
         sensors={sensors}
         onDragStart={onDragStart}
@@ -268,12 +276,13 @@ export default function Board({
               </div>
             </div>
           )}
+          <div className="pipeline-work-filters" aria-label="Filtra il lavoro sui lead">{([["all", "Tutti"], ["today", "Da richiamare oggi"], ["overdue", "Richiami scaduti"], ["missing", "Senza prossimo passo"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={workFilter === id} onClick={() => setWorkFilter(id)}>{label} <b>{leads.filter(l => matchesWork(l, pendingTasks, id, romeToday(), ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))).length}</b></button>)}</div>
           <div className="board">
             {stages.map((s) => (
               <Column
                 key={s.id}
                 stage={s}
-                leads={leadsByStage[s.id] ?? []}
+                leads={(leadsByStage[s.id] ?? []).filter(l => matchesWork(l, pendingTasks, workFilter, romeToday(), ["CLOSED", "LOST"].includes(s.name)))}
                 onOpen={(l) => setEditing(l)}
                 onAdd={canEdit && s.id === settingStage.id ? () => setCreatingInStage(settingStage) : undefined}
                 leadStageNames={leadStageNames}
@@ -325,7 +334,7 @@ export default function Board({
           }}
         />
       )}
-    </>
+    </NextStepContext.Provider>
   );
 }
 
@@ -422,6 +431,7 @@ function LeadCardInner({
   stageName: string;
   latestActivity: Map<string, string>;
 }) {
+  const step = useContext(NextStepContext).get(lead.id);
   const idle = daysSinceLeadWork(lead, latestActivity);
   const isDead = ["LOST", "CLOSED"].includes(stageName);
   const callablePhone = (lead.phone ?? "").trim().replace(/[^\d+*#,;]/g, "");
@@ -462,7 +472,8 @@ function LeadCardInner({
           </span>
         </div>
       )}
-      {lead.next_action_date && (
+      {step && <div className="card-next-step"><b>{step.appointment_type === "demo" ? "Closing" : step.appointment_type === "discovery" ? "Discovery" : "Richiamare"}{step.is_priority ? " · Priorità" : ""}</b><span>{new Date(step.due_at).toLocaleString("it-IT", {timeZone:"Europe/Rome", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"})}</span></div>}
+      {!step && lead.next_action_date && (
         <div className="row">
           <span>📅</span>
           <span className={lead.next_action_date <= romeToday() ? "overdue" : ""}>

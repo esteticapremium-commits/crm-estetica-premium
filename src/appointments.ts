@@ -212,6 +212,7 @@ export async function recordAppointmentOutcome(
   /** Minuti effettivi della call. Senza questo dato vale la durata pianificata,
    *  ma quando il venditore la dichiara è la sua a finire in "min call". */
   actualMinutes?: number,
+  note?: string,
 ): Promise<AppointmentResult> {
   const type = (task.appointment_type as AppointmentType | null) || "discovery";
   if (!allowedOutcomes(type).includes(outcome)) {
@@ -241,6 +242,7 @@ export async function recordAppointmentOutcome(
     channel: channelFor(type),
     call_type: task.audience === "client" ? "client" : "lead",
     outcome, occurred_at: occurredAt, scheduled_at: task.due_at,
+    ...(note?.trim() ? { note: note.trim() } : {}),
     duration_minutes: status === "held" ? actualMinutes || task.duration_minutes || 60 : null,
     created_by: meName || null, details: { task_id: task.id, assigned_to: task.assigned_to }, event_key: outcomeKey(task.id),
   }, { onConflict: "client_id,event_key" });

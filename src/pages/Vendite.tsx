@@ -98,7 +98,7 @@ export default function Vendite({
   const funnel = useMemo(() => {
     return stages.map((s, i) => {
       const count = (byStage[s.id] ?? []).length;
-      const prev = i > 0 ? (byStage[stages[i - 1].id] ?? []).length : leads.length;
+      const prev = leads.length;
       const pct = prev > 0 ? Math.round((count / prev) * 100) : 0;
       return { stage: s, count, pct, isEntry: i === 0 };
     });
@@ -184,7 +184,7 @@ export default function Vendite({
           <h1>Vendite</h1>
           <p className="sub">
             {client.name} · Pipeline: <b>{pipeline.name}</b> · attività del team vendita giorno per giorno
-            e tasso di passaggio tra le fasi.
+            e distribuzione tra le fasi.
           </p>
         </div>
         <div className="section-header-actions">{headerTools}</div>
@@ -242,7 +242,7 @@ export default function Vendite({
       </div>
 
       <div className="panel">
-        <h2>Tasso di passaggio tra le fasi</h2>
+        <h2>Distribuzione attuale dei lead</h2>
         <div className="funnel">
           {funnel.map((f, i) => (
             <div className="funnel-step" key={f.stage.id}>
@@ -265,13 +265,13 @@ export default function Vendite({
                 </div>
               )}
               <div className="funnel-pct">
-                {f.isEntry ? "inizio" : f.pct + "% di " + funnel[i - 1].stage.name}
+                {f.pct + "% dei lead in pipeline"}
               </div>
             </div>
           ))}
         </div>
         <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
-          Esempio: se RECALL ha 71 lead e DISCOVERY ne ha 12, il tasso è 12/71 = 17%.
+          Questa vista mostra dove sono oggi i lead. Le conversioni e gli esiti sono nella sezione KPI vendite.
         </div>
       </div>
 

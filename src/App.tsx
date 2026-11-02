@@ -138,7 +138,7 @@ export default function App() {
     if (!navigationKey) { setNavigationOwner(null); return; }
     const saved = readNavigation(navigationKey) as Tab | null;
     const allowed = [...sharedTabs, ...(auth.profile?.role === "admin" ? adminTabs : [])];
-    setTab(saved && allowed.includes(saved) ? saved : auth.profile?.role === "venditore" ? "board" : "control");
+    setTab(saved === "tasks" ? "board" : saved && allowed.includes(saved) ? saved : auth.profile?.role === "venditore" ? "board" : "control");
     setNavigationOwner(navigationKey);
   }, [navigationKey]);
 
@@ -282,9 +282,9 @@ export default function App() {
   const currentClient = clients.find((c) => c.id === clientId) ?? null;
   const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
   const boardPipeline = currentPipeline;
-  const headerTools = tab !== "editorial" && tab !== "contracts" ? (
+  const headerTools = !["editorial", "contracts", "personal", "team"].includes(tab) ? (
     <div className="section-global-tools">
-      {pipelines.length > 1 && tab !== "admin" && (
+      {pipelines.length > 1 && ["board", "sales", "tasks"].includes(tab) && (
         <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
           {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
@@ -305,12 +305,11 @@ export default function App() {
           <button title="Panoramica" className={tab === "control" ? "active" : ""} onClick={() => setTab("control")}><NavIcon name="home" /> Panoramica</button>
           <span className="nav-label">CRM</span>
           <button title="Pipeline" className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><NavIcon name="pipeline" /> Pipeline</button>
-          <button title="Attività" className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}><NavIcon name="tasks" /> Attività</button>
           <button title="Calendario" className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><NavIcon name="calendar" /> Calendario</button>
           <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
           <button title="KPI vendite" className={tab === "kpi" ? "active" : ""} onClick={() => setTab("kpi")}><NavIcon name="kpi" /> KPI vendite</button>
           <button title="Contratti" className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><NavIcon name="contracts" /> Contratti</button>
-          {isAdmin && <><span className="nav-label">Azienda</span><button title="Contratti team" className={tab === "teamContracts" ? "active" : ""} onClick={() => setTab("teamContracts")}><NavIcon name="contracts" /> Contratti team</button><button title="Attività del team" className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}><NavIcon name="comp" /> Attività del team</button><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="side-item disabled"><NavIcon name="revenue" /> Fatturato</span><span className="side-item disabled"><NavIcon name="comp" /> Compensi</span><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
+          {isAdmin && <><span className="nav-label">Azienda</span><button title="Contratti team" className={tab === "teamContracts" ? "active" : ""} onClick={() => setTab("teamContracts")}><NavIcon name="contracts" /> Contratti team</button><button title="Attività del team" className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}><NavIcon name="comp" /> Attività del team</button><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
         </nav>
         <details className={`presence-disclosure ${presenceStatus}`}><summary title="Informazioni sulla registrazione della presenza CRM"><span aria-hidden="true">●</span><b>{presenceStatus === "recording" ? "Presenza CRM registrata" : presenceStatus === "connecting" ? "Registro presenza in connessione" : "Registro presenza non disponibile"}</b></summary><div><b>Registro di utilizzo del CRM</b><p>Registriamo apertura, ultima presenza e intervalli di utilizzo stimato, consultabili dall’amministratore per organizzare il lavoro del team. Nessun testo digitato o screenshot viene raccolto.</p><p>Il CRM in primo piano con interazioni recenti è considerato in uso. I tempi non rappresentano le ore lavorate. Conservazione: 30 giorni. Per informazioni e accesso ai tuoi dati, rivolgiti al titolare.</p></div></details>
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
@@ -355,7 +354,7 @@ export default function App() {
       )}
 
       {tab === "control" && currentClient && (
-        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} />
+        <Control client={currentClient} pipelines={pipelines} meName={meName} admin={isAdmin} onOpenLead={selectLead} onOpenCalendar={() => setTab("calendar")} onOpenLegacyTasks={() => setTab("tasks")} />
       )}
 
       {tab === "editorial" && isAdmin && currentClient && (

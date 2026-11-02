@@ -4,7 +4,7 @@ import { withTimeout } from "../async";
 import { activityTimestamp, formatPct, normalizedLeadSource, outreachKey, pct } from "../salesKpi";
 import type { Client, Contract, Lead, LeadActivity, SalesCost, SalesIntegration, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "../types";
 
-type ChannelFilter = "all" | "instantly" | "dm";
+type ChannelFilter = "all" | "instantly" | "dm" | "ads" | "cold_call" | "other";
 type RangePreset = "today" | "yesterday" | "7" | "14" | "30" | "month" | "custom";
 type ForecastPreset = "tomorrow" | "day_after" | "week" | "7" | "30" | "custom";
 type ForecastOrder = "asc" | "desc";
@@ -611,7 +611,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
   return <div className="page kpi-page">
     <div className="kpi-intro">
-      <div><span className="eyebrow">CONTROLLO COMMERCIALE</span><h1>KPI vendite</h1><p>Outreach Instantly e DM → discovery telefonica → closing in videochiamata → contratto e incasso.</p></div>
+      <div><span className="eyebrow">CONTROLLO COMMERCIALE</span><h1>KPI vendite</h1><p>Acquisizione lead → discovery telefonica → closing in videochiamata → contratto e incasso.</p></div>
       <div className="section-header-actions">{headerTools}<button className="btn" onClick={() => void load()}>Aggiorna</button><button className="btn" onClick={() => setOutreachOpen(true)}>+ Dati outreach</button>{admin && <button className="btn primary" onClick={() => setCostOpen(true)}>+ Registra costo</button>}</div>
     </div>
     {error && <div className="notice err">{error}</div>}
@@ -621,7 +621,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     <section className="kpi-filters panel">
       <div><label>Periodo</label><div className="segmented"><button className={preset === "today" ? "active" : ""} onClick={() => setPreset("today")}>Oggi</button><button className={preset === "yesterday" ? "active" : ""} onClick={() => setPreset("yesterday")}>Ieri</button><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "14" ? "active" : ""} onClick={() => setPreset("14")}>14 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
       {preset === "custom" && <div className="kpi-date-range"><label>Dal<input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>Al<input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label></div>}
-      <label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Instantly + DM</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option></select></label>
+      <label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Tutti i canali</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option><option value="ads">Ads</option><option value="cold_call">Chiamate a freddo</option><option value="other">Altro / non classificato</option></select></label>
       {admin && <label>Venditore<select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutto il team</option>{sellers.map((name) => <option value={name} key={name}>{name}</option>)}</select></label>}
     </section>
 

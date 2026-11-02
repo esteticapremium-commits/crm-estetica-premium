@@ -104,10 +104,12 @@ export function formatPct(value: number | null) {
   return value === null ? "—" : `${value.toLocaleString("it-IT", { maximumFractionDigits: 1 })}%`;
 }
 
-export function normalizedLeadSource(source: string | null | undefined): "instantly" | "dm" | "other" {
+export function normalizedLeadSource(source: string | null | undefined): "instantly" | "dm" | "ads" | "cold_call" | "other" {
   const value = (source || "").trim().toLowerCase();
   // I DM vengono caricati a mano scegliendo il canale dal menu; tutto il resto
   // arriva dall'ingest automatico, che scrive sempre "Instantly".
+  if (/ads|advertis|pubblicit|meta lead/.test(value)) return "ads";
+  if (/cold|freddo|outbound/.test(value)) return "cold_call";
   if (value.includes("dm") || value.includes("instagram") || value.includes("facebook") || value.includes("linkedin")) return "dm";
   // "Istantly" e simili refusi esistono già nello storico: senza questa
   // tolleranza quei lead sparirebbero da entrambi i filtri di canale.
