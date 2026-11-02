@@ -302,26 +302,12 @@ export default function Board({
         onDragEnd={onDragEnd}
       >
         <div className={"board-wrap" + (isPremium ? " premium" : "")}>
-          {isPremium && (
-            <div className="board-header">
-              <div>
-                <div className="board-title">Pipeline <span className="board-lead-total" role="status">{totalLeads.toLocaleString("it-IT")} lead totali</span></div>
-                <div className="board-sub">
-                  {pipeline.name} · Lavora i lead e aggiorna la fase quando necessario.
-                </div>
-              </div>
-              <div className="section-header-actions">
-                {headerTools}
-                {canEdit && (
-                  <button className="btn primary board-new-lead" type="button" onClick={() => setCreatingInStage(settingStage)}>
-                    + Nuovo lead
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="pipeline-view-toolbar pipeline-unified-toolbar" aria-label="Strumenti pipeline">
+            <span className="board-lead-total" role="status">{totalLeads.toLocaleString("it-IT")} lead totali</span>
+            {headerTools}
+            {canEdit && <button className="btn primary" type="button" onClick={() => setCreatingInStage(settingStage)}>+ Nuovo lead</button>}
           <div className="pipeline-work-filters" aria-label="Filtra il lavoro sui lead">{([["all", "Tutti"], ["today", "Da richiamare oggi"], ["overdue", "Richiami scaduti"], ["missing", "Senza prossimo passo"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={workFilter === id} onClick={() => setWorkFilter(id)}>{label} <b>{leads.filter(l => matchesWork(l, pendingTasks, id, romeToday(), ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))).length}</b></button>)}</div>
-          <div className="pipeline-view-toolbar">
+
             <select aria-label="Vista operativa" value={presetView} onChange={e => setPresetView(e.target.value)}><option value="all">Tutti i lead</option><option value="new_ads">Nuovi da Ads · Setting</option><option value="closing_week">Closing da oggi a domenica</option><option value="contracts">Contratti da seguire</option></select>
             <details className="pipeline-extra-filters"><summary>Filtri{search || sourceFilter || ownerFilter ? " · attivi" : ""}</summary><div className="pipeline-filter-fields">            <input aria-label="Cerca nella pipeline" placeholder="Cerca nome, telefono o email…" value={search} onChange={e => setSearch(e.target.value)} />
             <select aria-label="Provenienza" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="">Tutte le provenienze</option>{[...new Set(leads.map(l => l.source).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
