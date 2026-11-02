@@ -1,3 +1,4 @@
+import { normalizedLeadSource } from "../salesKpi";
 import { nextSteps, matchesWork, type WorkFilter } from "../leadWork";
 import { createContext, useContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -15,7 +16,7 @@ import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
 import type { Client, Lead, Pipeline, SalesTask, Stage } from "../types";
 import LeadModal from "./LeadModal";
-import { romeToday } from "../dates";
+import { romeDay, romeToday } from "../dates";
 import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
 
 const NextStepContext = createContext(new Map<string, SalesTask>());
@@ -72,6 +73,26 @@ export default function Board({
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [pendingTasks, setPendingTasks] = useState<SalesTask[]>([]);
   const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
+  const [presetView, setPresetView] = useState("all");
+  const [pendingContracts, setPendingContracts] = useState<{lead_id:string|null;expires_at:string|null}[]>([]);
+  const [contractsWarning, setContractsWarning] = useState("");
+  const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [layout, setLayout] = useState<"kanban" | "table">("kanban");
+  const [queue, setQueue] = useState<string[]>([]);
+  const [viewName, setViewName] = useState("");
+  type SavedView = { name: string; preset?:string; work: WorkFilter; search: string; source: string; owner: string; layout: "kanban" | "table" };
+  const viewKey = `ep-views:${client.id}:${meName || "user"}:${pipeline.id}`;
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [viewMessage, setViewMessage] = useState("");
+  useEffect(() => {
+    try { const data = JSON.parse(localStorage.getItem(viewKey) || "[]"); setSavedViews(Array.isArray(data) ? data.filter(v => typeof v.name === "string" && ["all", "today", "overdue", "missing"].includes(v.work) && typeof v.search === "string" && typeof v.source === "string" && typeof v.owner === "string" && ["kanban", "table"].includes(v.layout)) : []); } catch { setSavedViews([]); }
+    setSearch(""); setSourceFilter(""); setOwnerFilter(""); setWorkFilter("all"); setPresetView("all"); setQueue([]);
+  }, [viewKey]);
+  function persistViews(next: SavedView[]) {
+    try { localStorage.setItem(viewKey, JSON.stringify(next)); setSavedViews(next); setViewMessage("Viste personali salvate su questo browser."); } catch { setViewMessage("Impossibile salvare le viste: lo spazio del browser non è disponibile."); }
+  }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -85,14 +106,17 @@ export default function Board({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ data: st, error: stagesError }, { data: ld, count: leadCount, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }, { data: pendingData, error: pendingError }] = await withTimeout(Promise.all([
+      const [{ data: st, error: stagesError }, { data: ld, count: leadCount, error: leadsError }, { data: activityData, error: activitiesError }, { data: taskData, error: tasksError }, { data: pendingData, error: pendingError }, contractsResult] = await withTimeout(Promise.all([
         supabase.from("stages").select("*").eq("pipeline_id", pipeline.id).order("position"),
         supabase.from("leads").select("*", { count: "exact" }).eq("pipeline_id", pipeline.id).order("position").order("created_at", { ascending: false }),
         supabase.from("lead_activities").select("lead_id,created_at,occurred_at").eq("client_id", client.id).order("created_at", { ascending: false }).limit(5000),
         supabase.from("sales_tasks").select("lead_id,completed_at").eq("client_id", client.id).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(5000),
         supabase.from("sales_tasks").select("*").eq("client_id", client.id).is("completed_at", null).order("due_at").limit(5000),
+        supabase.from("contracts").select("lead_id,expires_at").eq("client_id", client.id).is("team_department", null).neq("status", "signed").is("revoked_at", null),
       ]), 20_000, "La pipeline sta impiegando troppo tempo a rispondere.");
       if (stagesError || leadsError || activitiesError || tasksError || pendingError) setError((stagesError || leadsError || activitiesError || tasksError || pendingError)?.message ?? "Errore nel caricamento della pipeline.");
+      setPendingContracts(contractsResult.data || []);
+      setContractsWarning(contractsResult.error ? "Contratti non disponibili per questa vista." : "");
       setPendingTasks((pendingData || []) as SalesTask[]);
       setStages((st as Stage[]) ?? []);
       setLeads((ld as Lead[]) ?? []);
@@ -152,6 +176,26 @@ export default function Board({
 
   const steps = useMemo(() => nextSteps(pendingTasks), [pendingTasks]);
   const latestActivity = useMemo(() => latestActivityByLead(activityStamps, completedTaskStamps), [activityStamps, completedTaskStamps]);
+
+  const visibleLeads = useMemo(() => leads.filter(l => {
+    const stage = stages.find(s => s.id === l.stage_id)?.name || "";
+    const today = romeToday();
+    const end = new Date(`${today}T12:00:00Z`); end.setUTCDate(end.getUTCDate() + (7 - end.getUTCDay()) % 7);
+    const weekEnd = end.toISOString().slice(0,10);
+    const matchesPreset = presetView === "all" || (presetView === "new_ads" && stage === "SETTING" && normalizedLeadSource(l.source) === "ads")
+      || (presetView === "closing_week" && pendingTasks.some(t => t.lead_id === l.id && t.appointment_type === "demo" && !t.completed_at && !["held", "no_show", "cancelled"].includes(t.appointment_status || "") && t.due_at >= new Date().toISOString() && romeDay(t.due_at) <= weekEnd))
+      || (presetView === "contracts" && pendingContracts.some(c => c.lead_id === l.id && (!c.expires_at || new Date(c.expires_at).getTime() > Date.now())));
+    return matchesPreset && matchesWork(l, pendingTasks, workFilter, romeToday(), ["CLOSED", "LOST"].includes(stage))
+      && (!sourceFilter || l.source === sourceFilter) && (!ownerFilter || l.assigned_to === ownerFilter)
+      && (!search.trim() || [l.name, l.phone, l.email].some(v => v?.toLowerCase().includes(search.trim().toLowerCase())));
+  }).sort((a,b) => stages.findIndex(s => s.id === a.stage_id) - stages.findIndex(s => s.id === b.stage_id) || a.position-b.position || b.created_at.localeCompare(a.created_at)), [leads, stages, pendingTasks, pendingContracts, presetView, workFilter, sourceFilter, ownerFilter, search]);
+  const workableLeads = visibleLeads.filter(l => !["CLOSED", "LOST"].includes(stages.find(s => s.id === l.stage_id)?.name || ""));
+  function openLead(lead: Lead) { setQueue(visibleLeads.map(l => l.id)); setEditing(lead); }
+  function navigateLead(direction: number) {
+    const index = queue.indexOf(editing?.id || "");
+    const next = leads.find(l => l.id === queue[index + direction]);
+    if (next) setEditing(next);
+  }
 
   // Lead arrivato dalla ricerca globale: apri la sua scheda
   useEffect(() => {
@@ -277,19 +321,31 @@ export default function Board({
             </div>
           )}
           <div className="pipeline-work-filters" aria-label="Filtra il lavoro sui lead">{([["all", "Tutti"], ["today", "Da richiamare oggi"], ["overdue", "Richiami scaduti"], ["missing", "Senza prossimo passo"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={workFilter === id} onClick={() => setWorkFilter(id)}>{label} <b>{leads.filter(l => matchesWork(l, pendingTasks, id, romeToday(), ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))).length}</b></button>)}</div>
-          <div className="board">
+          <div className="pipeline-view-toolbar">
+            <select aria-label="Vista operativa" value={presetView} onChange={e => setPresetView(e.target.value)}><option value="all">Tutti i lead</option><option value="new_ads">Nuovi da Ads · Setting</option><option value="closing_week">Closing da oggi a domenica</option><option value="contracts">Contratti da seguire</option></select>
+            <details className="pipeline-extra-filters"><summary>Filtri{search || sourceFilter || ownerFilter ? " · attivi" : ""}</summary><div className="pipeline-filter-fields">            <input aria-label="Cerca nella pipeline" placeholder="Cerca nome, telefono o email…" value={search} onChange={e => setSearch(e.target.value)} />
+            <select aria-label="Provenienza" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="">Tutte le provenienze</option>{[...new Set(leads.map(l => l.source).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
+            <select aria-label="Assegnatario" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}><option value="">Tutti gli assegnatari</option>{[...new Set(leads.map(l => l.assigned_to).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
+</div></details>
+            <div className="view-switch" aria-label="Visualizzazione"><button aria-pressed={layout === "kanban"} onClick={() => setLayout("kanban")}>Kanban</button><button aria-pressed={layout === "table"} onClick={() => setLayout("table")}>Tabella</button></div>
+            <button className="btn primary" disabled={!workableLeads.length} onClick={() => { setQueue(workableLeads.map(l => l.id)); setEditing(workableLeads[0]); }}>Lavora la lista · {workableLeads.length}</button>
+            <details className="saved-views"><summary>Viste personali</summary><div className="saved-views-content"><small>Filtri salvati per te, su questo browser.</small>{savedViews.map(v => <div key={v.name}><button className="btn" onClick={() => { setWorkFilter(v.work); setPresetView(v.preset || "all"); setSearch(v.search); setSourceFilter(v.source); setOwnerFilter(v.owner); setLayout(v.layout); }}>{v.name}</button><button className="btn" aria-label={`Elimina vista ${v.name}`} onClick={() => persistViews(savedViews.filter(item => item.name !== v.name))}>×</button></div>)}<form onSubmit={e => { e.preventDefault(); if (!viewName.trim()) return; persistViews([...savedViews.filter(v => v.name !== viewName.trim()), {name:viewName.trim(),preset:presetView,work:workFilter,search,source:sourceFilter,owner:ownerFilter,layout}]); setViewName(""); }}><input aria-label="Nome vista" placeholder="Nome della vista" maxLength={60} value={viewName} onChange={e => setViewName(e.target.value)} required/><button className="btn" type="submit">Salva vista</button></form><small role="status">{viewMessage}</small></div></details>
+          </div>
+          {presetView === "contracts" && contractsWarning && <div className="notice err">{contractsWarning}</div>}
+          {!visibleLeads.length && <div className="pipeline-empty">Nessun lead corrisponde ai filtri. <button className="btn" onClick={() => { setSearch(""); setSourceFilter(""); setOwnerFilter(""); setWorkFilter("all"); setPresetView("all"); }}>Mostra tutti</button></div>}
+          {layout === "table" ? <div className="pipeline-table-wrap"><table className="pipeline-table"><thead><tr><th>Lead</th><th>Fase</th><th>Provenienza</th><th>Assegnato a</th><th>Prossimo passo</th><th>Valore</th></tr></thead><tbody>{visibleLeads.map(l => { const step = steps.get(l.id); return <tr key={l.id}><td><button onClick={() => openLead(l)}>{l.name || "Senza nome"}</button>{l.phone && <a href={`tel:${l.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}</td><td>{leadStageNames[l.stage_id]}</td><td>{l.source || "—"}</td><td>{l.assigned_to || "—"}</td><td>{step ? new Date(step.due_at).toLocaleString("it-IT", {timeZone:"Europe/Rome",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : l.next_action_date || "Non previsto"}</td><td>{Number(l.value || 0).toLocaleString("it-IT", {style:"currency",currency:"EUR"})}</td></tr>; })}</tbody></table></div> : <div className="board">
             {stages.map((s) => (
               <Column
                 key={s.id}
                 stage={s}
-                leads={(leadsByStage[s.id] ?? []).filter(l => matchesWork(l, pendingTasks, workFilter, romeToday(), ["CLOSED", "LOST"].includes(s.name)))}
-                onOpen={(l) => setEditing(l)}
+                leads={(leadsByStage[s.id] ?? []).filter(l => visibleLeads.some(v => v.id === l.id))}
+                onOpen={openLead}
                 onAdd={canEdit && s.id === settingStage.id ? () => setCreatingInStage(settingStage) : undefined}
                 leadStageNames={leadStageNames}
                 latestActivity={latestActivity}
               />
             ))}
-          </div>
+          </div>}
         </div>
         <DragOverlay>
           {activeLead ? (
@@ -304,7 +360,9 @@ export default function Board({
 
       {editing && (
         <LeadModal
+          key={editing.id}
           lead={editing}
+          navigation={queue.includes(editing.id) ? {index:queue.indexOf(editing.id), total:queue.length, onPrevious: () => navigateLead(-1), onNext: () => navigateLead(1)} : undefined}
           clientId={client.id}
           stages={stages}
           meName={meName}
@@ -458,7 +516,7 @@ function LeadCardInner({
       ) : null}
       {lead.phone && (
         <div className="row">
-          <span>📞</span>
+          <span aria-hidden="true">Tel</span>
           <a href={`tel:${callablePhone}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             {lead.phone}
           </a>
@@ -466,7 +524,7 @@ function LeadCardInner({
       )}
       {lead.email && (
         <div className="row">
-          <span>✉️</span>
+          <span aria-hidden="true">Email</span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
             {lead.email}
           </span>
@@ -475,7 +533,7 @@ function LeadCardInner({
       {step && <div className="card-next-step"><b>{step.appointment_type === "demo" ? "Closing" : step.appointment_type === "discovery" ? "Discovery" : "Richiamare"}{step.is_priority ? " · Priorità" : ""}</b><span>{new Date(step.due_at).toLocaleString("it-IT", {timeZone:"Europe/Rome", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"})}</span></div>}
       {!step && lead.next_action_date && (
         <div className="row">
-          <span>📅</span>
+          <span>Prossimo passo</span>
           <span className={lead.next_action_date <= romeToday() ? "overdue" : ""}>
             {new Date(lead.next_action_date).toLocaleDateString("it-IT", {
               day: "numeric",
@@ -495,9 +553,9 @@ function LeadCardInner({
           </span>
         )}
         {lead.source && <span className="chip src">{lead.source}</span>}
-        {lead.notes && <span className="chip note">📝 nota</span>}
+        {lead.notes && <span className="chip note">Nota</span>}
         {!isDead && idle >= 3 && (
-          <span className="chip idle">⏳ fermo {idle} gg</span>
+          <span className="chip idle">Nessuna lavorazione da {idle} gg</span>
         )}
       </div>
     </>

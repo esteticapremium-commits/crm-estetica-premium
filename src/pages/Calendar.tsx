@@ -1,3 +1,4 @@
+import CalendarSchedule, { type DisplayEvent } from "../CalendarSchedule";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
@@ -5,12 +6,8 @@ import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarC
 import { defaultAudience } from "../salesKpi";
 import { allowedOutcomes, appointmentSubject, createAppointment, deleteAppointment, isAppointmentClosed, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 
-const romeDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
-const formatTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
-const eventDay = (event: GoogleEvent) => event.start?.dateTime ? romeDay(new Date(event.start.dateTime)) : event.start?.date || "";
-const eventTime = (event: GoogleEvent) => event.start?.dateTime ? formatTime(event.start.dateTime) : "Tutto il giorno";
 const localDateTime = (date: Date) => { const pad = (n: number) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
 const eventEnd = (task: SalesTask) => new Date(new Date(task.due_at).getTime() + (task.duration_minutes || 60) * 60 * 1000);
 type Selected = { kind: "crm"; task: SalesTask; lead: Lead | null } | { kind: "google"; event: GoogleEvent };
@@ -19,22 +16,6 @@ const OUTCOME_STYLE: Partial<Record<AppointmentOutcome, string>> = { qualified: 
 // Stato che la task assume per ciascun esito: serve solo a evidenziare il
 // pulsante corrispondente quando l'esito è già stato registrato.
 const CLOSED_STATUS: Record<AppointmentOutcome, string> = { qualified: "held", not_qualified: "held", held: "held", no_answer: "no_show", no_show: "no_show" };
-type TimedCalendarItem = { kind: "crm"; at: string; endAt: string; task: SalesTask } | { kind: "google"; at: string; endAt: string; event: GoogleEvent };
-
-function sameStartGroups(items: TimedCalendarItem[]) {
-  const groups: TimedCalendarItem[][] = [];
-  items.forEach((item) => {
-    const minute = Math.floor(new Date(item.at).getTime() / 60_000);
-    const current = groups[groups.length - 1];
-    const currentMinute = current?.[0]
-      ? Math.floor(new Date(current[0].at).getTime() / 60_000)
-      : null;
-    if (current && currentMinute === minute) current.push(item);
-    else groups.push([item]);
-  });
-  return groups;
-}
-
 export default function Calendar({ client, meName, headerTools }: { client: Client; meName: string; headerTools?: ReactNode }) {
   const [tasks, setTasks] = useState<SalesTask[]>([]); const [leads, setLeads] = useState<Lead[]>([]); const [stages, setStages] = useState<Stage[]>([]); const [google, setGoogle] = useState<GoogleEvent[]>([]);
   const [selected, setSelected] = useState<Selected | null>(null); const [createOpen, setCreateOpen] = useState(false); const [editingEvent, setEditingEvent] = useState(false); const [weekStart, setWeekStart] = useState(() => monday(new Date()));
@@ -46,10 +27,23 @@ export default function Calendar({ client, meName, headerTools }: { client: Clie
   const [error, setError] = useState<string | null>(null); const [formError, setFormError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const weekEnd = useMemo(() => { const date = new Date(weekStart); date.setDate(date.getDate() + 7); return date; }, [weekStart]);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => { const date = new Date(weekStart); date.setDate(date.getDate() + index); return date; }), [weekStart]);
+  const loadVersion = useRef(0);
+  const [loading, setLoading] = useState(false);
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
+    setLoading(true); setError(null);
+    try {
     const [taskResult, leadResult, stageResult] = await Promise.all([supabase.from("sales_tasks").select("*").eq("client_id", client.id).gte("due_at", weekStart.toISOString()).lt("due_at", weekEnd.toISOString()).order("due_at"), supabase.from("leads").select("*").eq("client_id", client.id), supabase.from("stages").select("*").eq("client_id", client.id)]);
+    if (version !== loadVersion.current) return;
+    const failure = taskResult.error || leadResult.error || stageResult.error;
+    if (failure) throw new Error(failure.message);
     setTasks((taskResult.data as SalesTask[]) || []); setLeads((leadResult.data as Lead[]) || []); setStages((stageResult.data as Stage[]) || []);
-    if (await ensureGoogleCalendarConnection()) { try { setGoogle(await listGoogleCalendarEvents(weekStart, weekEnd)); } catch { setGoogle([]); } } else setGoogle([]);
+    const connected = await ensureGoogleCalendarConnection();
+    const events = connected ? await listGoogleCalendarEvents(weekStart, weekEnd) : [];
+    if (version === loadVersion.current) setGoogle(events);
+    } catch (reason) {
+      if (version === loadVersion.current) { setGoogle([]); setError(`Calendario non aggiornato completamente: ${reason instanceof Error ? reason.message : "errore di connessione"}. Riprova con Aggiorna.`); }
+    } finally { if (version === loadVersion.current) setLoading(false); }
   }, [client.id, weekEnd, weekStart]);
   useEffect(() => { void load(); }, [load]);
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
@@ -123,11 +117,17 @@ export default function Calendar({ client, meName, headerTools }: { client: Clie
     setSelected(null); await load();
   }
 
+  const visibleTasks = tasks.filter(task => task.appointment_type || !task.completed_at);
+  const displayEvents: DisplayEvent[] = [
+    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type === "demo" ? "Closing" : task.appointment_type === "discovery" ? "Discovery" : "Richiamo"} · ${task.appointment_status === "held" ? "Svolta" : task.appointment_status === "no_show" ? "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...google.filter(event => !visibleTasks.some(task => task.google_event_id === event.id || (task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000))).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:"Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})}))
+  ].filter(event => event.at && event.endAt);
   return <div className="page calendar-page">
     <div className="calendar-intro"><div><div className="calendar-kicker">Agenda commerciale</div><h1>Calendario</h1><p>Appuntamenti CRM condivisi; Google personale privato. Gli appuntamenti sovrapposti restano tutti visibili.</p></div><div className="calendar-top-actions">{headerTools}<button className="btn primary" type="button" onClick={() => openCreate()}>+ Nuovo appuntamento</button><div className="calendar-navigation"><button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button><button type="button" onClick={() => { setSelected(null); setWeekStart(monday(new Date())); }}>Oggi</button><button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button></div>{googleCalendarConfigured() ? <button className={`btn ${googleCalendarConnected() ? "" : "primary"}`} disabled={busy} onClick={() => void connect()}>{googleCalendarConnected() ? "Google collegato" : "Collega Google Calendar"}</button> : <span className="calendar-notice">Google Calendar da configurare</span>}</div></div>
     {error && <div className="notice err">{error}</div>}
     <div className="calendar-toolbar"><b>{rangeLabel}</b><span><i className="crm-dot" /> CRM condiviso <i className="google-dot" /> Il mio Google Calendar</span></div>
-    <div className="calendar-week calendar-week-full" aria-label={`Settimana ${rangeLabel}`}>{days.map((date) => { const iso = romeDay(date); const isToday = iso === romeDay(new Date()); const local = tasks.filter((task) => romeDay(new Date(task.due_at)) === iso && (task.appointment_type || !task.completed_at)); const external = google.filter((event) => eventDay(event) === iso && !local.some((task) => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime() - new Date(event.start.dateTime).getTime()) < 60_000)); const allDay = external.filter((event) => !event.start?.dateTime); const timed: TimedCalendarItem[] = [...local.map((task) => ({ kind: "crm" as const, at: task.due_at, endAt: eventEnd(task).toISOString(), task })), ...external.filter((event) => event.start?.dateTime).map((event) => ({ kind: "google" as const, at: event.start?.dateTime || "", endAt: event.end?.dateTime || new Date(new Date(event.start?.dateTime || "").getTime() + 60 * 60 * 1000).toISOString(), event }))].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()); return <section key={iso} className={`calendar-column${isToday ? " today" : ""}`}><header><span>{date.toLocaleDateString("it-IT", { weekday: "short" })}</span><b>{date.getDate()}</b><button type="button" aria-label={`Nuovo appuntamento il ${date.toLocaleDateString("it-IT")}`} onClick={() => openCreate(date)}>+</button></header>{allDay.length > 0 && <div className="calendar-all-day">{allDay.map((event) => <button key={event.id} className="calendar-event google all-day" onClick={() => setSelected({ kind: "google", event })}><b>{event.summary || "Impegno Google"}</b></button>)}</div>}<div className="calendar-day-events">{sameStartGroups(timed).map((group, index) => <div className={`calendar-event-row${group.length > 1 ? " overlapping" : ""}`} key={`${group[0].at}-${index}`}>{group.map((item) => item.kind === "crm" ? <button key={item.task.id} className={`calendar-event crm appointment ${item.task.appointment_type || ""} ${item.task.appointment_status || ""}`} onClick={() => setSelected({ kind: "crm", task: item.task, lead: item.task.lead_id ? leadById.get(item.task.lead_id) || null : null })}><time>{formatTime(item.task.due_at)}</time><b>{item.task.title.replace(/^Appuntamento —\s*/, "")}</b><small>{item.task.appointment_status === "held" ? "✓ Svolta" : item.task.appointment_status === "no_show" ? "No-show" : item.task.lead_id ? leadById.get(item.task.lead_id)?.name || "Lead" : "Attività personale"}</small></button> : <button key={item.event.id} className="calendar-event google" onClick={() => setSelected({ kind: "google", event: item.event })}><time>{eventTime(item.event)}</time><b>{item.event.summary || "Impegno Google"}</b><small>Calendario personale</small></button>)}</div>)}</div>{!timed.length && !allDay.length && <button className="calendar-free" type="button" onClick={() => openCreate(date)}>Libero · aggiungi</button>}</section>; })}</div>
+    <div className="calendar-refresh-status"><button className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Aggiornamento…" : "Aggiorna"}</button>{loading && <span role="status">Caricamento appuntamenti…</span>}</div>
+    <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} />
     {selected && <EventDetailsModal selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onOutcome={(outcome) => void setAppointmentOutcome(outcome)} />}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
       <section className="calendar-modal calendar-create" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>

@@ -1,3 +1,4 @@
+import LeadTimeline from "../LeadTimeline";
 import { appendLeadNote } from "../leadNotes";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
@@ -127,6 +128,7 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
   onUpdated?: () => void;
+  navigation?: { index: number; total: number; onPrevious: () => void; onNext: () => void };
 }
 
 export default function LeadModal({
@@ -142,8 +144,13 @@ export default function LeadModal({
   onClose,
   onSaved,
   onUpdated,
+  navigation,
 }: Props) {
   const isNew = !lead;
+  const [drawerWidth, setDrawerWidth] = useState(680);
+  const resizeStart = useRef<{x:number;width:number} | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const [section, setSection] = useState("work");
   const [actionGroup, setActionGroup] = useState(stages.find(s => s.id === lead?.stage_id)?.name === "CLOSING" ? "closing" : stages.find(s => s.id === lead?.stage_id)?.name === "DISCOVERY" ? "discovery" : "contact");
   const [selectedAppointment, setSelectedAppointment] = useState("");
@@ -243,6 +250,7 @@ export default function LeadModal({
   // venditore li corregge solo quando la deduzione sbaglia, non a ogni azione.
   const [callTypeOverride, setCallTypeOverride] = useState<CallType | null>(null);
   const commercialActionLock = useRef(false);
+  const leadSaveLock = useRef(false);
   const revenueLock = useRef(false);
   const planLock = useRef(false);
   const [planAudienceOverride, setPlanAudienceOverride] = useState<AppointmentAudience | null>(null);
@@ -271,12 +279,13 @@ export default function LeadModal({
       else sessionStorage.removeItem(revenueDraftKey);
     } catch { /* La registrazione resta disponibile se lo storage è disabilitato. */ }
   }, [revenueDraftKey, revenueType, revenueAmount, revenueContractValue, revenueAt, revenueNote]);
-  function closeLead() {
-    if (busy || revenueLock.current) return;
-    if ((quickNote.trim() || commercialNote.trim() || planDue) && !confirm("Ci sono note o un prossimo passo non salvati. Vuoi chiudere comunque?")) return;
-    if (revenueAmount && !confirm("Questo incasso non è ancora confermato. Chiudere la scheda? La bozza rimane disponibile in questa scheda del browser.")) return;
-    onClose();
+  function leaveLead(action: () => void) {
+    if (busy || leadSaveLock.current || revenueLock.current || planLock.current || commercialActionLock.current) return;
+    const dataChanged = lead && (name !== (lead.name || "") || phone !== (lead.phone || "") || email !== (lead.email || "") || source !== (lead.source ?? "Instantly") || assigned !== (lead.assigned_to || "") || value !== String(lead.value ?? 0) || stageId !== lead.stage_id || selectedPipelineId !== originalPipelineId || nextAction !== (lead.next_action_date || "") || closingDate !== (lead.closing_date || "") || lostReason !== (lead.lost_reason || "") || tags !== (lead.tags || ""));
+    if ((isNew && (name.trim() || phone.trim() || email.trim())) || dataChanged || quickNote.trim() || commercialNote.trim() || planDue || planTitle.trim() || planNote.trim() || revenueAmount || ctForm) { setPendingLeave(() => action); return; }
+    action();
   }
+  function closeLead() { leaveLead(onClose); }
   // Contratti
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -342,7 +351,8 @@ export default function LeadModal({
 
   async function reloadActivityHistory() {
     if (!lead) return;
-    const { data } = await supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(50);
+    const { data, error } = await supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(500);
+    setHistoryError(error ? "Azioni non disponibili: " + error.message : "");
     setActivityHistory((data as LeadActivity[]) ?? []);
   }
 
@@ -357,7 +367,7 @@ export default function LeadModal({
     void reloadAppointments();
     void reloadFollowUps();
   }, [lead?.id]);
-  useEffect(() => { if (section === "payments" && canRecordRevenue) void reloadPayments(); }, [section, lead?.id, canRecordRevenue]);
+  useEffect(() => { if ((section === "payments" || section === "history") && canRecordRevenue) void reloadPayments(); }, [section, lead?.id, canRecordRevenue]);
 
   // Solo gli appuntamenti la cui ora è già passata possono avere un esito: una
   // discovery fissata per la settimana prossima non deve essere chiusa da un
@@ -758,13 +768,15 @@ export default function LeadModal({
     return `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
   };
 
-  async function save() {
-    if (busy) return;
+  async function save(afterSave: () => void = onSaved) {
+    if (busy || leadSaveLock.current) return;
     if (revenueAmount) {
       setRevenueError("Hai un incasso da confermare: premi Registra incasso prima di salvare e chiudere la scheda.");
       document.querySelector(".revenue-tracker")?.scrollIntoView({ block: "center", behavior: "smooth" });
       return;
     }
+    leadSaveLock.current = true;
+    try {
     setBusy(true);
     setErr(null);
     let destinationStageId = isNew ? settingStageId : stageId;
@@ -868,8 +880,11 @@ export default function LeadModal({
       }
       // L'autore dell'eventuale cambio fase lo registra il database stesso
       // (trigger record_stage_event): niente aggiornamento manuale qui.
-      onSaved();
+      afterSave();
     }
+    } catch (reason) {
+      setErr("Salvataggio non confermato: " + (reason instanceof Error ? reason.message : "riprova senza chiudere la scheda"));
+    } finally { leadSaveLock.current = false; setBusy(false); }
   }
 
   async function saveQuickNote() {
@@ -938,13 +953,15 @@ export default function LeadModal({
 
   return (
     <div className="overlay lead-drawer-overlay" onClick={closeLead}>
-      <div className="modal lead-drawer" onClick={(e) => e.stopPropagation()}>
+      <div className="modal lead-drawer" role="dialog" aria-modal="true" aria-label={isNew ? "Nuovo lead" : name || "Scheda lead"} style={{width:`min(${drawerWidth}px, 96vw)`}} onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-resize" role="separator" tabIndex={0} aria-label="Larghezza scheda lead" aria-orientation="vertical" aria-valuemin={520} aria-valuemax={1000} aria-valuenow={drawerWidth} onKeyDown={e => { if (["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); setDrawerWidth(w => Math.max(520, Math.min(1000, w + (e.key === "ArrowLeft" ? 40 : -40)))); } }} onPointerDown={e => { resizeStart.current = {x:e.clientX,width:drawerWidth}; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { if (resizeStart.current) setDrawerWidth(Math.max(520, Math.min(1000, resizeStart.current.width + resizeStart.current.x - e.clientX))); }} onPointerUp={() => { resizeStart.current = null; }} onPointerCancel={() => { resizeStart.current = null; }} />
         <header>
           <h3>{isNew ? "Nuovo lead" : name || "Lead"}</h3>
           <button className="x" onClick={closeLead}>
             ×
           </button>
         </header>
+        {navigation && <div className="lead-queue-navigation"><button className="btn" disabled={busy || navigation.index === 0} onClick={() => leaveLead(navigation.onPrevious)}>← Precedente</button><span>{navigation.index + 1} di {navigation.total}</span><button className="btn" disabled={busy || navigation.index >= navigation.total - 1} onClick={() => leaveLead(navigation.onNext)}>Successivo →</button></div>}
         {!isNew && <><div className="lead-context"><span>{stages.find((s) => s.id === stageId)?.name} · {assigned || "Non assegnato"}</span>{callablePhone && <a className="btn primary" href={`tel:${callablePhone}`}>Chiama</a>}</div><nav className="lead-sections" aria-label="Sezioni del lead">{[["work", "Lavora lead"], ["data", "Dati"], ["history", "Storico"], ["contracts", "Contratti"], ...(canRecordRevenue ? [["payments", "Incassi"]] : [])].map(([id, label]) => <button type="button" key={id} aria-pressed={section === id} onClick={() => setSection(id)}>{label}</button>)}</nav></>}
         <div className="content">
           {err && <div className="notice err">{err}</div>}
@@ -1188,19 +1205,16 @@ export default function LeadModal({
           )}
 
           </section>
-          <section hidden={isNew || section !== "history"}>              {activityHistory.length > 0 && <div className="tracker-history" aria-label="Storico commerciale"><b className="tracker-history-title">Storico commerciale ({activityHistory.length})</b>{activityHistory.slice(0, 15).map((activity) => {
+          <section hidden={isNew || section !== "history"}>
+            {lead && section === "history" && <LeadTimeline lead={lead} stages={stages} notes={splitNoteHistory(notes)} contracts={contracts} payments={canRecordRevenue ? payments : []} error={historyError || paymentsError} activities={activityHistory.map(activity => {
                 const isBooking = activity.event_type === "discovery_booked" || activity.event_type === "demo_booked";
                 const isReschedule = activity.event_type === "appointment_rescheduled";
                 const previousAt = typeof activity.details?.previous_at === "string" ? activity.details.previous_at : null;
                 const nextAt = typeof activity.details?.new_at === "string" ? activity.details.new_at : activity.scheduled_at;
                 const attempt = isBooking ? appointmentAttempts.get(activityTaskId(activity)) : null;
-                return <div key={activity.id}><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}{isBooking && attempt && attempt > 1 ? ` · ${attempt}ª prenotazione` : ""}</b><small>Registrato il {appointmentStamp(activity.created_at)} · {activity.created_by || "CRM"}</small>{isBooking && activity.scheduled_at && <small>Fissata per il {appointmentStamp(activity.scheduled_at)}</small>}{isReschedule && previousAt && nextAt && <small>Spostata dal {appointmentStamp(previousAt)} al {appointmentStamp(nextAt)}</small>}{!isBooking && !isReschedule && <small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"}{activity.scheduled_at ? ` · Appuntamento del ${appointmentStamp(activity.scheduled_at)}` : ""}</small>}{activity.note && <small>{activity.note}</small>}</span>{!activityTaskId(activity) && <button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button>}</div>;
-              })}</div>}          <div className="field lead-note-history">
-            <label>Storico note</label>
-            {notes.trim() ? <div className="note-history-list">{splitNoteHistory(notes).map((note, index) => <div className="note-history-item" key={`${index}-${note}`}><span>{note}</span></div>)}</div> : <div className="note-history-empty">Nessuna nota precedente. Aggiungi il primo aggiornamento qui sopra.</div>}
-          </div>
-
-</section>
+                return {id:`activity-${activity.id}`, at:activity.occurred_at || activity.created_at, content:<div><span><b>{EVENT_LABELS[activity.event_type || ""] || activity.activity_type}{isBooking && attempt && attempt > 1 ? ` · ${attempt}ª prenotazione` : ""}</b><small>Avvenuto il {appointmentStamp(activity.occurred_at || activity.created_at)}</small><small>Registrato il {appointmentStamp(activity.created_at)} · {activity.created_by || "CRM"}</small>{isBooking && activity.scheduled_at && <small>Fissata per il {appointmentStamp(activity.scheduled_at)}</small>}{isReschedule && previousAt && nextAt && <small>Spostata dal {appointmentStamp(previousAt)} al {appointmentStamp(nextAt)}</small>}{!isBooking && !isReschedule && <small>{OUTCOME_LABELS[activity.outcome || ""] || activity.outcome || "—"}{activity.scheduled_at ? ` · Appuntamento del ${appointmentStamp(activity.scheduled_at)}` : ""}</small>}{activity.note && <small>{activity.note}</small>}</span>{!activityTaskId(activity) && <button type="button" aria-label="Elimina registrazione" disabled={busy} onClick={() => void removeCommercialActivity(activity)}>×</button>}</div>};
+            })} />}
+          </section>
           <section hidden={isNew || section !== "payments"}>          {!isNew && canRecordRevenue && (
             <div className="activity-box revenue-tracker">
               <div className="tracker-heading"><div><b>Registra un incasso</b><p>Firma e denaro ricevuto restano separati: qui entra solo ciò che è realmente incassato. Registra soltanto pagamenti effettivamente ricevuti.</p></div><span>€</span></div>
@@ -1402,6 +1416,7 @@ Grazie!`
           )}
           </section>
         </div>
+        {pendingLeave && <div className="lead-unsaved-overlay" onClick={e => e.stopPropagation()}><section className="lead-unsaved-dialog" role="alertdialog" aria-modal="true" aria-label="Modifiche non salvate"><h3>Ci sono modifiche non salvate</h3><p>Rimani nella scheda per completare il salvataggio. Se esci, le modifiche non confermate verranno scartate.</p>{revenueAmount && <p>La bozza dell’incasso resta in questo browser, ma non è un pagamento registrato.</p>}<div><button className="btn primary" onClick={() => setPendingLeave(null)}>Rimani nella scheda</button><button className="btn" onClick={() => { const leave = pendingLeave; setPendingLeave(null); leave(); }}>Esci senza salvare</button></div></section></div>}
         <footer>
           {!isNew && canDelete && section === "data" && (
             <button
@@ -1416,7 +1431,11 @@ Grazie!`
           <button className="btn" onClick={closeLead} disabled={busy}>
             Chiudi
           </button>
-          {(isNew || section === "work" || section === "data") && <button className="btn primary" onClick={save} disabled={busy}>
+          {navigation && navigation.index < navigation.total - 1 && (section === "work" || section === "data") && <button className="btn" disabled={busy} onClick={() => {
+            if (commercialNote.trim() || revenueAmount) { setErr("Registra prima l’esito o l’incasso compilato, oppure svuota la relativa bozza."); return; }
+            void save(() => { onUpdated?.(); navigation.onNext(); });
+          }}>Salva e successivo →</button>}
+          {(isNew || section === "work" || section === "data") && <button className="btn primary" onClick={() => void save()} disabled={busy}>
             {busy ? "Salvataggio…" : "Salva"}
           </button>}
         </footer>

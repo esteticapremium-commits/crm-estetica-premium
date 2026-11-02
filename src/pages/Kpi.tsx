@@ -168,6 +168,9 @@ const cac = (row: DailyKpi) => (row.won > 0 ? row.costs / row.won : null);
 const roi = (row: DailyKpi) => (row.costs > 0 ? collected(row) / row.costs : null);
 
 export default function Kpi({ client, meName, admin, headerTools }: { client: Client; meName: string; admin: boolean; headerTools?: ReactNode }) {
+  type EvidenceKind = "discovery" | "closing" | "held" | "cash";
+  type Evidence = {id:string;kind:EvidenceKind;leadId:string|null;at:string;scheduled?:string|null;owner:string|null;value?:number;label:string};
+  const [detail, setDetail] = useState<EvidenceKind | null>(null);
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [outreach, setOutreach] = useState<SalesOutreachEvent[]>([]);
   const [outreachReady, setOutreachReady] = useState(false);
@@ -364,7 +367,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     return keys;
   }, [activities]);
 
-  const rows = useMemo(() => {
+  const {rows, evidence} = useMemo(() => {
+    const evidence: Evidence[] = [];
     const result = new Map<string, DailyKpi>();
     const reachedByDay = new Map<string, Set<string>>();
     const heldDiscoveryByDay = new Map<string, Map<string, string>>();
@@ -401,7 +405,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         if (event.outcome === "positive") row.positiveReplies += quantity;
       }
       if (event.event_type === "positive_reply") row.positiveReplies += quantity;
-      if (event.event_type === "booking" && !crmBookings.has(`${event.lead_id}|${day}`)) row.discoveryBooked += 1;
+      if (event.event_type === "booking" && !crmBookings.has(`${event.lead_id}|${day}`)) { row.discoveryBooked += 1; evidence.push({id:event.id,kind:"discovery",leadId:event.lead_id,at:event.occurred_at,owner:event.assigned_to,label:"Prenotazione outreach"}); }
     });
 
     activities.forEach((activity) => {
@@ -488,7 +492,10 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         if (outcome === "no_answer" && fromAppointment) row.noShow += 1;
       }
 
-      if (isBookingActivity(activity)) row.discoveryBooked += 1;
+      const proof = {id:activity.id,leadId:activity.lead_id,at:appointmentOutcome && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity),scheduled:activity.scheduled_at,owner:activityOwner(activity) || null,label:activity.outcome || "Prenotazione"};
+      if (isBookingActivity(activity)) { row.discoveryBooked += 1; evidence.push({...proof,kind:"discovery"}); }
+      if (type === "demo_booked") evidence.push({...proof,kind:"closing"});
+      if ((isCallActivity(activity) && isHeldDiscovery(outcome)) || (type === "demo_call" && outcome === "held")) evidence.push({...proof,kind:"held"});
       if (type === "demo_booked") { if (callType === "client") row.demoClientBooked += 1; else row.demoBooked += 1; }
 
       if (type === "demo_call") {
@@ -523,6 +530,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       const day = dayInRome(entry.occurred_at);
       if (!inRange(day) || entry.status !== "collected" || !sellerMatches(entry.assigned_to) || !sourceMatches(entry.lead_id)) return;
       const row = rowOf(day);
+      evidence.push({id:entry.id,kind:"cash",leadId:entry.lead_id,at:entry.occurred_at,owner:entry.assigned_to,value:number(entry.amount),label:entry.note || (entry.revenue_type === "new" ? "Nuovo cliente" : entry.revenue_type === "renewal" ? "Rinnovo" : "Upsell")});
       if (entry.revenue_type === "new") {
         row.collectedNew += number(entry.amount);
         // Rate successive aumentano l'incassato, ma la closing resta una sola.
@@ -544,7 +552,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (inRange(entry.cost_date) && channelMatches && ownerMatches) rowOf(entry.cost_date).costs += number(entry.amount);
     });
 
-    return [...result.values()].sort((a, b) => b.day.localeCompare(a.day));
+    return { rows: [...result.values()].sort((a, b) => b.day.localeCompare(a.day)), evidence };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewRevenueByLead, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead]);
 
@@ -632,7 +640,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary label="Messaggi outreach" value={outreachSent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} />
       <Summary label="% PRENOT" value={formatPct(bookingRate(total))} detail={`${total.discoveryConvertedLeads} lead con closing / ${total.discoveryLeads} lead con discovery`} />
       <Summary label="% PREN RIS" value={formatPct(bookingOnReplies(total))} detail={`${total.discoveryBooked} discovery / ${total.replies} risposte`} />
-      <Summary label="Call tot svolte" value={callsHeld(total)} detail={`${total.discoveryHeld} disco · ${total.demoHeld} closing · ${total.demoClientHeld} closing GC`} />
+      <Summary onClick={() => setDetail("held")} label="Call tot svolte" value={callsHeld(total)} detail={`${total.discoveryHeld} disco · ${total.demoHeld} closing · ${total.demoClientHeld} closing GC`} />
       <Summary label="SHOW UP DISCOVERY" value={formatPct(showUpDiscovery(total))} detail={`${total.discoveryHeldBooked} presenti / ${total.discoveryScheduled} previsti`} />
       <Summary label="SHOW UP CLOSING" value={formatPct(showUpClosing(total))} detail={`${total.demoHeldBooked + total.demoClientHeldBooked} presenti / ${total.demoScheduled + total.demoClientScheduled} previsti`} />
       <Summary label="DROP D/DE" value={formatPct(discoveryDemoDrop(total))} detail={`${Math.max(total.discoveryLeads - total.discoveryConvertedLeads, 0)} lead senza closing / ${total.discoveryLeads} lead con discovery`} />
@@ -641,9 +649,11 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary label="CR" value={formatPct(closeRate(total))} detail={`${total.won} vinte / ${total.demoHeld + total.demoClientHeld} closing svolte`} />
       <Summary label="VAL TOT" value={eur(total.contractValue)} detail={`${total.won} vendite vinte`} />
       <Summary label="VAL TOT M" value={averageDeal(total) === null ? "—" : eur(averageDeal(total)!)} detail="Valore medio per contratto" />
-      <Summary label="€ SALES" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo · ${eur(total.collectedRenewal + total.collectedUpsell)} rinnovi e upsell`} positive />
+      <Summary onClick={() => setDetail("cash")} label="€ SALES" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo · ${eur(total.collectedRenewal + total.collectedUpsell)} rinnovi e upsell`} positive />
     </div>
 
+    <section className="kpi-evidence-links" aria-label="Verifica le prenotazioni"><button className="btn" onClick={() => setDetail("discovery")}>Discovery prenotate · {total.discoveryBooked} ↗</button><button className="btn" onClick={() => setDetail("closing")}>Closing prenotate · {total.demoBooked + total.demoClientBooked} ↗</button><small>Apri un numero per vedere le registrazioni conteggiate, con gli stessi filtri del report.</small></section>
+    {detail && <div className="overlay" onClick={() => setDetail(null)}><section className="modal kpi-evidence-modal" role="dialog" aria-modal="true" aria-label="Dettaglio KPI" onClick={e => e.stopPropagation()}><header><div><h3>{({discovery:"Discovery prenotate",closing:"Closing prenotate",held:"Call svolte",cash:"Incassi registrati"})[detail]}</h3><p>{range.from} → {range.to} · {seller === "all" ? "Tutto il team" : seller} · {channel === "all" ? "Tutti i canali" : channel}</p></div><button className="btn" aria-label="Chiudi dettaglio" onClick={() => setDetail(null)}>×</button></header><div className="content"><p>{detail === "cash" ? eur(evidence.filter(e => e.kind === detail).reduce((sum,e)=>sum+(e.value || 0),0)) : `${evidence.filter(e=>e.kind===detail).length} registrazioni`} · Date Europe/Rome</p>{evidence.filter(e=>e.kind===detail).sort((a,b)=>b.at.localeCompare(a.at)).map(e=><article className="kpi-evidence-row" key={e.id}><b>{e.leadId ? leadById.get(e.leadId)?.name || "Lead non disponibile" : "Senza lead collegato"}{e.value !== undefined ? ` · ${eur(e.value)}` : ""}</b><span>{new Date(e.at).toLocaleString("it-IT",{timeZone:"Europe/Rome"})} · {e.owner || "Non assegnato"}</span>{e.scheduled && <small>Appuntamento: {new Date(e.scheduled).toLocaleString("it-IT",{timeZone:"Europe/Rome"})}</small>}<small>{e.label}</small></article>)}{!evidence.some(e=>e.kind===detail) && <p>Nessuna registrazione nel periodo e nei filtri selezionati.</p>}</div></section></div>}
     <section className="panel kpi-forecast-panel">
       <header className="kpi-forecast-header">
         <div><span className="eyebrow">PROSPETTO FUTURO</span><h2>Call in programma</h2><p>Solo appuntamenti commerciali ancora da svolgere. Questo blocco non entra nei calcoli delle KPI consuntive.</p></div>
@@ -752,8 +762,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   </div>;
 }
 
-function Summary({ label, value, detail, positive }: { label: string; value: string | number; detail: string; positive?: boolean }) {
-  return <article className={`kpi-summary${positive ? " positive" : ""}`}><span>{label}</span><b>{value}</b><small>{detail}</small></article>;
+function Summary({ label, value, detail, positive, onClick }: { label: string; value: string | number; detail: string; positive?: boolean; onClick?:()=>void }) {
+  return <article className={`kpi-summary${positive ? " positive" : ""}`}><span>{label}</span><b>{value}</b><small>{detail}</small>{onClick && <button className="kpi-detail-button" onClick={onClick}>Vedi registrazioni ↗</button>}</article>;
 }
 
 function ForecastSnapshot({ label, value, data }: { label: string; value: number; data: { discovery: number; closing: number; clientClosing: number } }) {
