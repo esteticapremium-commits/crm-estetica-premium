@@ -320,3 +320,38 @@ test('solo il contratto team rifiuta il codice fiscale nel campo Partita IVA', a
   assert.equal(calls, 0);
   assert.match(render().err, /Partita IVA/);
 });
+
+const setterMigration = readFileSync(new URL('../supabase/create_setter_trial_team_template.sql', import.meta.url), 'utf8');
+const setterBody = setterMigration.split('$setter$')[1];
+const setterFields = setterMigration.split('$fields$')[1].split('\n');
+test('setter: campo fiscale unico accetta CF o IVA e conserva il controllo IVA del modello precedente', () => {
+  assert.equal(teamHelpers.teamFiscalError(setterFields, { [teamHelpers.TEAM_FISCAL_FIELD]: 'RSSMRA80A01H501U' }), null);
+  assert.equal(teamHelpers.teamFiscalError(setterFields, { [teamHelpers.TEAM_FISCAL_FIELD]: '12345678901' }), null);
+  assert.equal(teamHelpers.teamFiscalError(setterFields, { [teamHelpers.TEAM_FISCAL_FIELD]: ' rssmra80a01h501u ' }), null);
+  assert.ok(teamHelpers.teamFiscalError(setterFields, {}));
+  assert.ok(teamHelpers.teamFiscalError(setterFields, { [teamHelpers.TEAM_FISCAL_FIELD]: '123' }));
+  assert.ok(teamHelpers.teamFiscalError(teamHelpers.TEAM_FIELDS, { 'Partita IVA': 'RSSMRA80A01H501U' }));
+});
+test('setter: CF e IVA arrivano alla firma e nel documento senza segnaposti residui', async () => {
+  for (const taxId of ['RSSMRA80A01H501U', '12345678901']) {
+    let payload, html;
+    const render = signingHarness(async (name, args) => {
+      if (name === 'sign_contract') { payload = args; return { data: true, error: null }; }
+      return { data: [signed], error: null };
+    });
+    const values = { 'Nome e cognome': 'Consulente Test', [teamHelpers.TEAM_FISCAL_FIELD]: taxId };
+    render().setDoc({ ...signed, body: setterBody, client_fields: setterFields.join('\n'), status: 'draft' });
+    render().setValues(values);
+    await render().sign();
+    assert.equal(JSON.parse(payload.p_data)[teamHelpers.TEAM_FISCAL_FIELD], taxId);
+    const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
+      window: { location: { origin: 'https://crm.example' }, open: () => ({ document: { open() {}, write(v) { html = v; }, close() {} } }) },
+    });
+    pdf.openSignedContractPdf({ ...signed, body: setterBody, client_fields: setterFields.join('\n'), client_data: JSON.stringify(values) });
+    assert.match(html, new RegExp(taxId));
+    assert.match(html, /5% \(cinque per cento\)/);
+    assert.match(html, /durata di 1 \(uno\) mese/);
+    assert.doesNotMatch(html, /\{\{|DA CONFERMARE|10%|svolge la propria attività in regime di Partita IVA/);
+    assert.equal(html.split('src="data:image/png;base64,AAAA"').length - 1, 2);
+  }
+});

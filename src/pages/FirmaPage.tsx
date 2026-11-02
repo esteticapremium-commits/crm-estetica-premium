@@ -1,4 +1,4 @@
-import { isTeamContract } from "../teamContract";
+import { isTeamContract, TEAM_FISCAL_FIELD, teamFiscalError } from "../teamContract";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
@@ -240,7 +240,7 @@ export default function FirmaPage({ token }: { token: string }) {
   async function sign() {
     if (submitting.current || confirmationPending) return;
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
-    if (team && !/^\d{11}$/.test((values["Partita IVA"] || "").trim())) return setErr("Inserisci la Partita IVA corretta del consulente: 11 cifre.");
+    if (team) { const fiscalError = teamFiscalError(fields, values); if (fiscalError) return setErr(fiscalError); }
     if (!hasInk.current) {
       return setErr(deed ? "Disegna la firma nel riquadro prima di confermare la scrittura privata." : "Disegna la firma nel riquadro prima di confermare il contratto.");
     }
@@ -415,10 +415,10 @@ export default function FirmaPage({ token }: { token: string }) {
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
-                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{team ? "Controlla i tuoi dati e completa la Partita IVA prima della firma." : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
+                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{team ? (fields.includes(TEAM_FISCAL_FIELD) ? "Controlla i tuoi dati e inserisci la Partita IVA oppure il codice fiscale prima della firma." : "Controlla i tuoi dati e completa la Partita IVA prima della firma.") : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{team && f === "Partita IVA" ? "(obbligatorio)" : "(facoltativo)"}</small></label>
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{team && (f === "Partita IVA" || f === TEAM_FISCAL_FIELD) ? "(obbligatorio)" : "(facoltativo)"}</small></label>
                         <input
                           id={`contract-field-${fields.indexOf(f)}`}
                           disabled={busy || confirmationPending}
