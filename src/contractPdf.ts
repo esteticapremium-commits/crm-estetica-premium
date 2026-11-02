@@ -1,3 +1,4 @@
+import { isTeamContract } from "./teamContract";
 // Genera e apre in stampa/PDF il contratto FIRMATO, con dati, data e firma.
 // Usata dal CRM (scheda lead) per riscaricare la copia firmata; la stessa
 // impaginazione della pagina pubblica di firma.
@@ -190,6 +191,7 @@ export function openSignedContractPdf(c: SignedContract, options?: { onBlocked: 
     values = {};
   }
   const signature = signatureImageSrc(c.signature_data);
+  const team = isTeamContract(c.body);
   const fullBody = fillBody(c.body ?? "", fields, values, true);
   const contractParts = splitContractClosing(fullBody);
   const rows = fields
@@ -236,8 +238,8 @@ export function openSignedContractPdf(c: SignedContract, options?: { onBlocked: 
     </tbody></table>
   </div>
   <div class="doc">${contractParts.main.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div>
-  <div class="signature-grid"><div class="signature-cell"><h3>Committente</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong><span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong><span>Firma</span>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}"/>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>Collaboratore</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/><span>Data</span><strong>${dataShort}</strong></div></div>
-  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div><div class="approval-signature"><h3>Approvazione specifica del Committente</h3><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><div class="approval-data"><div class="approval-person"><span>Firmato da</span><strong>${escapeHtml(c.signed_name)}</strong><span>Data</span><strong>${dataShort}</strong></div>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}" alt="Firma del committente per approvazione specifica"/>` : ""}</div></div>` : ""}
+  <div class="signature-grid"><div class="signature-cell"><h3>${team ? "Il Consulente Telefonico" : "Committente"}</h3><span>Nome</span><strong>${escapeHtml(c.signed_name)}</strong>${team ? "" : `<span>Ragione sociale</span><strong>${escapeHtml(values["Ragione sociale del committente"] || "—")}</strong>`}<span>Firma</span>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}"/>` : ""}${team ? `<span>Luogo</span><strong>${escapeHtml(values["Luogo di firma"] || "—")}</strong>` : ""}<span>Data</span><strong>${dataShort}</strong></div><div class="signature-cell"><h3>${team ? "L’Agenzia — Committente" : "Collaboratore"}</h3><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img class="sig-img collaborator-sig" src="${collaboratorSignatureUrl}" alt="Firma di Ettore Androsoni"/>${team ? "<span>Luogo</span><strong>Napoli</strong>" : ""}<span>Data</span><strong>${dataShort}</strong></div></div>
+  ${contractParts.approval ? `<div class="doc">${contractParts.approval.split("\n").map((l) => `<p>${escapeHtml(l)}</p>`).join("")}</div><div class="approval-signature"><h3>Approvazione specifica ${team ? "del Consulente Telefonico" : "del Committente"}</h3><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><div class="approval-data"><div class="approval-person"><span>Firmato da</span><strong>${escapeHtml(c.signed_name)}</strong><span>Data</span><strong>${dataShort}</strong></div>${signature ? `<img class="sig-img" src="${escapeHtml(signature)}" alt="Firma del committente per approvazione specifica"/>` : ""}</div></div>` : ""}
   <script>window.onload = function(){ window.print(); }<\/script>
 </body></html>`;
   const w = window.open("", "_blank");

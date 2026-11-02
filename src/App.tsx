@@ -18,6 +18,7 @@ const Vendite = lazyPage(() => import("./pages/Vendite"));
 const FirmaPage = lazyPage(() => import("./pages/FirmaPage"));
 const Control = lazyPage(() => import("./pages/Control"));
 const EditorialPlan = lazyPage(() => import("./pages/EditorialPlan"));
+const TeamContracts = lazyPage(() => import("./pages/TeamContracts"));
 const Contracts = lazyPage(() => import("./pages/Contracts"));
 const Tasks = lazyPage(() => import("./pages/Tasks"));
 const Calendar = lazyPage(() => import("./pages/Calendar"));
@@ -25,9 +26,9 @@ const PersonalTasks = lazyPage(() => import("./pages/PersonalTasks"));
 const Kpi = lazyPage(() => import("./pages/Kpi"));
 const TeamActivity = lazyPage(() => import("./pages/TeamActivity"));
 
-type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team";
+type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team" | "teamContracts";
 const sharedTabs: Tab[] = ["board", "sales", "kpi", "tasks", "calendar", "control", "contracts"];
-const adminTabs: Tab[] = ["admin", "editorial", "personal", "team"];
+const adminTabs: Tab[] = ["admin", "editorial", "personal", "team", "teamContracts"];
 function readNavigation(key: string) {
   try { return window.sessionStorage.getItem(key); } catch { return null; }
 }
@@ -309,7 +310,7 @@ export default function App() {
           <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
           <button title="KPI vendite" className={tab === "kpi" ? "active" : ""} onClick={() => setTab("kpi")}><NavIcon name="kpi" /> KPI vendite</button>
           <button title="Contratti" className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><NavIcon name="contracts" /> Contratti</button>
-          {isAdmin && <><span className="nav-label">Azienda</span><button title="Attività del team" className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}><NavIcon name="comp" /> Attività del team</button><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="side-item disabled"><NavIcon name="revenue" /> Fatturato</span><span className="side-item disabled"><NavIcon name="comp" /> Compensi</span><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
+          {isAdmin && <><span className="nav-label">Azienda</span><button title="Contratti team" className={tab === "teamContracts" ? "active" : ""} onClick={() => setTab("teamContracts")}><NavIcon name="contracts" /> Contratti team</button><button title="Attività del team" className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}><NavIcon name="comp" /> Attività del team</button><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="side-item disabled"><NavIcon name="revenue" /> Fatturato</span><span className="side-item disabled"><NavIcon name="comp" /> Compensi</span><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
         </nav>
         <details className={`presence-disclosure ${presenceStatus}`}><summary title="Informazioni sulla registrazione della presenza CRM"><span aria-hidden="true">●</span><b>{presenceStatus === "recording" ? "Presenza CRM registrata" : presenceStatus === "connecting" ? "Registro presenza in connessione" : "Registro presenza non disponibile"}</b></summary><div><b>Registro di utilizzo del CRM</b><p>Registriamo apertura, ultima presenza e intervalli di utilizzo stimato, consultabili dall’amministratore per organizzare il lavoro del team. Nessun testo digitato o screenshot viene raccolto.</p><p>Il CRM in primo piano con interazioni recenti è considerato in uso. I tempi non rappresentano le ore lavorate. Conservazione: 30 giorni. Per informazioni e accesso ai tuoi dati, rivolgiti al titolare.</p></div></details>
         <div className="sidebar-user"><div className="avatar">{(auth.profile.full_name || auth.email || "?").charAt(0).toUpperCase()}</div><div><b>{auth.profile.full_name || auth.email}</b><span>{isAdmin ? "Amministratore" : "Venditore"}</span></div><button title="Esci" onClick={() => supabase.auth.signOut()}>↪</button></div>
@@ -364,6 +365,8 @@ export default function App() {
       {tab === "personal" && isAdmin && <PersonalTasks headerTools={headerTools} />}
 
       {tab === "team" && isAdmin && currentClient && <TeamActivity clientId={currentClient.id} headerTools={headerTools} />}
+
+      {tab === "teamContracts" && isAdmin && currentClient && <TeamContracts clientId={currentClient.id} meName={meName} />}
 
       {tab === "contracts" && <Contracts canManageLinks={isAdmin} />}
 

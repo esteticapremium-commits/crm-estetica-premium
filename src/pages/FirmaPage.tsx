@@ -1,3 +1,4 @@
+import { isTeamContract } from "../teamContract";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
@@ -73,6 +74,9 @@ export default function FirmaPage({ token }: { token: string }) {
           return;
         }
         setDoc(row);
+        if (isTeamContract(row.body) && row.status !== "signed") {
+          try { const initial = JSON.parse(row.client_data || "{}"); setValues(initial); setName(initial["Nome e cognome"] || ""); } catch { setValues({}); }
+        }
         // L'apertura viene registrata dal database senza raccogliere IP,
         // dispositivo o altri dati personali del firmatario.
         // Le query Supabase partono quando la Promise viene consumata: senza
@@ -113,7 +117,8 @@ export default function FirmaPage({ token }: { token: string }) {
     .split("\n")
     .map((f) => f.trim())
     .filter(Boolean);
-  const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, false));
+  const team = isTeamContract(doc?.body);
+  const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, team));
   const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
   const needsGeneralApproval = requiresGeneralAcceptance(doc?.client_data);
   const deed = isPrivateDeed(doc?.body);
@@ -235,6 +240,7 @@ export default function FirmaPage({ token }: { token: string }) {
   async function sign() {
     if (submitting.current || confirmationPending) return;
     if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
+    if (team && !/^\d{11}$/.test((values["Partita IVA"] || "").trim())) return setErr("Inserisci la Partita IVA corretta del consulente: 11 cifre.");
     if (!hasInk.current) {
       return setErr(deed ? "Disegna la firma nel riquadro prima di confermare la scrittura privata." : "Disegna la firma nel riquadro prima di confermare il contratto.");
     }
@@ -382,8 +388,8 @@ export default function FirmaPage({ token }: { token: string }) {
               ) : (
                 <>
                   <Document body={signedParts.main} />
-                  <ContractSignatureBox values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
-                  {signedParts.approval && <><Document body={signedParts.approval} plain /><SpecificApprovalSignature signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} /></>}
+                  <ContractSignatureBox team={team} values={values} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} />
+                  {signedParts.approval && <><Document body={signedParts.approval} plain /><SpecificApprovalSignature team={team} signedName={doc.signed_name} signature={doc.signature_data} signedAt={doc.signed_at} /></>}
                 </>
               )}
             </div>
@@ -409,10 +415,10 @@ export default function FirmaPage({ token }: { token: string }) {
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
-                    <div className="firma-step"><span>01</span><div><b>Verifica i dati aziendali</b><small>Compila i dati disponibili: questi campi sono facoltativi.</small></div></div>
+                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{team ? "Controlla i tuoi dati e completa la Partita IVA prima della firma." : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>(facoltativo)</small></label>
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{team && f === "Partita IVA" ? "(obbligatorio)" : "(facoltativo)"}</small></label>
                         <input
                           id={`contract-field-${fields.indexOf(f)}`}
                           disabled={busy || confirmationPending}
@@ -437,8 +443,8 @@ export default function FirmaPage({ token }: { token: string }) {
                   <>
                     <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
                     <Document body={draftParts.main} />
-                    <ContractSignatureBox values={values} onDraw={() => canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} />
-                    {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature /></>}
+                    <ContractSignatureBox team={team} values={values} onDraw={() => canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} />
+                    {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature team={team} /></>}
                   </>
                 )}
 
@@ -517,21 +523,21 @@ export default function FirmaPage({ token }: { token: string }) {
   );
 }
 
-function ContractSignatureBox({ values, signedName, signature, signedAt, onDraw }: { onDraw?: () => void; values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
+function ContractSignatureBox({ team = false, values, signedName, signature, signedAt, onDraw }: { team?: boolean; onDraw?: () => void; values: Record<string, string>; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
   const company = values["Ragione sociale del committente"] || "____________________________";
-  const signer = signedName || values["Rappresentante legale del committente"] || "____________________________";
+  const signer = signedName || (team ? values["Nome e cognome"] : values["Rappresentante legale del committente"]) || "____________________________";
   const date = signedAt ? contractSignatureDate(signedAt) : "____________________________";
   return (
     <div className="contract-signature-box">
-      <div className="signature-cell"><b>Committente</b><span>Nome</span><strong>{signer}</strong><span>Ragione sociale</span><strong>{company}</strong><span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : onDraw ? <button type="button" className="btn" onClick={onDraw}>Tocca qui per andare al riquadro firma</button> : <i /> }<span>Data</span><strong>{date}</strong></div>
-      <div className="signature-cell collaborator"><b>Collaboratore</b><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" /><span>Data</span><strong>{date}</strong></div>
+      <div className="signature-cell"><b>{team ? "Il Consulente Telefonico" : "Committente"}</b><span>Nome</span><strong>{signer}</strong>{!team && <><span>Ragione sociale</span><strong>{company}</strong></>}<span>Firma</span>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente" /> : onDraw ? <button type="button" className="btn" onClick={onDraw}>Tocca qui per andare al riquadro firma</button> : <i /> }{team && <><span>Luogo</span><strong>{values["Luogo di firma"] || "____________________________"}</strong></>}<span>Data</span><strong>{date}</strong></div>
+      <div className="signature-cell collaborator"><b>{team ? "L’Agenzia — Committente" : "Collaboratore"}</b><span>Nome</span><strong>Ettore Androsoni</strong><span>Ragione sociale</span><strong>AI BUSINESS REVOLUTION</strong><span>Firma</span><img src="/ettore-androsoni-signature.png" alt="Firma di Ettore Androsoni" />{team && <><span>Luogo</span><strong>Napoli</strong></>}<span>Data</span><strong>{date}</strong></div>
     </div>
   );
 }
 
-function SpecificApprovalSignature({ signedName, signature, signedAt }: { signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
+function SpecificApprovalSignature({ team = false, signedName, signature, signedAt }: { team?: boolean; signedName?: string | null; signature?: string | null; signedAt?: string | null }) {
   const date = signedAt ? contractSignatureDate(signedAt) : "____________________________";
-  return <div className="specific-approval-signature"><div><b>Approvazione specifica del Committente</b><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><span>Firmato da</span><strong>{signedName || "____________________________"}</strong><span>Data</span><strong>{date}</strong></div>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente per approvazione specifica" /> : <i>La firma sarà riportata qui dopo la conferma.</i>}</div>;
+  return <div className="specific-approval-signature"><div><b>Approvazione specifica {team ? "del Consulente Telefonico" : "del Committente"}</b><p>La stessa firma apposta al contratto si riferisce anche alle clausole sopra espressamente richiamate.</p><span>Firmato da</span><strong>{signedName || "____________________________"}</strong><span>Data</span><strong>{date}</strong></div>{signature ? <img className="firma-preview" src={signature} alt="Firma del committente per approvazione specifica" /> : <i>La firma sarà riportata qui dopo la conferma.</i>}</div>;
 }
 
 /** Ritaglia la firma sul tratto disegnato (con un piccolo margine): nel

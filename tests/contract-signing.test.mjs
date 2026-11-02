@@ -13,6 +13,7 @@ function compile(source, modules, globals = {}) {
   return exports;
 }
 
+const teamHelpers = compile(readFileSync(new URL("../src/teamContract.ts", import.meta.url), "utf8"), {});
 const helpers = compile(readFileSync(new URL('../src/contractSigning.ts', import.meta.url), 'utf8'), {});
 const signed = { status: 'signed', signed_name: 'Cliente', signed_at: '2026-10-16T09:00:00Z', signature_data: 'data:image/png;base64,AAAA', body: '', client_data: '{}', client_fields: '' };
 
@@ -51,6 +52,7 @@ function signingHarness(rpc) {
     .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, setGeneralApproval, canvasRef, hasInk, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
   const component = compile(source, {
     react,
+    "../teamContract": teamHelpers,
     '../supabaseClient': { supabase: { rpc } },
     '../contractSigning': helpers,
     '../contractPdf': { isPrivateDeed: () => false, fillBody: () => '', splitContractClosing: () => ({ main: '', approval: '' }) },
@@ -115,7 +117,7 @@ test('risposta persa recuperabile con verifica successiva, senza seconda firma',
 });
 
 test('popup PDF bloccato restituisce false e chiama il messaggio della pagina', () => {
-  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), {}, {
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
     window: { location: { origin: 'https://test.invalid' }, open: () => null },
   });
   let blocked = 0;
@@ -125,7 +127,7 @@ test('popup PDF bloccato restituisce false e chiama il messaggio della pagina', 
 
 test('apertura PDF riuscita mantiene impaginazione e firma nel documento', () => {
   let html = '';
-  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), {}, {
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
     window: { location: { origin: 'https://test.invalid' }, open: () => ({ document: { open() {}, write(value) { html = value; }, close() {} } }) },
   });
   assert.equal(pdf.openSignedContractPdf({ ...signed, title: 'Contratto' }), true);
@@ -134,7 +136,7 @@ test('apertura PDF riuscita mantiene impaginazione e firma nel documento', () =>
 });
 
 test('date italiane stabili oltre la mezzanotte UTC e al cambio di ora', () => {
-  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), {});
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers });
   assert.equal(pdf.contractSignatureDate('2026-10-28T23:30:00Z'), '29/10/2026');
   assert.equal(pdf.contractSignatureDate('2026-07-01T22:30:00Z'), '02/07/2026');
   assert.equal(pdf.contractSignatureDate(null), '');
@@ -143,7 +145,7 @@ test('date italiane stabili oltre la mezzanotte UTC e al cambio di ora', () => {
 
 test('PDF: tutti i campi compilati, caratteri speciali, data originale e firma anche specifica', () => {
   let html = '';
-  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), {}, {
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
     window: { location: { origin: 'https://test.invalid' }, open: () => ({ document: { open() {}, write(value) { html = value; }, close() {} } }) },
   });
   const values = { 'Ragione sociale del committente': 'Centro & Benessere <test>', 'Sede legale': 'Via Città 1', 'PEC': 'test@pec.example' };
@@ -158,7 +160,7 @@ test('PDF: tutti i campi compilati, caratteri speciali, data originale e firma a
 
 test('PDF non interpola markup nell’immagine della firma', () => {
   let html = '';
-  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), {}, {
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
     window: { location: { origin: 'https://test.invalid' }, open: () => ({ document: { open() {}, write(value) { html = value; }, close() {} } }) },
   });
   pdf.openSignedContractPdf({ ...signed, title: 'Test', signature_data: 'x" onerror="alert(1)' });
@@ -288,4 +290,33 @@ test('accettazione generale solo sui contratti configurati, obbligatoria e salva
   await render().sign();
   assert.equal(JSON.parse(payload.p_data).__accettazione_condizioni, 'accettata');
   assert.equal(JSON.parse(payload.p_data).__approvazione_specifica_1341_1342, 'non prevista');
+});
+
+const teamBody = readFileSync(new URL('../supabase/upgrade_team_contracts.sql', import.meta.url), 'utf8').split('$team$')[1];
+test('contratto team: ruoli corretti e stessa firma nei due riquadri del PDF', () => {
+  let html;
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers }, {
+    window: { location: { origin: 'https://crm.example' }, open: () => ({ document: { open() {}, write(v) { html = v; }, close() {} } }) },
+  });
+  const parts = pdf.splitContractClosing(teamBody);
+  assert.match(parts.approval, /Art\. 14 \(Foro competente\)/);
+  assert.doesNotMatch(parts.main, /1341/);
+  pdf.openSignedContractPdf({ ...signed, body: teamBody, client_fields: teamHelpers.TEAM_FIELDS.join('\n'), client_data: JSON.stringify({ 'Nome e cognome': 'Consulente Test', 'Partita IVA': '12345678901', 'Luogo di firma': 'Scordia' }) });
+  assert.match(html, /Il Consulente Telefonico<\/h3>/);
+  assert.match(html, /L’Agenzia — Committente<\/h3>/);
+  assert.match(html, /Approvazione specifica del Consulente Telefonico/);
+  assert.equal(html.split('src="data:image/png;base64,AAAA"').length - 1, 2);
+  assert.match(html, /12345678901/);
+  assert.match(html, /Scordia/);
+  assert.doesNotMatch(html, /26\/07\/2026|PYHAY|\{\{/);
+});
+
+test('solo il contratto team rifiuta il codice fiscale nel campo Partita IVA', async () => {
+  let calls = 0;
+  const render = signingHarness(async () => { calls++; return { data: false }; });
+  render().setDoc({ ...signed, body: teamBody, status: 'draft' });
+  render().setValues({ 'Partita IVA': 'CODICEFISCALE' });
+  await render().sign();
+  assert.equal(calls, 0);
+  assert.match(render().err, /Partita IVA/);
 });

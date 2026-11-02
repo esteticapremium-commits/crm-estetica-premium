@@ -219,7 +219,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
         supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
         supabase.from("leads").select("*").eq("client_id", client.id),
-        supabase.from("contracts").select("*").eq("client_id", client.id),
+        supabase.from("contracts").select("*").is("team_department", null).eq("client_id", client.id),
         supabase.from("sales_revenue_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }),
         admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
         supabase.from("sales_integrations").select("*").eq("client_id", client.id),

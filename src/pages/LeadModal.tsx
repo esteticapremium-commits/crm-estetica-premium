@@ -260,6 +260,7 @@ export default function LeadModal({
     supabase
       .from("contract_templates")
       .select("*")
+      .is("team_department", null)
       .order("name")
       .then(({ data }) => {
         const list = (data as ContractTemplate[]) ?? [];

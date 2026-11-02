@@ -194,6 +194,7 @@ export interface EditorialContent {
 }
 
 export interface Contract {
+  team_department?: "sales" | "marketing" | "delivery" | null;
   id: string;
   client_id: string;
   lead_id: string | null;
@@ -230,6 +231,7 @@ export interface ContractEvent {
 }
 
 export interface ContractTemplate {
+  team_department?: "sales" | "marketing" | "delivery" | null;
   id: string;
   client_id: string;
   name: string;

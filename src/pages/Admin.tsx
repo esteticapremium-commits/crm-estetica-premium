@@ -741,8 +741,8 @@ function ContractsPanel({ clients }: { clients: Client[] }) {
   async function load() {
     setLoading(true);
     const [{ data: tp }, { data: ct }] = await Promise.all([
-      supabase.from("contract_templates").select("*").order("created_at", { ascending: false }),
-      supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").order("created_at", { ascending: false }).limit(50),
+      supabase.from("contract_templates").select("*").is("team_department", null).order("created_at", { ascending: false }),
+      supabase.from("contracts").select("id,title,status,sent_to,signed_name,signed_at,lead_id,created_at").is("team_department", null).order("created_at", { ascending: false }).limit(50),
     ]);
     setTemplates(((tp as ContractTemplate[]) ?? []).map((template) => ({ ...template, body: normalizeSpecificApprovalSignature(template.body ?? "") })));
     setContracts((ct as Contract[]) ?? []);
