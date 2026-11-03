@@ -988,7 +988,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
       {loading ? (
         <div style={{ color: "var(--muted)" }}>Caricamento…</div>
       ) : (
-        <table className="table">
+        <table className="table settings-users-table">
           <thead>
             <tr>
               <th>Nome</th>

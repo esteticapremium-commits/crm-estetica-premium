@@ -73,6 +73,7 @@ export default function Board({
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [pendingTasks, setPendingTasks] = useState<SalesTask[]>([]);
   const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [presetView, setPresetView] = useState("all");
   const [pendingContracts, setPendingContracts] = useState<{lead_id:string|null;expires_at:string|null}[]>([]);
   const [contractsWarning, setContractsWarning] = useState("");
@@ -308,6 +309,8 @@ export default function Board({
             {canEdit && <button className="btn primary" type="button" onClick={() => setCreatingInStage(settingStage)}>+ Nuovo lead</button>}
           <div className="pipeline-work-filters" aria-label="Filtra il lavoro sui lead">{([["all", "Tutti"], ["today", "Da richiamare oggi"], ["overdue", "Richiami scaduti"], ["missing", "Senza prossimo passo"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={workFilter === id} onClick={() => setWorkFilter(id)}>{label} <b>{leads.filter(l => matchesWork(l, pendingTasks, id, romeToday(), ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))).length}</b></button>)}</div>
 
+            <button className="btn mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="pipeline-secondary-tools" onClick={() => setMobileToolsOpen(v => !v)}>Viste e filtri{search || sourceFilter || ownerFilter || presetView !== "all" ? " · attivi" : ""}</button>
+            <div id="pipeline-secondary-tools" className={`pipeline-secondary-tools${mobileToolsOpen ? " is-open" : ""}`}>
             <select aria-label="Vista operativa" value={presetView} onChange={e => setPresetView(e.target.value)}><option value="all">Tutti i lead</option><option value="new_ads">Nuovi da Ads · Setting</option><option value="closing_week">Closing da oggi a domenica</option><option value="contracts">Contratti da seguire</option></select>
             <details className="pipeline-extra-filters"><summary>Filtri{search || sourceFilter || ownerFilter ? " · attivi" : ""}</summary><div className="pipeline-filter-fields">            <input aria-label="Cerca nella pipeline" placeholder="Cerca nome, telefono o email…" value={search} onChange={e => setSearch(e.target.value)} />
             <select aria-label="Provenienza" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="">Tutte le provenienze</option>{[...new Set(leads.map(l => l.source).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
@@ -316,6 +319,7 @@ export default function Board({
             <div className="view-switch" aria-label="Visualizzazione"><button aria-pressed={layout === "kanban"} onClick={() => setLayout("kanban")}>Kanban</button><button aria-pressed={layout === "table"} onClick={() => setLayout("table")}>Tabella</button></div>
             <button className="btn primary" disabled={!workableLeads.length} onClick={() => { setQueue(workableLeads.map(l => l.id)); setEditing(workableLeads[0]); }}>Lavora la lista · {workableLeads.length}</button>
             <details className="saved-views"><summary>Viste personali</summary><div className="saved-views-content"><small>Filtri salvati per te, su questo browser.</small>{savedViews.map(v => <div key={v.name}><button className="btn" onClick={() => { setWorkFilter(v.work); setPresetView(v.preset || "all"); setSearch(v.search); setSourceFilter(v.source); setOwnerFilter(v.owner); setLayout(v.layout); }}>{v.name}</button><button className="btn" aria-label={`Elimina vista ${v.name}`} onClick={() => persistViews(savedViews.filter(item => item.name !== v.name))}>×</button></div>)}<form onSubmit={e => { e.preventDefault(); if (!viewName.trim()) return; persistViews([...savedViews.filter(v => v.name !== viewName.trim()), {name:viewName.trim(),preset:presetView,work:workFilter,search,source:sourceFilter,owner:ownerFilter,layout}]); setViewName(""); }}><input aria-label="Nome vista" placeholder="Nome della vista" maxLength={60} value={viewName} onChange={e => setViewName(e.target.value)} required/><button className="btn" type="submit">Salva vista</button></form><small role="status">{viewMessage}</small></div></details>
+            </div>
           </div>
           {presetView === "contracts" && contractsWarning && <div className="notice err">{contractsWarning}</div>}
           {!visibleLeads.length && <div className="pipeline-empty">Nessun lead corrisponde ai filtri. <button className="btn" onClick={() => { setSearch(""); setSourceFilter(""); setOwnerFilter(""); setWorkFilter("all"); setPresetView("all"); }}>Mostra tutti</button></div>}

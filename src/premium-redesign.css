@@ -1948,3 +1948,91 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   flex:1; min-width:0; width:100%; height:auto; min-height:0;
   padding:0; margin:0; border:0; border-radius:0; background:transparent; box-shadow:none;
 }
+
+/* Responsive workspaces: primary actions first, secondary tools on demand. */
+.theme-premium .pipeline-secondary-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.theme-premium .mobile-tools-toggle,
+.theme-premium .mobile-kpi-filter-toggle,
+.theme-premium .mobile-task-selector { display:none; }
+.theme-premium .saved-views-content { box-sizing:border-box; }
+@media(max-width:760px) {
+ .theme-premium.platform-shell .mobile-tools-toggle,
+ .theme-premium.platform-shell .mobile-kpi-filter-toggle { display:block; height:auto; text-align:left; white-space:normal; }
+ .theme-premium.platform-shell .pipeline-secondary-tools { display:none; width:100%; }
+ .theme-premium.platform-shell .pipeline-secondary-tools.is-open { display:flex; }
+ .theme-premium.platform-shell .pipeline-secondary-tools > select { width:100%; flex:1 1 100%; }
+ .theme-premium.platform-shell .pipeline-secondary-tools .saved-views,
+ .theme-premium.platform-shell .pipeline-secondary-tools .pipeline-extra-filters { position:static; }
+ .theme-premium.platform-shell .pipeline-secondary-tools .saved-views[open],
+ .theme-premium.platform-shell .pipeline-secondary-tools .pipeline-extra-filters[open] { flex-basis:100%; }
+ .theme-premium.platform-shell .saved-views-content,
+ .theme-premium.platform-shell .pipeline-filter-fields { position:static; width:100%; max-width:100%; min-width:0; margin-top:8px; max-height:45dvh; overflow:auto; }
+ .theme-premium.platform-shell .saved-views-content form { flex-wrap:wrap; }
+ .theme-premium.platform-shell .saved-views-content input { min-width:0; width:100%; }
+ .theme-premium.platform-shell .pipeline-unified-toolbar .board-lead-total { margin-right:auto; }
+ .theme-premium.platform-shell .pipeline-unified-toolbar > .btn.primary { order:-1; }
+ .theme-premium.platform-shell .pipeline-unified-toolbar > .board-lead-total { order:-2; }
+ .theme-premium.platform-shell .pipeline-unified-toolbar .pipeline-work-filters button { padding:8px; }
+ .theme-premium.platform-shell .kpi-filters { display:none; }
+ .theme-premium.platform-shell .kpi-filters.is-open { display:grid; }
+ .theme-premium.platform-shell .mobile-kpi-filter-toggle { width:100%; margin-bottom:12px; line-height:1.5; }
+ .theme-premium.platform-shell .kpi-intro,
+ .theme-premium.platform-shell .calendar-intro,
+ .theme-premium.platform-shell .personal-tasks-intro,
+ .theme-premium.platform-shell .editorial-intro { gap:10px; margin-bottom:12px; }
+ .theme-premium.platform-shell .kpi-intro p,
+ .theme-premium.platform-shell .calendar-intro p,
+ .theme-premium.platform-shell .personal-tasks-intro p,
+ .theme-premium.platform-shell .editorial-intro p { display:none; }
+ .theme-premium.platform-shell .kpi-intro .section-header-actions,
+ .theme-premium.platform-shell .calendar-top-actions { display:flex; flex-direction:row; flex-wrap:wrap; gap:6px; }
+ .theme-premium.platform-shell .kpi-intro .section-header-actions > .btn { flex:1 1 auto; width:auto; padding:9px; min-height:36px; }
+ .theme-premium.platform-shell .calendar-top-actions .btn { min-height:36px; padding:8px 10px; }
+ .theme-premium.platform-shell .calendar-navigation { width:auto; flex:1; }
+ .theme-premium.platform-shell .calendar-notice { padding:6px 10px; }
+ .theme-premium.platform-shell .calendar-toolbar { padding:10px 12px; gap:6px; margin-bottom:8px; }
+ .theme-premium.platform-shell .calendar-refresh-status { margin-top:6px; }
+ .theme-premium.platform-shell .schedule-controls { margin:8px 0; gap:6px; }
+ .theme-premium.platform-shell .schedule-controls > span { font-size:11px; }
+ .theme-premium.platform-shell .contracts-table { overflow:visible; }
+ .theme-premium.platform-shell .contracts-head { display:none; }
+ .theme-premium.platform-shell .contracts-row { min-width:0; display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:16px; }
+ .theme-premium.platform-shell .contracts-row > span { min-width:0; overflow-wrap:anywhere; }
+ .theme-premium.platform-shell .contracts-row > span:last-child .btn { width:100%; }
+ .theme-premium.platform-shell .contracts-stats { gap:8px; }
+ .theme-premium.platform-shell .mobile-task-selector { display:grid; gap:6px; margin:12px 0; font-weight:600; font-size:13px; }
+ .theme-premium.platform-shell .mobile-task-selector select { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--ep-border); border-radius:10px; background:var(--ep-surface); color:var(--ep-ink); font:inherit; }
+ .theme-premium.platform-shell .personal-task-kanban { display:block; overflow:visible; }
+ .theme-premium.platform-shell .personal-task-kanban > .personal-task-column { display:none; width:100%; min-width:0; min-height:200px; }
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="backlog"] > .backlog,
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="next"] > .next,
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="doing"] > .doing,
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="waiting"] > .waiting,
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="done"] > .done { display:block; }
+ .theme-premium.platform-shell .personal-task-summary { padding:10px; margin-bottom:8px; }
+ .theme-premium.platform-shell .personal-task-summary span { display:none; }
+ .theme-premium.platform-shell .editorial-kpis { gap:8px; margin-bottom:12px; }
+ .theme-premium.platform-shell .editorial-kpis > * { padding:10px 12px; min-height:0; }
+ .theme-premium.platform-shell .editorial-kpis .v { font-size:23px; }
+ .theme-premium.platform-shell .editorial-intro-actions { gap:6px; }
+ .theme-premium.platform-shell .editorial-intro-actions .btn { padding:9px; min-height:36px; }
+ .theme-premium.platform-shell .settings-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+ .theme-premium.platform-shell .settings-nav button { min-width:0; width:auto; padding:10px; }
+ .theme-premium.platform-shell .settings-users-table { display:block; min-width:0; width:100%; }
+ .theme-premium.platform-shell .settings-users-table thead { display:none; }
+ .theme-premium.platform-shell .settings-users-table tbody,
+ .theme-premium.platform-shell .settings-users-table tr { display:block; width:100%; }
+ .theme-premium.platform-shell .settings-users-table tr { padding:12px 0; border-bottom:1px solid var(--ep-border); }
+ .theme-premium.platform-shell .settings-users-table td { display:block; width:auto; min-width:0; padding:5px 0; text-align:left !important; overflow-wrap:anywhere; white-space:normal; border:0; }
+ .theme-premium.platform-shell .settings-users-table td:first-child { font-weight:700; }
+ .theme-premium.platform-shell .settings-users-table td:last-child { display:flex; flex-wrap:wrap; gap:6px; }
+}
+
+@media(max-width:760px) {
+ .theme-premium.platform-shell .kpi-summary > small { white-space:normal; overflow:visible; line-height:1.4; }
+}
+
+@media(max-width:760px) {
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="all"] { display:flex; overflow-x:auto; gap:12px; }
+ .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="all"] > .personal-task-column { display:block; flex:0 0 100%; }
+}
