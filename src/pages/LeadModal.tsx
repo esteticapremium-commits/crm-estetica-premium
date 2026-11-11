@@ -1,5 +1,6 @@
 import LeadTimeline from "../LeadTimeline";
 import { appendLeadNote } from "../leadNotes";
+import { topLeadPosition } from "../leadPosition";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
@@ -412,6 +413,16 @@ export default function LeadModal({
       return;
     }
 
+    const lostStage = outcome === "lost" ? stages.find((stage) => stage.name === "LOST") : undefined;
+    let lostPosition: number | undefined;
+    if (lostStage && lostStage.id !== lead.stage_id) {
+      try {
+        lostPosition = await topLeadPosition(supabase, lead.client_id, lead.pipeline_id, lostStage.id);
+      } catch (reason) {
+        setBusy(false); commercialActionLock.current = false;
+        return setErr(reason instanceof Error ? reason.message : "Impossibile preparare lo spostamento.");
+      }
+    }
     const occurredAt = new Date();
     const eventType = isCall ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
     // Chiave deterministica: due clic sullo stesso esito nello stesso minuto sono
@@ -439,8 +450,7 @@ export default function LeadModal({
       return setErr("Attività non registrata: " + result.error.message);
     }
     if (outcome === "lost") {
-      const lostStage = stages.find((stage) => stage.name === "LOST");
-      const update = await supabase.from("leads").update({ lost_reason: lostReason.trim(), ...(lostStage ? { stage_id: lostStage.id } : {}) }).eq("id", lead.id);
+      const update = await supabase.from("leads").update({ lost_reason: lostReason.trim(), ...(lostStage ? { stage_id: lostStage.id } : {}), ...(lostPosition !== undefined ? { position: lostPosition } : {}) }).eq("id", lead.id);
       if (update.error) {
         await supabase.from("lead_activities").delete().eq("client_id", lead.client_id).eq("event_key", eventKey);
         setBusy(false); commercialActionLock.current = false;
@@ -806,6 +816,9 @@ export default function LeadModal({
         return;
       }
     }
+    if (!isNew && !changingPipeline && destinationStageId !== lead!.stage_id) {
+      destinationPosition = await topLeadPosition(supabase, lead!.client_id, selectedPipelineId, destinationStageId);
+    }
     // Nota rapida: aggiunta in cima allo storico con data e ora (fuso Roma).
     const qn = quickNote.trim();
     const finalNotes = qn ? appendNote(notes, qn) : notes;
@@ -817,7 +830,8 @@ export default function LeadModal({
       assigned_to: canReassign ? assigned.trim() || null : meName?.trim() || assigned.trim() || null,
       value: Number(value) || 0,
       stage_id: destinationStageId,
-      ...(changingPipeline ? { pipeline_id: selectedPipelineId, position: destinationPosition } : {}),
+      ...(changingPipeline ? { pipeline_id: selectedPipelineId } : {}),
+      ...(destinationPosition !== undefined ? { position: destinationPosition } : {}),
       ...(isNew ? { notes: finalNotes.trim() || null } : {}),
       next_action_date: nextAction.trim() || null,
       closing_date: closingDate.trim() || null,
