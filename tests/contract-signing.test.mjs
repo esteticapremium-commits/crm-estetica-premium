@@ -14,6 +14,14 @@ function compile(source, modules, globals = {}) {
 }
 
 const teamHelpers = compile(readFileSync(new URL("../src/teamContract.ts", import.meta.url), "utf8"), {});
+
+test("il contratto con solo codice fiscale accetta il codice e rifiuta la partita IVA", () => {
+  const fields = ["Nome e cognome", "Codice fiscale"];
+  assert.equal(teamHelpers.teamFiscalField(fields), "Codice fiscale");
+  assert.equal(teamHelpers.teamFiscalError(fields, { "Codice fiscale": " rssmra80a01h501u " }), null);
+  assert.ok(teamHelpers.teamFiscalError(fields, { "Codice fiscale": "12345678901" }));
+  assert.ok(teamHelpers.teamFiscalError(fields, {}));
+});
 const helpers = compile(readFileSync(new URL('../src/contractSigning.ts', import.meta.url), 'utf8'), {});
 const signed = { status: 'signed', signed_name: 'Cliente', signed_at: '2026-10-16T09:00:00Z', signature_data: 'data:image/png;base64,AAAA', body: '', client_data: '{}', client_fields: '' };
 

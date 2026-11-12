@@ -1,4 +1,4 @@
-import { isTeamContract, TEAM_FISCAL_FIELD, teamFiscalError } from "../teamContract";
+import { isTeamContract, TEAM_TAX_CODE_FIELD, teamFiscalError, teamFiscalField } from "../teamContract";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
@@ -118,6 +118,7 @@ export default function FirmaPage({ token }: { token: string }) {
     .map((f) => f.trim())
     .filter(Boolean);
   const team = isTeamContract(doc?.body);
+  const fiscalField = team ? teamFiscalField(fields) : null;
   const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, team));
   const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
   const needsGeneralApproval = requiresGeneralAcceptance(doc?.client_data);
@@ -255,11 +256,16 @@ export default function FirmaPage({ token }: { token: string }) {
     setErr(null);
     try {
     const data = deed ? croppedSignature(c) : c.toDataURL("image/png");
+    const signedValues = { ...values };
+    if (fiscalField === TEAM_TAX_CODE_FIELD) {
+      signedValues["Nome e cognome"] = name.trim();
+      signedValues[TEAM_TAX_CODE_FIELD] = values[TEAM_TAX_CODE_FIELD].trim().toUpperCase();
+    }
     const { data: accepted, error } = await supabase.rpc("sign_contract", {
       p_token: token,
       p_name: name.trim(),
       p_sig: data,
-      p_data: JSON.stringify({ ...values, ...(needsGeneralApproval ? { __requires_general_acceptance: true, __accettazione_condizioni: "accettata" } : {}), __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
+      p_data: JSON.stringify({ ...signedValues, ...(needsGeneralApproval ? { __requires_general_acceptance: true, __accettazione_condizioni: "accettata" } : {}), __approvazione_specifica_1341_1342: draftParts.approval ? "accettata" : "non prevista" }),
     });
     if (error) {
       // In caso di risposta persa, la transazione potrebbe essere riuscita.
@@ -415,10 +421,10 @@ export default function FirmaPage({ token }: { token: string }) {
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
                   <div className="client-fields">
-                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{team ? (fields.includes(TEAM_FISCAL_FIELD) ? "Controlla i tuoi dati e inserisci la Partita IVA oppure il codice fiscale prima della firma." : "Controlla i tuoi dati e completa la Partita IVA prima della firma.") : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
+                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{fiscalField ? `Controlla i tuoi dati e compila il campo «${fiscalField}» prima della firma.` : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
                     {fields.map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{team && (f === "Partita IVA" || f === TEAM_FISCAL_FIELD) ? "(obbligatorio)" : "(facoltativo)"}</small></label>
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{f === fiscalField ? "(obbligatorio)" : "(facoltativo)"}</small></label>
                         <input
                           id={`contract-field-${fields.indexOf(f)}`}
                           disabled={busy || confirmationPending}
