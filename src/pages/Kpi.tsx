@@ -1,5 +1,5 @@
 import { loadGoogleSales } from "../googleSalesData";
-import { googleSaleMetrics, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "../googleSales";
+import { firstNewSaleIds, googleSaleMetrics, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "../googleSales";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
@@ -354,17 +354,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   // La prima cauzione/incasso "new" di ogni lead e' l'evento che trasforma la
   // closing in una vendita vinta. La sola firma di un accordo di prova non e'
   // denaro incassato e non deve gonfiare chiusure, CR o CAC.
-  const firstNewRevenueByLead = useMemo(() => {
-    const map = new Map<string, SalesRevenueEvent>();
-    revenue.forEach((entry) => {
-      if (isGoogleRevenue(entry.event_key) || !entry.lead_id || entry.status !== "collected" || entry.revenue_type !== "new") return;
-      const current = map.get(entry.lead_id);
-      if (!current || entry.occurred_at < current.occurred_at || (entry.occurred_at === current.occurred_at && entry.id < current.id)) {
-        map.set(entry.lead_id, entry);
-      }
-    });
-    return map;
-  }, [revenue]);
+  const firstNewSales = useMemo(() => firstNewSaleIds(googleSales, rawRevenue), [googleSales, rawRevenue]);
 
   const signedValueByLead = useMemo(() => {
     const map = new Map<string, number>();
@@ -557,7 +547,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (entry.revenue_type === "new") {
         row.collectedNew += number(entry.amount);
         // Rate successive aumentano l'incassato, ma la closing resta una sola.
-        if (!isGoogleRevenue(entry.event_key) && entry.lead_id && firstNewRevenueByLead.get(entry.lead_id)?.id === entry.id) {
+        if (entry.lead_id && firstNewSales.has(`revenue:${entry.id}`)) {
           row.won += 1;
           row.contractValue += number(entry.contract_value ?? signedValueByLead.get(entry.lead_id) ?? leadById.get(entry.lead_id)?.value);
         }
@@ -574,6 +564,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         if (!inRange(day)) continue;
         const row = rowOf(day);
         Object.entries(googleSaleMetrics(sale, day)).forEach(([key, value]) => {
+          if ((key === 'won' || key === 'contractValue') && !firstNewSales.has(`google:${sale.id}`)) return;
           (row[key as keyof Omit<DailyKpi, 'day'>] as number) += value;
         });
       }
@@ -593,7 +584,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
     return { rows: [...result.values()].sort((a, b) => b.day.localeCompare(a.day)), evidence };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewRevenueByLead, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead, externalSales, origin]);
+  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewSales, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead, externalSales, origin]);
 
   const total = useMemo(() => {
     const aggregate = sumRows(rows);

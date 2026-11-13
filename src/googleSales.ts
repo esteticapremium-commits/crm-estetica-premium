@@ -62,3 +62,14 @@ export function googleSaleMetrics(sale: GoogleSale, day: string, now = new Date(
   }
   return result;
 }
+
+/** One new-customer win per linked lead, even after linking a Google sale or adding instalments. */
+export function firstNewSaleIds(sales: GoogleSale[], revenue: Array<{id:string; lead_id:string|null; revenue_type:string; status:string; occurred_at:string; event_key?:string|null}>) {
+  const candidates = [
+    ...sales.filter(s => s.outcome === 'won' && s.revenue_type === 'new').map(s => ({key:`google:${s.id}`,lead:s.lead_id,at:s.starts_at})),
+    ...revenue.filter(r => r.lead_id && r.revenue_type === 'new' && r.status === 'collected' && !isGoogleRevenue(r.event_key)).map(r => ({key:`revenue:${r.id}`,lead:r.lead_id,at:r.occurred_at})),
+  ].sort((a,b) => Date.parse(a.at)-Date.parse(b.at) || a.key.localeCompare(b.key));
+  const seen=new Set<string>(); const ids=new Set<string>();
+  for(const c of candidates) { if(c.lead && seen.has(c.lead)) continue; ids.add(c.key); if(c.lead)seen.add(c.lead); }
+  return ids;
+}

@@ -47,3 +47,16 @@ test('validates amounts, real payment date, follow-up and future outcomes',()=>{
  assert.ok(validateGoogleSale({...sale,outcome:'lost',starts_at:'2026-11-14'},now));
  assert.ok(validateGoogleSale({...sale,appointment_type:'discovery',outcome:'lost'},now));
 });
+test('linking a sale and recording later instalments never adds a second new customer',()=>{
+ const s={...sale,id:'g1',lead_id:'lead-1',outcome:'won',contract_value:3000};
+ const r=[{id:'cash-google',lead_id:'lead-1',revenue_type:'new',status:'collected',occurred_at:'2026-11-10T10:00:00Z',event_key:'google-sale:g1'},
+ {id:'instalment',lead_id:'lead-1',revenue_type:'new',status:'collected',occurred_at:'2026-11-12T10:00:00Z'}];
+ const ids=exports.firstNewSaleIds([s],r);
+ assert.equal(ids.size,1);assert.equal(ids.has('google:g1'),true);
+ const older=[...r,{id:'original',lead_id:'lead-1',revenue_type:'new',status:'collected',occurred_at:'2026-11-01T10:00:00Z'}];
+ assert.equal(exports.firstNewSaleIds([s],older).has('google:g1'),false);
+ assert.equal(exports.firstNewSaleIds([s],older).has('revenue:original'),true);
+});
+test('excluded calls do not contribute even their booking',()=>{
+ assert.equal(Object.keys(googleSaleMetrics({...sale,outcome:'excluded'},'2026-11-09',now)).length,0);
+});
