@@ -1,0 +1,12 @@
+.google-sale-modal { width:min(620px,94vw); max-height:90vh; overflow:auto; }
+.google-sale-modal fieldset { border:0; padding:0; margin:18px 0; display:grid; gap:14px; min-width:0; }
+.google-sale-modal label { display:grid; gap:6px; font-size:13px; font-weight:600; }
+.google-sale-modal input,.google-sale-modal select,.google-sale-modal textarea { width:100%; min-width:0; padding:10px 12px; border:1px solid #dcd6d8; border-radius:9px; background:#fff; color:#30272b; font:inherit; box-sizing:border-box; }
+.google-sale-modal small,.google-sale-modal p { font-size:12px; line-height:1.5; font-weight:400; }
+.google-sale-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.google-sales-pending { margin:18px 0; padding:20px; }
+.google-sales-pending header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.google-sales-pending h2 { margin:0 0 6px; font-size:18px; }
+.google-sales-pending .google-sale-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #eee7e9; }
+.google-sale-row small { display:block; margin-top:4px; color:#76676e; }
+@media(max-width:540px) { .google-sale-grid { grid-template-columns:1fr; } .google-sale-row { flex-wrap:wrap; } }

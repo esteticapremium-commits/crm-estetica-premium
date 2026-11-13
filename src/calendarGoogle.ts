@@ -4,7 +4,7 @@ const KEY = "ep-google-calendar-token";
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
 export const OWNER_CALENDAR_ID = "ettoreandrosoni@estetica-premium.it";
 
-export type GoogleEvent = { id: string; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+export type GoogleEvent = { id: string; iCalUID?: string; created?: string; originalStartTime?: { dateTime?: string; date?: string }; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 type Token = { accessToken: string; expiresAt: number };
 
 function saveToken(accessToken: string, expiresIn = 3600) {
@@ -102,7 +102,14 @@ export async function deleteGoogleCalendarEvent(id: string) {
 }
 export async function listGoogleCalendarEvents(from: Date, to: Date): Promise<GoogleEvent[]> {
   const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime" });
-  const result = await googleFetch(`/calendars/primary/events?${q}`); return result.items || [];
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    if (pageToken) q.set('pageToken', pageToken);
+    const result = await googleFetch(`/calendars/primary/events?${q}`);
+    events.push(...(result.items || [])); pageToken = result.nextPageToken;
+  } while (pageToken);
+  return events;
 }
 export async function googleFreeBusy(from: Date, to: Date, calendarId = "primary"): Promise<Array<{ start: string; end: string }>> {
   const result = await googleFetch("/freeBusy", { method: "POST", body: JSON.stringify({ timeMin: from.toISOString(), timeMax: to.toISOString(), timeZone: "Europe/Rome", items: [{ id: calendarId }] }) });

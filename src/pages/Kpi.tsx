@@ -1,3 +1,5 @@
+import { loadGoogleSales } from "../googleSalesData";
+import { googleSaleMetrics, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "../googleSales";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
@@ -171,15 +173,15 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   type EvidenceKind = "discovery" | "closing" | "held" | "cash";
   type Evidence = {id:string;kind:EvidenceKind;leadId:string|null;at:string;scheduled?:string|null;owner:string|null;value?:number;label:string};
   const [detail, setDetail] = useState<EvidenceKind | null>(null);
-  const [activities, setActivities] = useState<LeadActivity[]>([]);
-  const [outreach, setOutreach] = useState<SalesOutreachEvent[]>([]);
+  const [rawActivities, setActivities] = useState<LeadActivity[]>([]);
+  const [rawOutreach, setOutreach] = useState<SalesOutreachEvent[]>([]);
   const [outreachReady, setOutreachReady] = useState(false);
   const [instantlyActive, setInstantlyActive] = useState(false);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [revenue, setRevenue] = useState<SalesRevenueEvent[]>([]);
-  const [costs, setCosts] = useState<SalesCost[]>([]);
-  const [futureAppointments, setFutureAppointments] = useState<SalesTask[]>([]);
+  const [rawLeads, setLeads] = useState<Lead[]>([]);
+  const [rawContracts, setContracts] = useState<Contract[]>([]);
+  const [rawRevenue, setRevenue] = useState<SalesRevenueEvent[]>([]);
+  const [rawCosts, setCosts] = useState<SalesCost[]>([]);
+  const [rawFutureAppointments, setFutureAppointments] = useState<SalesTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [setupWarning, setSetupWarning] = useState(false);
@@ -189,6 +191,23 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const [customTo, setCustomTo] = useState(today());
   const [seller, setSeller] = useState(admin ? "all" : meName);
   const [channel, setChannel] = useState<ChannelFilter>("all");
+  const [origin, setOrigin] = useState<'all' | 'pipeline' | 'google'>('all');
+  const [googleSales, setGoogleSales] = useState<GoogleSale[]>([]);
+  const [googleSalesError, setGoogleSalesError] = useState<string | null>(null);
+  const activities = useMemo(() => origin === 'google' ? [] : rawActivities, [origin, rawActivities]);
+  const outreach = useMemo(() => origin === 'google' ? [] : rawOutreach, [origin, rawOutreach]);
+  const leads = rawLeads;
+  const contracts = useMemo(() => origin === 'google' ? [] : rawContracts, [origin, rawContracts]);
+  const costs = useMemo(() => origin === 'all' ? rawCosts : [], [origin, rawCosts]);
+  const revenue = useMemo(() => rawRevenue.filter(r => origin === 'all' || (origin === 'google') === isGoogleRevenue(r.event_key)), [origin, rawRevenue]);
+  const externalSales = useMemo(() => origin === 'pipeline' ? [] : googleSales.filter(s => s.outcome !== 'excluded'), [origin, googleSales]);
+  const futureAppointments = useMemo(() => [...(origin === 'google' ? [] : rawFutureAppointments), ...externalSales.filter(s => s.outcome === 'pending' || (s.outcome === 'rescheduled' && s.next_action_at)).map(s => ({
+    id: `google-${s.id}`, client_id:s.client_id, lead_id:s.lead_id, title:s.contact_name,
+    due_at:s.outcome === 'rescheduled' ? s.next_action_at! : s.starts_at, assigned_to:s.assigned_to, appointment_type:s.appointment_type,
+    audience:s.revenue_type === 'new' ? 'lead' as const : 'client' as const,
+    appointment_status:'scheduled' as const, description:s.note, is_priority:false,
+    created_by:s.assigned_to, completed_at:null, completed_by:null, created_at:s.booked_at || s.starts_at, updated_at:s.starts_at,
+  }))], [origin, rawFutureAppointments, externalSales]);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [forecastPreset, setForecastPreset] = useState<ForecastPreset>("week");
@@ -219,7 +238,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const load = useCallback(async () => {
     setLoading(true); setError(null); setSetupWarning(false);
     try {
-      const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult, futureResult] = await withTimeout(Promise.all([
+      const [activityResult, outreachResult, leadResult, contractResult, revenueResult, costResult, integrationResult, futureResult, googleResult] = await withTimeout(Promise.all([
         supabase.from("lead_activities").select("*").eq("client_id", client.id).order("created_at", { ascending: false }).limit(10000),
         supabase.from("sales_outreach_events").select("*").eq("client_id", client.id).order("occurred_at", { ascending: false }).limit(50000),
         supabase.from("leads").select("*").eq("client_id", client.id),
@@ -228,10 +247,13 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
         admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
         supabase.from("sales_integrations").select("*").eq("client_id", client.id),
         supabase.from("sales_tasks").select("*").eq("client_id", client.id).not("appointment_type", "is", null).gte("due_at", new Date().toISOString()).order("due_at").limit(2000),
+        loadGoogleSales(client.id),
       ]), 25_000, "Il calcolo dei KPI sta impiegando troppo tempo.");
       const coreError = activityResult.error || leadResult.error || contractResult.error;
       if (coreError) setError(`KPI non caricati: ${coreError.message}`);
       if (outreachResult.error || revenueResult.error || costResult.error) setSetupWarning(true);
+      setGoogleSales((googleResult.data as GoogleSale[]) || []);
+      setGoogleSalesError(googleResult.error ? "Vendite Google non caricate: i totali sono incompleti. " + googleResult.error.message : null);
       setActivities((activityResult.data as LeadActivity[]) || []);
       setOutreach((outreachResult.data as SalesOutreachEvent[]) || []);
       setOutreachReady(!outreachResult.error);
@@ -258,7 +280,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     const assigned = activity.details?.assigned_to;
     return leadById.get(activity.lead_id)?.assigned_to || (typeof assigned === "string" && assigned.trim()) || activity.created_by;
   };
-  const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map(activityOwner), ...outreach.map((event) => event.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leadById, leads, outreach]);
+  const sellers = useMemo(() => [...new Set([...leads.map((lead) => lead.assigned_to), ...activities.map(activityOwner), ...outreach.map((event) => event.assigned_to), ...externalSales.map(s => s.assigned_to)].filter((value): value is string => Boolean(value?.trim())))].sort(), [activities, leadById, leads, outreach, externalSales]);
   const forecastSellers = useMemo(() => [...new Set(futureAppointments.map((task) => task.assigned_to).filter(Boolean))].sort(), [futureAppointments]);
 
   const openFutureAppointments = useMemo(() => futureAppointments.filter((task) => {
@@ -335,7 +357,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
   const firstNewRevenueByLead = useMemo(() => {
     const map = new Map<string, SalesRevenueEvent>();
     revenue.forEach((entry) => {
-      if (!entry.lead_id || entry.status !== "collected" || entry.revenue_type !== "new") return;
+      if (isGoogleRevenue(entry.event_key) || !entry.lead_id || entry.status !== "collected" || entry.revenue_type !== "new") return;
       const current = map.get(entry.lead_id);
       if (!current || entry.occurred_at < current.occurred_at || (entry.occurred_at === current.occurred_at && entry.id < current.id)) {
         map.set(entry.lead_id, entry);
@@ -387,7 +409,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       demoBookingsByLead.set(activity.lead_id, bookings);
     });
 
-    leads.forEach((lead) => {
+    if (origin !== "google") leads.forEach((lead) => {
       const day = dayInRome(lead.created_at);
       if (inRange(day) && sellerMatches(lead.assigned_to) && sourceMatches(lead.id)) rowOf(day).leads += 1;
     });
@@ -535,13 +557,29 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       if (entry.revenue_type === "new") {
         row.collectedNew += number(entry.amount);
         // Rate successive aumentano l'incassato, ma la closing resta una sola.
-        if (entry.lead_id && firstNewRevenueByLead.get(entry.lead_id)?.id === entry.id) {
+        if (!isGoogleRevenue(entry.event_key) && entry.lead_id && firstNewRevenueByLead.get(entry.lead_id)?.id === entry.id) {
           row.won += 1;
           row.contractValue += number(entry.contract_value ?? signedValueByLead.get(entry.lead_id) ?? leadById.get(entry.lead_id)?.value);
         }
       }
-      if (entry.revenue_type === "renewal") { row.renewals += 1; row.collectedRenewal += number(entry.amount); }
-      if (entry.revenue_type === "upsell") { row.upsells += 1; row.collectedUpsell += number(entry.amount); }
+      if (entry.revenue_type === "renewal") { if (!isGoogleRevenue(entry.event_key)) row.renewals += 1; row.collectedRenewal += number(entry.amount); }
+      if (entry.revenue_type === "upsell") { if (!isGoogleRevenue(entry.event_key)) row.upsells += 1; row.collectedUpsell += number(entry.amount); }
+    });
+
+    externalSales.forEach(sale => {
+      if (!sellerMatches(sale.assigned_to) || !sourceMatches(sale.lead_id)) return;
+      const eventDay = dayInRome(sale.starts_at);
+      const bookingDay = sale.booked_at ? dayInRome(sale.booked_at) : null;
+      for (const day of new Set([eventDay, ...(bookingDay ? [bookingDay] : [])])) {
+        if (!inRange(day)) continue;
+        const row = rowOf(day);
+        Object.entries(googleSaleMetrics(sale, day)).forEach(([key, value]) => {
+          (row[key as keyof Omit<DailyKpi, 'day'>] as number) += value;
+        });
+      }
+      const proof = {id:sale.id, leadId:sale.lead_id, owner:sale.assigned_to, label:`Google · ${sale.contact_name} · ${saleOutcomes[sale.outcome]}`};
+      if (bookingDay && inRange(bookingDay)) evidence.push({...proof,kind:sale.appointment_type === 'discovery' ? 'discovery' : 'closing',at:sale.booked_at!,scheduled:sale.starts_at});
+      if (inRange(eventDay) && saleHeld(sale)) evidence.push({...proof,id:`${sale.id}:held`,kind:'held',at:sale.starts_at});
     });
 
     costs.forEach((entry) => {
@@ -555,7 +593,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
 
     return { rows: [...result.values()].sort((a, b) => b.day.localeCompare(a.day)), evidence };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewRevenueByLead, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead]);
+  }, [activities, bookingDayByTask, channel, contracts, costs, crmBookings, firstNewRevenueByLead, leadById, leads, outreach, outreachReady, range.from, range.to, revenue, seller, signedValueByLead, externalSales, origin]);
 
   const total = useMemo(() => {
     const aggregate = sumRows(rows);
@@ -631,6 +669,7 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
     <section id="kpi-filter-panel" className={`kpi-filters panel${filtersOpen ? " is-open" : ""}`}>
       <div><label>Periodo</label><div className="segmented"><button className={preset === "today" ? "active" : ""} onClick={() => setPreset("today")}>Oggi</button><button className={preset === "yesterday" ? "active" : ""} onClick={() => setPreset("yesterday")}>Ieri</button><button className={preset === "7" ? "active" : ""} onClick={() => setPreset("7")}>7 giorni</button><button className={preset === "14" ? "active" : ""} onClick={() => setPreset("14")}>14 giorni</button><button className={preset === "30" ? "active" : ""} onClick={() => setPreset("30")}>30 giorni</button><button className={preset === "month" ? "active" : ""} onClick={() => setPreset("month")}>Mese corrente</button><button className={preset === "custom" ? "active" : ""} onClick={() => setPreset("custom")}>Personalizzato</button></div></div>
       {preset === "custom" && <div className="kpi-date-range"><label>Dal<input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>Al<input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label></div>}
+      <label>Origine<select value={origin} onChange={event => setOrigin(event.target.value as typeof origin)}><option value="all">Tutte le vendite</option><option value="pipeline">Pipeline CRM</option><option value="google">Appuntamenti Google esterni</option></select></label>
       <label>Canale<select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)}><option value="all">Tutti i canali</option><option value="instantly">Solo Instantly</option><option value="dm">Solo DM</option><option value="ads">Ads</option><option value="cold_call">Chiamate a freddo</option><option value="other">Altro / non classificato</option></select></label>
       {admin && <label>Venditore<select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutto il team</option>{sellers.map((name) => <option value={name} key={name}>{name}</option>)}</select></label>}
     </section>
@@ -654,6 +693,8 @@ export default function Kpi({ client, meName, admin, headerTools }: { client: Cl
       <Summary onClick={() => setDetail("cash")} label="€ SALES" value={eur(collected(total))} detail={`${eur(total.collectedNew)} nuovo · ${eur(total.collectedRenewal + total.collectedUpsell)} rinnovi e upsell`} positive />
     </div>
 
+    {googleSalesError && <div className="notice err" role="alert">{googleSalesError}</div>}
+    <p className="muted">Le call Google entrano nei risultati solo dopo la classificazione commerciale. Le vendite esterne concluse contano alla data della call; gli incassi alla data effettiva di pagamento. Discovery → closing richiede un percorso CRM tracciato. Il resoconto manuale resta separato. {origin !== 'all' && 'I costi non sono attribuiti per origine: consulta Tutte le vendite per gli indicatori di costo.'}</p>
     <section className="kpi-evidence-links" aria-label="Verifica le prenotazioni"><button className="btn" onClick={() => setDetail("discovery")}>Discovery prenotate · {total.discoveryBooked} ↗</button><button className="btn" onClick={() => setDetail("closing")}>Closing prenotate · {total.demoBooked + total.demoClientBooked} ↗</button><small>Apri un numero per vedere le registrazioni conteggiate, con gli stessi filtri del report.</small></section>
     {detail && <div className="overlay" onClick={() => setDetail(null)}><section className="modal kpi-evidence-modal" role="dialog" aria-modal="true" aria-label="Dettaglio KPI" onClick={e => e.stopPropagation()}><header><div><h3>{({discovery:"Discovery prenotate",closing:"Closing prenotate",held:"Call svolte",cash:"Incassi registrati"})[detail]}</h3><p>{range.from.split("-").reverse().join("/")} → {range.to.split("-").reverse().join("/")} · {seller === "all" ? "Tutto il team" : seller} · {channel === "all" ? "Tutti i canali" : channel}</p></div><button className="btn" aria-label="Chiudi dettaglio" onClick={() => setDetail(null)}>×</button></header><div className="content"><p>{detail === "cash" ? eur(evidence.filter(e => e.kind === detail).reduce((sum,e)=>sum+(e.value || 0),0)) : `${evidence.filter(e=>e.kind===detail).length} registrazioni`} · Date Europe/Rome</p>{evidence.filter(e=>e.kind===detail).sort((a,b)=>b.at.localeCompare(a.at)).map(e=><article className="kpi-evidence-row" key={e.id}><b>{e.leadId ? leadById.get(e.leadId)?.name || "Lead non disponibile" : "Senza lead collegato"}{e.value !== undefined ? ` · ${eur(e.value)}` : ""}</b><span>{new Date(e.at).toLocaleString("it-IT",{timeZone:"Europe/Rome"})} · {e.owner || "Non assegnato"}</span>{e.scheduled && <small>Appuntamento: {new Date(e.scheduled).toLocaleString("it-IT",{timeZone:"Europe/Rome"})}</small>}<small>{e.label}</small></article>)}{!evidence.some(e=>e.kind===detail) && <p>Nessuna registrazione nel periodo e nei filtri selezionati.</p>}</div></section></div>}
     <section className="panel kpi-forecast-panel">

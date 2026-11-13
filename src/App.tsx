@@ -352,7 +352,7 @@ export default function App() {
       )}
 
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} meName={meName} headerTools={headerTools} />
+        <Calendar client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "control" && currentClient && (
