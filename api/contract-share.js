@@ -15,8 +15,9 @@ export default async function handler(req, res) {
   }
   const token = req.query.token;
   if (typeof token !== 'string' || !UUID.test(token)) return res.status(404).send('Link non disponibile');
-  const url = process.env.VITE_SUPABASE_URL;
-  const key = process.env.VITE_SUPABASE_ANON_KEY;
+  const url = process.env.VITE_SUPABASE_URL || "https://mvujbtygcmowkbvoqcgp.supabase.co";
+  // Same public anon fallback as the CRM; no privileged credentials.
+  const key = process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWpidHlnY21vd2tidm9xY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MzQ3MDMsImV4cCI6MjEwMzAxMDcwM30.Xk3CUy-3ESAuHvTAQRDtDrrAN4iTQlhQ2pYc9Lb_PSw";
   if (!url || !key) return res.status(503).send('Documento temporaneamente non disponibile');
   try {
     const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/get_contract_by_token?select=title`, {
