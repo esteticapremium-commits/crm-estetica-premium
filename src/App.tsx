@@ -11,6 +11,7 @@ function lazyPage<T extends ComponentType<any>>(loader: () => Promise<{ default:
   ]));
 }
 
+const Automazioni = lazyPage(() => import("./pages/Automazioni"));
 const Login = lazyPage(() => import("./pages/Login"));
 const Board = lazyPage(() => import("./pages/Board"));
 const Admin = lazyPage(() => import("./pages/Admin"));
@@ -28,8 +29,8 @@ const TeamActivity = lazyPage(() => import("./pages/TeamActivity"));
 
 const DailySalesReport = lazyPage(() => import("./pages/DailySalesReport"));
 
-type Tab = "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team" | "teamContracts" | "dailyReport";
-const sharedTabs: Tab[] = ["board", "sales", "kpi", "tasks", "calendar", "control", "contracts"];
+type Tab = "risveglio" | "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team" | "teamContracts" | "dailyReport";
+const sharedTabs: Tab[] = ["risveglio","board", "sales", "kpi", "tasks", "calendar", "control", "contracts"];
 const adminTabs: Tab[] = ["dailyReport", "admin", "editorial", "personal", "team", "teamContracts"];
 function readNavigation(key: string) {
   try { return window.sessionStorage.getItem(key); } catch { return null; }
@@ -309,6 +310,7 @@ export default function App() {
           <button title="Pipeline" className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><NavIcon name="pipeline" /> Pipeline</button>
           <button title="Calendario" className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><NavIcon name="calendar" /> Calendario</button>
           <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
+          <button title="Automazioni" className={tab === "risveglio" ? "active" : ""} onClick={() => setTab("risveglio")}><NavIcon name="pipeline" /> Automazioni</button>
           <button title="KPI vendite" className={tab === "kpi" ? "active" : ""} onClick={() => setTab("kpi")}><NavIcon name="kpi" /> KPI vendite</button>
           <button title="Contratti" className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}><NavIcon name="contracts" /> Contratti</button>
           {isAdmin && <><span className="nav-label">Azienda</span><button title="Resoconto giornaliero" className={tab === "dailyReport" ? "active" : ""} onClick={() => setTab("dailyReport")}><NavIcon name="kpi" /> Resoconto giornaliero</button><button title="Contratti team" className={tab === "teamContracts" ? "active" : ""} onClick={() => setTab("teamContracts")}><NavIcon name="contracts" /> Contratti team</button><button title="Attività del team" className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}><NavIcon name="comp" /> Attività del team</button><button title="Task Aziendali" className={tab === "personal" ? "active" : ""} onClick={() => setTab("personal")}><NavIcon name="company" /> Task Aziendali</button><button title="Piano editoriale" className={tab === "editorial" ? "active" : ""} onClick={() => setTab("editorial")}><NavIcon name="editorial" /> Piano editoriale</button><span className="nav-label">Sistema</span><button title="Impostazioni" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}><NavIcon name="settings" /> Impostazioni</button></>}
@@ -342,6 +344,8 @@ export default function App() {
       {tab === "sales" && currentClient && currentPipeline && (
         <Vendite client={currentClient} pipeline={currentPipeline} headerTools={headerTools} />
       )}
+
+      {tab === "risveglio" && currentClient && <Automazioni key={currentClient.id} clientId={currentClient.id} admin={isAdmin} />}
 
       {tab === "kpi" && currentClient && (
         <Kpi client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
