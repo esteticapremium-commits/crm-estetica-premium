@@ -1,0 +1,58 @@
+/* Signing surface: isolated from the CRM and from the exported PDF. */
+.firma-page{--sign-brand:#68132f;--sign-ivory:#f5f1eb;--sign-muted:#766c70;background:var(--sign-ivory);font-size:16px;padding-bottom:90px}
+.firma-page .firma-wrap{background:transparent;padding:32px 20px}
+.firma-page .firma-card{max-width:980px;border:1px solid #e4dad7;border-radius:20px;box-shadow:0 12px 40px #45102308;overflow:visible}
+.firma-page .firma-brandbar{padding:20px 32px;background:transparent;border-bottom:1px solid #eee6e1;border-radius:20px 20px 0 0}
+.firma-page .firma-head{padding:28px 32px;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.firma-page .firma-title{font-size:clamp(22px,3vw,32px);line-height:1.25;color:#401426;flex:1;min-width:200px;font-weight:700;overflow-wrap:anywhere}
+.firma-page .firma-sub{flex-basis:100%;font-size:14px}
+.signing-status{background:#f2e8ec;color:#68132f;border:1px solid #e5d2da;padding:6px 12px;border-radius:30px;font-size:12px;font-weight:700}
+.signing-nav{position:sticky;top:0;z-index:10;display:flex;background:#fffefc;border-bottom:1px solid #e8deda;padding:10px 24px;gap:8px}
+.signing-nav button{flex:1;border:0;border-radius:8px;padding:12px 6px;background:#f5f1eb;color:#68132f;font:inherit;font-size:14px;cursor:pointer}
+.signing-nav button:hover{background:#eadde2}
+.firma-page .firma-body{padding:24px 32px;border-radius:0 0 20px 20px}
+.firma-page .signing-document{border:0;box-shadow:none;overflow:visible}
+.firma-page .client-fields{padding:24px;margin:0 0 24px;background:#faf8f5;border:1px solid #e6ded8;border-radius:12px;gap:16px 24px}
+.firma-page .client-fields .firma-step,.data-edit,.draft-restored{grid-column:1/-1}
+.firma-page .client-fields .data-edit{justify-self:start;font-size:13px;min-height:38px}
+.data-summary{padding:9px 0;color:#4d4248;font-size:15px;overflow-wrap:anywhere}
+.firma-page .field input{font-size:16px;min-height:46px;border-radius:8px;width:100%;box-sizing:border-box}
+.firma-page .field input:focus{border-color:var(--sign-brand);box-shadow:0 0 0 3px #68132f18}
+.firma-page .field input[aria-invalid=true]{border-color:#b3261e}
+.field-error{color:#a32424;font-size:14px;display:block;margin:8px 18px}
+.firma-page .firma-step b{font-size:18px}
+.firma-page .firma-step small{font-size:13px;line-height:1.5}
+.firma-page .firma-step>span{width:30px;height:30px;background:var(--sign-brand);font-size:12px}
+.firma-page .firma-doc{font-family:inherit;font-size:16px;line-height:1.8;padding:20px 12px;color:#342c30}
+.firma-page .firma-doc p{font-size:inherit;line-height:inherit;color:inherit;overflow-wrap:anywhere}
+.firma-page .contract-article{font-family:inherit;font-size:18px;color:#68132f;line-height:1.5;margin:28px 0 10px;scroll-margin-top:85px}
+.firma-page .doc-company{color:#68132f}
+.document-index{border:1px solid #e7ded8;border-radius:10px;margin:16px 0 24px;padding:14px 18px}
+.document-index summary{cursor:pointer;color:#68132f;font-weight:600}
+.document-index nav{display:grid;gap:6px;margin-top:12px}
+.document-index button{border:0;background:none;text-align:left;color:#51434a;padding:8px;font:inherit;font-size:14px;cursor:pointer}
+.document-index button:hover{background:#f5f1eb}
+.firma-page [tabindex="-1"],.firma-page input{scroll-margin-top:90px}
+.firma-page .btn.primary{background:#68132f;border-color:#68132f;color:white;min-height:46px}
+.firma-page .btn.primary:hover{background:#501027}
+.firma-page .btn:disabled{opacity:.55;cursor:not-allowed}
+.firma-page button:focus-visible,.firma-page summary:focus-visible{outline:3px solid #a3687e;outline-offset:3px}
+.firma-page .link-btn{color:#68132f}
+.signature-action{margin:20px 18px;display:flex;align-items:flex-start;flex-direction:column;gap:12px;border:1px dashed #b08d99;border-radius:12px;padding:20px}
+.signature-action img{max-width:280px;max-height:100px;object-fit:contain}
+.signature-action small{color:var(--sign-muted);line-height:1.5}
+.signature-dialog{width:min(640px,calc(100vw - 32px));box-sizing:border-box;border:1px solid #d6c3cb;border-radius:18px;padding:28px;box-shadow:0 24px 80px #25101b40;color:#39252d;max-height:90dvh;overflow:auto}
+.signature-dialog::backdrop{background:#27101bc4}
+.signature-dialog h2{margin:0;font-size:24px;color:#68132f}
+.signature-dialog p{font-size:14px;line-height:1.5}
+.signature-dialog .firma-canvas{width:100%;height:240px;display:block;box-sizing:border-box;border-radius:12px;touch-action:none;overscroll-behavior:contain;background:white}
+.signature-dialog footer{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}
+.preview-notice,.draft-restored{padding:12px 24px;background:#f7f0e2;color:#61491e;font-size:13px;line-height:1.5}
+.signing-progress{position:fixed;bottom:0;left:0;right:0;z-index:12;display:flex;align-items:center;justify-content:center;gap:24px;padding:12px 20px;background:#fffefcf5;border-top:1px solid #e2d6d8;box-shadow:0 -4px 24px #45102308;font-size:14px;color:#68132f}
+.firma-page .contract-signature-box{border-radius:12px;border-color:#e4d8dc}
+.firma-page .specific-approval-check{font-size:14px;line-height:1.6}
+.firma-page .thankyou-title{color:#68132f}
+@media(max-width:600px){.firma-page .firma-wrap{padding:0}.firma-page .firma-card{border:0;border-radius:0}.firma-page .firma-brandbar{padding:16px;border-radius:0}.firma-page .firma-brandbar small{display:none}.firma-page .firma-head{padding:24px 18px}.firma-page .firma-body{padding:20px 14px}.signing-nav{padding:8px 12px;gap:5px}.signing-nav button{font-size:12px}.firma-page .client-fields{grid-template-columns:1fr;padding:16px;gap:10px}.firma-page .firma-doc{padding:12px 4px!important;font-size:16px}.firma-page .contract-signature-box{margin-left:0;margin-right:0}.signature-dialog{padding:20px 16px}.signature-dialog .firma-canvas{height:240px}.signature-dialog footer button{flex:1}.signing-progress{justify-content:space-between;gap:12px;padding-bottom:max(12px,env(safe-area-inset-bottom))}.signing-progress span{font-size:12px}.firma-page .specific-approval-check{margin-left:0;margin-right:0}.firma-page .signature-cell strong{overflow-wrap:anywhere}.firma-page .firma-title{min-width:0;flex-basis:100%}}
+@media(prefers-reduced-motion:reduce){.firma-page *{scroll-behavior:auto!important}}
+@media print{.signing-nav,.signing-progress,.preview-notice,.signature-dialog,.document-index{display:none!important}.firma-page{padding:0}.firma-page .firma-card{box-shadow:none}}
+.firma-page .firma-brandbar b{color:#4b1025}.firma-page .firma-brandbar span,.firma-page .firma-brandbar small{color:#74636a}.firma-page .firma-title{font-family:inherit}.firma-page .firma-brandbar .firma-monogram{box-shadow:none}

@@ -1,4 +1,5 @@
-import { isTeamContract, TEAM_TAX_CODE_FIELD, teamFiscalError, teamFiscalField } from "../teamContract";
+import "./FirmaPage.css";
+import { isTeamContract, TEAM_FISCAL_FIELD, TEAM_TAX_CODE_FIELD, teamFiscalError, teamFiscalField } from "../teamContract";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { contractSignatureDate, fillBody, isPrivateDeed, isPrivateDeedHeading, openSignedContractPdf, privateDeedClientName, splitContractClosing } from "../contractPdf";
@@ -37,6 +38,15 @@ export default function FirmaPage({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [confirmationPending, setConfirmationPending] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [editingData, setEditingData] = useState(false);
+  const [signatureImage, setSignatureImage] = useState("");
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [internalPreview, setInternalPreview] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const trackedToken = useRef("");
+  const loadedToken = useRef("");
   const submitting = useRef(false);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -74,14 +84,37 @@ export default function FirmaPage({ token }: { token: string }) {
           return;
         }
         setDoc(row);
-        if (isTeamContract(row.body) && row.status !== "signed") {
-          try { const initial = JSON.parse(row.client_data || "{}"); setValues(initial); setName(initial["Nome e cognome"] || ""); } catch { setValues({}); }
+        if (row.status !== "signed") {
+          let initial: Record<string, string> = {};
+          try { initial = JSON.parse(row.client_data || "{}"); } catch { /* Empty prefill. */ }
+          setValues(initial);
+          setName(initial["Nome e cognome"] || initial["Rappresentante legale del committente"] || "");
+          try {
+            const saved = JSON.parse(sessionStorage.getItem(`contract-draft:${token}`) || "null");
+            if (saved?.body === row.body && saved?.prefill === row.client_data && Date.now() - saved.at < 86400000) {
+              setValues(saved.values); setName(saved.name); setSignatureImage(saved.signature || ""); setDraftRestored(true);
+            }
+          } catch { /* Storage unavailable: retain the in-memory form. */ }
         }
-        // L'apertura viene registrata dal database senza raccogliere IP,
-        // dispositivo o altri dati personali del firmatario.
-        // Le query Supabase partono quando la Promise viene consumata: senza
-        // .then() il contatore resterebbe fermo anche se il documento è aperto.
-        void supabase.rpc("record_contract_view", { p_token: token }).then(() => undefined);
+        loadedToken.current = token;
+        // RLS decides whether this authenticated user has internal access.
+        // Never infer the recipient's identity from a public link opening.
+        if (trackedToken.current !== token) {
+          trackedToken.current = token;
+          void (async () => {
+            try {
+              if (["localhost", "127.0.0.1"].includes(window.location.hostname)) { setInternalPreview(true); return; }
+              const { data: auth, error: authError } = await supabase.auth.getSession();
+              if (authError) return;
+              if (auth.session) {
+                const access = await supabase.from("contracts").select("id").eq("id", row.id).maybeSingle();
+                if (access.error) return;
+                if (access.data) { setInternalPreview(true); return; }
+              }
+              await supabase.rpc("record_contract_view", { p_token: token });
+            } catch { /* An uncertain internal session must not inflate the counter. */ }
+          })();
+        }
         document.title = row.title + " — Estetica Premium";
         // La scrittura privata arriva già compilata: il firmatario è la persona
         // indicata nel documento, al lead resta solo da disegnare la firma.
@@ -110,28 +143,47 @@ export default function FirmaPage({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    if (err) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [err]);
+    if (err && !fieldErrors.name && !fieldErrors.fiscal) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [err, fieldErrors.name, fieldErrors.fiscal]);
+
+  useEffect(() => {
+    if (!doc || loadedToken.current !== token) return;
+    try {
+      if (ok) sessionStorage.removeItem(`contract-draft:${token}`);
+      else sessionStorage.setItem(`contract-draft:${token}`, JSON.stringify({ body: doc.body, prefill: doc.client_data, values, name, signature: signatureImage, at: Date.now() }));
+    } catch { /* No storage: form remains available until the tab closes. */ }
+  }, [doc, token, values, name, signatureImage, ok]);
+
+  useEffect(() => {
+    if (!signatureOpen) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    setupCanvas(canvasRef.current, true);
+    return () => { dialog.close(); document.body.style.overflow = overflow; };
+  }, [signatureOpen]);
 
   const fields = (doc?.client_fields ?? "")
     .split("\n")
     .map((f) => f.trim())
     .filter(Boolean);
   const team = isTeamContract(doc?.body);
-  const fiscalField = team ? teamFiscalField(fields) : null;
-  const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, team));
+  const draftParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
   const signedParts = splitContractClosing(fillBody(doc?.body ?? "", fields, values, true));
   const needsGeneralApproval = requiresGeneralAcceptance(doc?.client_data);
   const deed = isPrivateDeed(doc?.body);
   const deedClientName = deed ? privateDeedClientName(doc?.body) : "";
 
-  function setupCanvas(c: HTMLCanvasElement | null) {
-    if (!c || canvasRef.current === c) return;
+  function setupCanvas(c: HTMLCanvasElement | null, resize = false) {
+    if (!c || (!resize && canvasRef.current === c)) return;
+    const initialized = canvasRef.current === c;
     canvasRef.current = c;
     const dpr = window.devicePixelRatio || 1;
     const w = c.clientWidth || 480;
     c.width = w * dpr;
-    c.height = 160 * dpr;
+    c.height = 240 * dpr;
     const ctx = c.getContext("2d")!;
     ctx.scale(dpr, dpr);
     ctx.lineWidth = 2.5;
@@ -139,9 +191,10 @@ export default function FirmaPage({ token }: { token: string }) {
     ctx.lineJoin = "round";
     ctx.strokeStyle = "#0b0b0b";
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, 160);
+    ctx.fillRect(0, 0, w, 240);
     // Listener non passivi: Safari e i browser in-app non devono trasformare
     // il tratto in scroll/zoom. Il mouse e la penna usano invece Pointer Events.
+    if (initialized) return;
     c.addEventListener("touchstart", (event) => {
       event.preventDefault();
       if (activeTouch.current !== null) return;
@@ -238,26 +291,44 @@ export default function FirmaPage({ token }: { token: string }) {
     up();
   }
 
+  const requiredFiscal = team ? teamFiscalField(fields) : undefined;
+  const missingCount = Number(!name.trim()) + Number(Boolean(team && teamFiscalError(fields, values))) + Number(!signatureImage) + Number(Boolean(draftParts.approval && !specificApproval)) + Number(needsGeneralApproval && !generalApproval);
+  const headings = draftParts.main.split("\n").map((text, index) => ({ text: text.trim(), index })).filter(({ text }) => /^(?:Art\.?\s*\d|\d+\.\s+\S|ALLEGATO)/i.test(text));
+  function goTo(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.getElementById(id)?.focus({ preventScroll: true });
+  }
+  function nextField() {
+    if (requiredFiscal && teamFiscalError(fields, values)) { goTo(`contract-field-${fields.indexOf(requiredFiscal)}`); return; }
+    if (!name.trim()) { goTo("contract-signer"); return; }
+    goTo("signature-section");
+    if (!signatureImage) setSignatureOpen(true);
+  }
+  function useSignature() {
+    if (!hasInk.current || !canvasRef.current) { setFieldErrors((e) => ({ ...e, signature: "Disegna la firma prima di continuare." })); return; }
+    setSignatureImage(croppedSignature(canvasRef.current));
+    setFieldErrors((e) => ({ ...e, signature: "" }));
+    setSignatureOpen(false);
+  }
+
   async function sign() {
-    if (submitting.current || confirmationPending) return;
-    if (!name.trim()) return setErr("Scrivi il tuo nome e cognome.");
-    if (team) { const fiscalError = teamFiscalError(fields, values); if (fiscalError) return setErr(fiscalError); }
-    if (!hasInk.current) {
+    if (submitting.current || confirmationPending || internalPreview) return;
+    if (!name.trim()) { setFieldErrors({ name: "Scrivi il tuo nome e cognome." }); goTo("contract-signer"); return setErr("Scrivi il tuo nome e cognome."); }
+    if (team) { const fiscalError = teamFiscalError(fields, values); if (fiscalError) { setFieldErrors({ fiscal: fiscalError }); if (requiredFiscal) goTo(`contract-field-${fields.indexOf(requiredFiscal)}`); return setErr(fiscalError); } }
+    if (!signatureImage) {
       return setErr(deed ? "Disegna la firma nel riquadro prima di confermare la scrittura privata." : "Disegna la firma nel riquadro prima di confermare il contratto.");
     }
     if (draftParts.approval && !specificApproval) {
       return setErr("Conferma anche l'approvazione specifica delle clausole indicate nel contratto.");
     }
     if (needsGeneralApproval && !generalApproval) return setErr("Conferma di aver letto e accettato le condizioni del contratto.");
-    const c = canvasRef.current;
-    if (!c) return;
     submitting.current = true;
     setBusy(true);
     setErr(null);
     try {
-    const data = deed ? croppedSignature(c) : c.toDataURL("image/png");
+    const data = signatureImage;
     const signedValues = { ...values };
-    if (fiscalField === TEAM_TAX_CODE_FIELD) {
+    if (requiredFiscal === TEAM_TAX_CODE_FIELD) {
       signedValues["Nome e cognome"] = name.trim();
       signedValues[TEAM_TAX_CODE_FIELD] = values[TEAM_TAX_CODE_FIELD].trim().toUpperCase();
     }
@@ -349,7 +420,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   className="btn primary thankyou-dl"
                   onClick={downloadPdf}
                 >
-                  Apri e salva il documento firmato in PDF
+                  Scarica il PDF firmato
                 </button>
                 <p className="thankyou-note">
                   Il documento qui sotto è quello firmato: lo ricevi completo di
@@ -409,51 +480,63 @@ export default function FirmaPage({ token }: { token: string }) {
                 <small>Documento riservato</small>
               </div>
               <div className="firma-head">
-                <div className="firma-title">{deed ? "Scrittura privata" : "Accordo di collaborazione professionale"}</div>
+                <div className="firma-title">{doc.title}</div><span className="signing-status">Da firmare</span>
                 {deed ? (
                   <div className="firma-sub">{`Deposito cauzionale${deedClientName || doc.lead_name ? ` · Destinata a ${deedClientName || doc.lead_name}` : ""}`}</div>
                 ) : doc.lead_name && (
                   <div className="firma-sub">Destinato a {doc.lead_name}</div>
                 )}
               </div>
+              {internalPreview && <div className="preview-notice" role="status">Anteprima interna · questa apertura non viene conteggiata. La firma è riservata al destinatario.</div>}
+              {team && <nav className="signing-nav" aria-label="Passaggi della firma">
+                <button onClick={() => goTo("signing-data")}>01 · Dati</button><button onClick={() => goTo("signing-document")}>02 · Documento</button><button onClick={() => goTo("signature-section")}>03 · Firma</button>
+              </nav>}
               <div className="firma-body">
                 <div className="signing-document">
                 {/* 1) prima i campi da compilare */}
                 {fields.length > 0 && (
-                  <div className="client-fields">
-                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{fiscalField ? `Controlla i tuoi dati e compila il campo «${fiscalField}» prima della firma.` : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
-                    {fields.map((f) => (
+                  <div className="client-fields" id="signing-data" tabIndex={-1}>
+                    <div className="firma-step"><span>01</span><div><b>{team ? "Verifica i dati del consulente" : "Verifica i dati aziendali"}</b><small>{team ? (fields.includes(TEAM_FISCAL_FIELD) ? "Controlla i tuoi dati e inserisci la Partita IVA oppure il codice fiscale prima della firma." : "Controlla i tuoi dati e completa il dato fiscale richiesto prima della firma.") : "Compila i dati disponibili: questi campi sono facoltativi."}</small></div></div>
+                    {draftRestored && <p className="draft-restored" role="status">Dati recuperati in questa scheda. Controllali prima di firmare.</p>}
+                    <button className="btn data-edit" onClick={() => setEditingData(!editingData)}>{editingData ? "Fine modifica" : "Modifica dati / completa i facoltativi"}</button>
+                    {fields.filter((f) => editingData || values[f] || f === requiredFiscal).map((f) => (
                       <div className="field" key={f} style={{ marginBottom: 8 }}>
-                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{f === fiscalField ? "(obbligatorio)" : "(facoltativo)"}</small></label>
-                        <input
+                        <label htmlFor={`contract-field-${fields.indexOf(f)}`}>{f} <small>{team && (f === requiredFiscal) ? "(obbligatorio)" : "(facoltativo)"}</small></label>
+                        {!editingData && f !== requiredFiscal ? <div className="data-summary">{values[f] || "Non indicato"}</div> : <input
                           id={`contract-field-${fields.indexOf(f)}`}
+                          aria-invalid={f === requiredFiscal && Boolean(fieldErrors.fiscal)}
+                          aria-describedby={f === requiredFiscal && fieldErrors.fiscal ? "fiscal-error" : undefined}
                           disabled={busy || confirmationPending}
                           value={values[f] ?? ""}
                           onChange={(e) =>
-                            setValues((prev) => ({ ...prev, [f]: e.target.value }))
+                            (setFieldErrors({}), setValues((prev) => ({ ...prev, [f]: e.target.value })))
                           }
-                        />
+                        />}
+                        {f === requiredFiscal && fieldErrors.fiscal && <small className="field-error" id="fiscal-error">{fieldErrors.fiscal}</small>}
                       </div>
                     ))}
                   </div>
                 )}
 
+                <div id="signing-document" tabIndex={-1} />
+                {team && headings.length > 0 && <details className="document-index"><summary>Indice del documento</summary><nav aria-label="Articoli del contratto">{headings.map(({ text, index }) => <button key={index} onClick={() => goTo(`article-${index}`)}>{text}</button>)}</nav></details>}
                 {/* 2) poi il contratto, con i trattini dove va ogni risposta */}
                 {deed ? (
                   <>
                     <div className="firma-step document-step"><span>01</span><div><b>Leggi la scrittura privata</b><small>È già compilata: controlla che i tuoi dati siano corretti prima di firmare.</small></div></div>
                     <PrivateDeedDocument body={doc.body ?? ""} />
-                    <PrivateDeedSignatureBox signerName={deedClientName} />
+                    <PrivateDeedSignatureBox signerName={deedClientName} signature={signatureImage} />
                   </>
                 ) : (
                   <>
                     <div className="firma-step document-step"><span>02</span><div><b>Leggi l’accordo</b><small>Puoi scorrere il documento prima di firmare.</small></div></div>
-                    <Document body={draftParts.main} />
-                    <ContractSignatureBox team={team} values={values} onDraw={() => canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} />
+                    <Document body={draftParts.main} indexed />
+                    <ContractSignatureBox team={team} values={values} signature={signatureImage} onDraw={() => setSignatureOpen(true)} />
                     {draftParts.approval && <><Document body={draftParts.approval} plain /><SpecificApprovalSignature team={team} /></>}
                   </>
                 )}
 
+                <div id="signature-section" tabIndex={-1} />
                 {/* 3) infine la firma */}
                 {deed ? (
                   <div className="firma-step document-step"><span>02</span><div><b>Firma la scrittura privata</b><small>La data della firma verrà inserita automaticamente nel documento.</small></div></div>
@@ -469,13 +552,24 @@ export default function FirmaPage({ token }: { token: string }) {
                       id="contract-signer"
                       disabled={busy || confirmationPending}
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      aria-invalid={Boolean(fieldErrors.name)}
+                      aria-describedby={fieldErrors.name ? "signer-error" : undefined}
+                      onChange={(e) => { setName(e.target.value); setFieldErrors({}); }}
                       placeholder="Scrivi qui il tuo nome e cognome"
                     />
                   )}
                 </div>
-                <div className="field">
-                  <label>Disegna la firma nel riquadro bordeaux qui sotto</label>
+                {fieldErrors.name && <p className="field-error" id="signer-error">{fieldErrors.name}</p>}
+                <div className="signature-action">
+                  {signatureImage && <img src={signatureImage} alt="Anteprima della tua firma, non ancora inviata" />}
+                  <button className="btn" disabled={busy || confirmationPending} onClick={() => { hasInk.current = false; setFieldErrors({}); setSignatureOpen(true); }}>{signatureImage ? "Ridisegna firma" : "Aggiungi la tua firma"}</button>
+                  <button className="link-btn" disabled={!signatureImage || busy || confirmationPending} onClick={() => { setSignatureImage(""); hasInk.current = false; }}>Rimuovi firma</button>
+                  <small>La firma sarà inviata soltanto quando premi «Conferma e firma il contratto».</small>
+                </div>
+                <dialog ref={dialogRef} className="signature-dialog" aria-labelledby="signature-dialog-title" onCancel={() => setSignatureOpen(false)}>
+                  <h2 id="signature-dialog-title">Disegna la tua firma</h2>
+                  <p>Usa il dito o il mouse nel riquadro. La pagina rimane ferma.</p>
+                  <div className="field">
                   <canvas
                     ref={setupCanvas}
                     className="firma-canvas"
@@ -496,6 +590,9 @@ export default function FirmaPage({ token }: { token: string }) {
                     Cancella firma
                   </button>
                 </div>
+                  {fieldErrors.signature && <p className="field-error" role="alert">{fieldErrors.signature}</p>}
+                  <footer><button className="btn" onClick={() => setSignatureOpen(false)}>Annulla</button><button className="btn primary" onClick={useSignature}>Usa questa firma</button></footer>
+                </dialog>
                 {needsGeneralApproval && <label className="specific-approval-check"><input type="checkbox" checked={generalApproval} disabled={busy || confirmationPending} onChange={(event) => setGeneralApproval(event.target.checked)} /><span>Ho letto e accetto le condizioni del contratto.</span></label>}
                 {draftParts.approval && <label className="specific-approval-check"><input type="checkbox" checked={specificApproval} onChange={(event) => setSpecificApproval(event.target.checked)} /><span>Dichiaro di approvare specificamente le clausole richiamate ai sensi degli artt. 1341 e 1342 c.c. La firma disegnata sopra sarà applicata anche al relativo riquadro.</span></label>}
                 {err && <div className="notice err" role="alert" ref={errorRef}>{err}</div>}
@@ -504,7 +601,7 @@ export default function FirmaPage({ token }: { token: string }) {
                   className="btn primary"
                   style={{ width: "100%", padding: 13, fontSize: 16 }}
                   onClick={sign}
-                  disabled={busy || confirmationPending}
+                  disabled={busy || confirmationPending || internalPreview}
                 >
                   {busy ? "Registrazione firma…" : deed ? "Conferma e firma" : "Conferma e firma il contratto"}
                 </button>
@@ -521,6 +618,7 @@ export default function FirmaPage({ token }: { token: string }) {
                 </p>
                 </div>
               </div>
+              {team && <div className="signing-progress"><span>{missingCount ? `${missingCount} passaggi da completare` : "Pronto per la conferma"}</span><button className="btn primary" disabled={busy || confirmationPending} onClick={nextField}>{missingCount ? "Continua" : "Rivedi e conferma"}</button></div>}
             </>
           )}
         </div>
@@ -612,7 +710,7 @@ function PrivateDeedSignatureBox({ signerName, signature }: { signerName?: strin
 }
 
 /** Il contratto in stile documento (carta bianca, intestazione serif). */
-function Document({ body, plain = false }: { body: string; plain?: boolean }) {
+function Document({ body, plain = false, indexed = false }: { body: string; plain?: boolean; indexed?: boolean }) {
   const lines = body.split("\n");
   return (
     <div className="firma-doc">
@@ -639,6 +737,7 @@ function Document({ body, plain = false }: { body: string; plain?: boolean }) {
               {t}
             </div>
           );
+        if (/^(?:Art\.?\s*\d|\d+\.\s+\S|ALLEGATO)/i.test(t)) return <h3 key={i} id={indexed ? `article-${i}` : undefined} tabIndex={-1} className="contract-article">{t}</h3>;
         return (
           <p key={i} style={{ margin: "6px 0" }}>
             {t}

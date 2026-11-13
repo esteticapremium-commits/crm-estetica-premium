@@ -40,7 +40,7 @@ export function fillBody(
 
 export function normalizeSpecificApprovalSignature(body: string) {
   return body
-    .replace(/^Firma specifica del Committente\s*:.*$/gim, "")
+    .replace(/^Firma specifica del Committente\s*:\s*_+\s*$/gim, "")
     .replace(
       /^La firma del Committente apposta nel presente documento si riferisce anche alla presente approvazione specifica\.\s*$/gim,
       ""
@@ -61,14 +61,11 @@ export function splitContractClosing(body: string) {
   const approval = approvalIndex >= 0 ? blocks[approvalIndex].trim() : "";
   if (approvalIndex >= 0) blocks.splice(approvalIndex, 1);
 
-  const withoutApproval = blocks.join("\n\n");
-  const signatureMarker = "\nCommittente\n";
-  const signatureAt = withoutApproval.indexOf(signatureMarker);
+  // Remove only the exact legacy signature table, never everything after
+  // "Committente": later clauses and annexes remain part of the document.
+  const legacySignature = /^(?:Committente|Collaboratore)\nNome: [^\n]*\nRagione sociale: [^\n]*\nFirma: (?:_+|firma del Collaboratore apposta nel presente documento\.)\nData: [^\n]*$/;
   return {
-    main: (signatureAt >= 0
-      ? withoutApproval.slice(0, signatureAt)
-      : withoutApproval
-    ).trimEnd(),
+    main: blocks.filter((block) => !legacySignature.test(block.trim())).join("\n\n").trimEnd(),
     approval,
   };
 }

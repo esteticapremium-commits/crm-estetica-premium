@@ -14,14 +14,6 @@ function compile(source, modules, globals = {}) {
 }
 
 const teamHelpers = compile(readFileSync(new URL("../src/teamContract.ts", import.meta.url), "utf8"), {});
-
-test("il contratto con solo codice fiscale accetta il codice e rifiuta la partita IVA", () => {
-  const fields = ["Nome e cognome", "Codice fiscale"];
-  assert.equal(teamHelpers.teamFiscalField(fields), "Codice fiscale");
-  assert.equal(teamHelpers.teamFiscalError(fields, { "Codice fiscale": " rssmra80a01h501u " }), null);
-  assert.ok(teamHelpers.teamFiscalError(fields, { "Codice fiscale": "12345678901" }));
-  assert.ok(teamHelpers.teamFiscalError(fields, {}));
-});
 const helpers = compile(readFileSync(new URL('../src/contractSigning.ts', import.meta.url), 'utf8'), {});
 const signed = { status: 'signed', signed_name: 'Cliente', signed_at: '2026-10-16T09:00:00Z', signature_data: 'data:image/png;base64,AAAA', body: '', client_data: '{}', client_fields: '' };
 
@@ -57,20 +49,21 @@ function signingHarness(rpc) {
     useEffect() {},
   };
   const source = readFileSync(new URL('../src/pages/FirmaPage.tsx', import.meta.url), 'utf8')
-    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, setGeneralApproval, canvasRef, hasInk, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
+    .replace('return (\n    <div className="firma-page">', 'return { sign, verifySignature, setDoc, setName, setValues, setGeneralApproval, canvasRef, hasInk, setSignatureImage, setupCanvas, down, move, endPointer, clear, ok, busy, err, confirmationPending, doc };\n  return (\n    <div className="firma-page">');
   const component = compile(source, {
     react,
     "../teamContract": teamHelpers,
     '../supabaseClient': { supabase: { rpc } },
     '../contractSigning': helpers,
     '../contractPdf': { isPrivateDeed: () => false, fillBody: () => '', splitContractClosing: () => ({ main: '', approval: '' }) },
-  }, { window: { devicePixelRatio: 2 } }).default;
+  }, { window: { devicePixelRatio: 2 }, document: { getElementById: () => null } }).default;
   const render = () => { stateIndex = refIndex = 0; return component({ token: 'test-token' }); };
   let api = render();
   api.setDoc({ ...signed, status: 'sent', signature_data: null });
   api.setName('Cliente');
   api.canvasRef.current = { toDataURL: () => signed.signature_data };
   api.hasInk.current = true;
+  api.setSignatureImage(signed.signature_data);
   return render;
 }
 
@@ -185,6 +178,7 @@ test('nome e disegno restano necessari anche con dati aziendali facoltativi', as
   render().setName('Cliente');
   render().setDoc({ ...signed, status: 'sent', client_fields: 'PEC' });
   render().hasInk.current = false;
+  render().setSignatureImage('');
   await render().sign();
   assert.match(render().err, /Disegna la firma/);
   assert.equal(calls, 0);
@@ -211,7 +205,7 @@ function drawingHarness() {
   const ctx = { scale() {}, getTransform: () => ({ a: 2, d: 2 }),
     fillRect() {}, beginPath() {}, moveTo() {}, lineTo: (x, y) => strokes.push([x, y]), stroke() {} };
   const canvas = { clientWidth: 400, width: 0, height: 0, getContext: () => ctx,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 80 }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 120 }),
     addEventListener: (name, handler, options) => { assert.equal(options.passive, false); listeners[name] = handler; },
     setPointerCapture() { throw new Error('capture unsupported'); } };
   render().hasInk.current = false;
@@ -362,4 +356,41 @@ test('setter: CF e IVA arrivano alla firma e nel documento senza segnaposti resi
     assert.doesNotMatch(html, /\{\{|DA CONFERMARE|10%|svolge la propria attività in regime di Partita IVA/);
     assert.equal(html.split('src="data:image/png;base64,AAAA"').length - 1, 2);
   }
+});
+
+test('una firma disegnata ma non confermata nella finestra non viene inviata', async () => {
+  let calls = 0;
+  const render = signingHarness(async () => { calls++; return { data: true }; });
+  render().setSignatureImage('');
+  render().hasInk.current = true;
+  await render().sign();
+  assert.equal(calls, 0);
+  assert.match(render().err, /Disegna la firma/);
+});
+
+test('la firma accettata resta inviabile anche se il canvas è smontato', async () => {
+  let payload;
+  const render = signingHarness(async (name, args) => {
+    if (name === 'sign_contract') { payload = args; return { data: true }; }
+    return { data: [signed] };
+  });
+  render().canvasRef.current = null;
+  await render().sign();
+  assert.equal(payload.p_sig, signed.signature_data);
+  assert.equal(render().ok, true);
+});
+
+test('modello team con solo codice fiscale mantiene il proprio requisito', () => {
+  assert.equal(teamHelpers.teamFiscalError(['Codice fiscale'], { 'Codice fiscale': 'RSSMRA80A01H501U' }), null);
+  assert.ok(teamHelpers.teamFiscalError(['Codice fiscale'], { 'Codice fiscale': '12345678901' }));
+});
+
+test('clausole e allegati dopo i riquadri firma non vengono mai troncati', () => {
+  const pdf = compile(readFileSync(new URL('../src/contractPdf.ts', import.meta.url), 'utf8'), { './teamContract': teamHelpers });
+  const body = 'Art. 1 Oggetto\nTESTO_INIZIALE\n\nCommittente\nNome: Cliente\nRagione sociale: Centro\nFirma: ______\nData: 13/11/2026\n\nArt. 20 Clausola finale\nTESTO_FINALE_INTEGRALE\n\nALLEGATO 1\nTESTO_ALLEGATO\n\nAi sensi degli artt. 1341 e 1342 si approvano specificamente le clausole 1 e 20.';
+  const parts = pdf.splitContractClosing(body);
+  for (const text of ['TESTO_INIZIALE', 'TESTO_FINALE_INTEGRALE', 'TESTO_ALLEGATO']) assert.ok(parts.main.includes(text));
+  assert.match(parts.approval, /clausole 1 e 20/);
+  const ambiguous = 'Art. 1\nTesto\nCommittente\nUna clausola non standard da preservare';
+  assert.equal(pdf.splitContractClosing(ambiguous).main, ambiguous);
 });
