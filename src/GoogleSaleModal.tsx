@@ -49,7 +49,8 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
       lock.current = true; setBusy(true); setError('');
       const result = await withTimeout(supabase.rpc('save_google_sale', {p_client_id: clientId, p_sale: payload, p_expected_version: sale?.version || 0}), 20000, 'Conferma non ricevuta. Riprova: la stessa registrazione non viene duplicata.');
       if (result.error) throw new Error(result.error.message);
-      if (!result.data?.id) throw new Error('Il server non ha confermato il salvataggio.');
+      const saved = Array.isArray(result.data) ? result.data[0] : result.data;
+      if (!saved?.id) throw new Error('Il server non ha confermato il salvataggio.');
       onSaved();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Salvataggio non riuscito.'); }
     finally { lock.current = false; setBusy(false); }
