@@ -60,3 +60,17 @@ test('linking a sale and recording later instalments never adds a second new cus
 test('excluded calls do not contribute even their booking',()=>{
  assert.equal(Object.keys(googleSaleMetrics({...sale,outcome:'excluded'},'2026-11-09',now)).length,0);
 });
+test('post-closing follow-ups keep separate call counts and retain sales outcomes',()=>{
+ const followUp={...sale,appointment_type:'follow_up',outcome:'won',contract_value:3000};
+ const booked=googleSaleMetrics(followUp,'2026-11-09',now);
+ assert.equal(booked.followUpBooked,1);assert.equal(booked.demoBooked,undefined);
+ const held=googleSaleMetrics(followUp,'2026-11-10',now);
+ assert.equal(held.followUpHeld,1);assert.equal(held.followUpScheduled,1);
+ assert.equal(held.demoHeld,undefined);assert.equal(held.demoClientHeld,undefined);
+ assert.equal(held.won,1);assert.equal(held.contractValue,3000);
+ assert.equal(validateGoogleSale(followUp,now),null);
+ const missed=googleSaleMetrics({...followUp,outcome:'no_show'},'2026-11-10',now);
+ assert.equal(missed.followUpHeld,undefined);assert.equal(missed.noShow,1);
+ const postponed=googleSaleMetrics({...followUp,outcome:'rescheduled'},'2026-11-10',now);
+ assert.equal(postponed.followUpScheduled,undefined);
+});

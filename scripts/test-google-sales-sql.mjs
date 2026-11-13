@@ -20,6 +20,8 @@ await db.exec(`
  set test.uid='10000000-0000-0000-0000-000000000001';set test.admin='true';
 `);
 await db.exec(readFileSync('supabase/upgrade_google_sales.sql','utf8'));
+await db.exec(readFileSync('supabase/upgrade_google_sales_follow_up.sql','utf8'));
+await db.exec(readFileSync('supabase/upgrade_google_sales_follow_up.sql','utf8'));
 const client='00000000-0000-0000-0000-000000000001';
 const query=(q,p=[])=>db.query(q,p);
 const scalar=async(q,p=[])=>Object.values((await query(q,p)).rows[0])[0];
@@ -53,7 +55,11 @@ await db.exec("set test.admin='false';set test.uid='10000000-0000-0000-0000-0000
 await assert.rejects(()=>save(base,row.version),/altro utente/);
 await assert.rejects(()=>save({...base,google_key:'other|',google_event_id:'other'},0,'00000000-0000-0000-0000-000000000002'),/Non autorizzato/);
 await assert.rejects(()=>save({...won,google_key:'seller-cash|',google_event_id:'seller-cash'}),/amministratore/);
-await save({...base,google_key:'seller-call|',google_event_id:'seller-call'});
+const sellerCall=await save({...base,google_key:'seller-call|',google_event_id:'seller-call',appointment_type:'follow_up'});
+assert.equal(sellerCall.appointment_type,'follow_up');
+const sellerWon=await save({...base,google_key:'seller-call|',google_event_id:'seller-call',appointment_type:'follow_up',outcome:'won',contract_value:3000},sellerCall.version);
+assert.equal(sellerWon.outcome,'won');
+assert.equal(sellerWon.appointment_type,'follow_up');
 await db.exec('set role authenticated');
 assert.equal(await scalar('select count(*)::int from google_sales_appointments'),1,'seller reads only own classified call');
 await assert.rejects(()=>query("update google_sales_appointments set outcome='won'"),/permission denied/);

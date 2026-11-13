@@ -80,7 +80,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
             {query && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
           </div>
           <div className="google-sale-grid">
-            <label>Tipo di appuntamento<select value={type} onChange={e => setType(e.target.value as typeof type)}><option value="demo">Closing / demo</option><option value="discovery">Discovery</option></select></label>
+            <label>Tipo di appuntamento<select value={type} onChange={e => setType(e.target.value as typeof type)}><option value="demo">Closing / demo</option><option value="discovery">Discovery</option><option value="follow_up">Follow-up post closing</option></select></label>
             <label>Tipo di vendita<select value={revenueType} onChange={e => setRevenueType(e.target.value as typeof revenueType)}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></label>
           </div>
           <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>

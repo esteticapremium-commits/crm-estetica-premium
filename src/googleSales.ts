@@ -5,7 +5,7 @@ export interface GoogleSale {
   id: string; client_id: string; owner_id: string; assigned_to: string;
   google_key: string; google_event_id: string; title: string; contact_name: string;
   starts_at: string; booked_at: string | null; lead_id: string | null;
-  appointment_type: 'discovery' | 'demo'; revenue_type: 'new' | 'renewal' | 'upsell';
+  appointment_type: 'discovery' | 'demo' | 'follow_up'; revenue_type: 'new' | 'renewal' | 'upsell';
   outcome: GoogleSaleOutcome; proposal_made: boolean; qualified: boolean | null; next_action_at: string | null;
   contract_value: number; collected_amount: number; collected_at: string | null;
   note: string; version: number;
@@ -44,7 +44,7 @@ export function googleSaleMetrics(sale: GoogleSale, day: string, now = new Date(
   const result: Record<string, number> = {};
   if (sale.outcome === 'excluded') return result;
   const add = (key: string) => { result[key] = (result[key] || 0) + 1; };
-  const prefix = sale.appointment_type === 'discovery' ? 'discovery' : sale.revenue_type === 'new' ? 'demo' : 'demoClient';
+  const prefix = sale.appointment_type === 'follow_up' ? 'followUp' : sale.appointment_type === 'discovery' ? 'discovery' : sale.revenue_type === 'new' ? 'demo' : 'demoClient';
   if (sale.booked_at && romeDay(sale.booked_at) === day) add(`${prefix}Booked`);
   if (romeDay(sale.starts_at) !== day) return result;
   if (sale.outcome !== 'rescheduled' && new Date(sale.starts_at) <= now) add(`${prefix}Scheduled`);
