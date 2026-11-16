@@ -1,0 +1,80 @@
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+const { PGlite } = await import(process.env.PGLITE_MODULE || "@electric-sql/pglite");
+const db = new PGlite();
+const client = "00000000-0000-0000-0000-000000000001";
+const lead = "00000000-0000-0000-0000-000000000002";
+const account = "00000000-0000-0000-0000-000000000003";
+const discovery = "00000000-0000-0000-0000-000000000004";
+const demo = "00000000-0000-0000-0000-000000000005";
+const standalone = "00000000-0000-0000-0000-000000000006";
+const reply = "00000000-0000-0000-0000-000000000007";
+const date = "2020-11-13T11:00:00Z";
+await db.exec(`
+  create role anon; create role authenticated; create schema auth;
+  create function auth.uid() returns uuid language sql as $$select '${account}'::uuid$$;
+  create function public.my_client_id() returns uuid language sql as $$select '${client}'::uuid$$;
+  create function public.my_full_name() returns text language sql as $$select current_setting('test.actor')$$;
+  create function public.is_admin() returns boolean language sql as $$select false$$;
+  set test.actor='Giovanni';
+  create table leads(id uuid primary key, client_id uuid, pipeline_id uuid, assigned_to text);
+  create table sales_tasks(id uuid primary key, client_id uuid, lead_id uuid, title text, description text,
+    due_at timestamptz, assigned_to text, created_by text, appointment_type text, appointment_status text,
+    audience text, duration_minutes int, completed_at timestamptz, completed_by text, google_event_id text,
+    created_at timestamptz default clock_timestamp(), updated_at timestamptz default clock_timestamp());
+  create function touch_task() returns trigger language plpgsql as $$begin new.updated_at=clock_timestamp(); return new; end$$;
+  create trigger touch before update on sales_tasks for each row execute function touch_task();
+  create table lead_activities(id uuid default gen_random_uuid(), lead_id uuid not null, client_id uuid, pipeline_id uuid,
+    activity_type text, event_type text, channel text, call_type text, outcome text, occurred_at timestamptz,
+    scheduled_at timestamptz, duration_minutes int, note text, created_by text, details jsonb, event_key text,
+    unique(client_id, event_key), check(note is distinct from 'fallimento simulato'));
+  create table sales_outreach_events(id uuid primary key, client_id uuid, lead_id uuid, event_type text,
+    quantity int, occurred_at timestamptz);
+  create table sales_revenue_events(id uuid default gen_random_uuid(), client_id uuid, lead_id uuid, occurred_at timestamptz);
+  insert into leads values ('${lead}', '${client}', null, 'Giovanni');
+  insert into sales_outreach_events values ('${reply}','${client}','${lead}','reply',1,'2020-11-12T11:00:00Z');
+  alter table sales_tasks enable row level security;
+  create policy task_scope on sales_tasks to authenticated using (client_id=my_client_id() and assigned_to=my_full_name());
+  grant usage on schema auth to authenticated;
+  grant select on leads, sales_outreach_events to authenticated;
+  grant select, insert, update on sales_tasks, lead_activities, sales_revenue_events to authenticated;
+`);
+const migration = readFileSync("supabase/upgrade_sales_appointment_workflow.sql", "utf8");
+await db.exec(migration);
+await db.exec(migration);
+const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0])[0];
+const book = (id, type, forLead = lead, source = null, replyId = null, note = null) => scalar(
+  "select to_jsonb(book_sales_appointment($1,$2,$3,$4,'lead','Centro Test',$5,30,$6,$6,$7,$8,null))",
+  [id, client, forLead, type, date, note, source, replyId],
+);
+const outcome = (task, value, minutes = null, note = null) => scalar(
+  "select to_jsonb(save_sales_appointment_outcome($1,$2,$3,$4,$5,null))",
+  [task.id, task.updated_at, value, minutes, note],
+);
+await db.exec("set role authenticated");
+const first = await book(discovery, "discovery", lead, null, reply);
+assert.equal(first.appointment_status, "scheduled");
+assert.equal((await book(discovery, "discovery", lead, null, reply)).id, first.id);
+assert.equal(await scalar("select count(*)::int from lead_activities"), 1);
+await assert.rejects(() => book(standalone, "discovery"), /già un appuntamento/);
+await assert.rejects(() => outcome(first, "qualified", 12, "fallimento simulato"));
+assert.equal(await scalar("select appointment_status from sales_tasks where id=$1", [first.id]), "scheduled");
+const held = await outcome(first, "qualified", 12);
+assert.equal((await outcome(first, "qualified", 12)).updated_at, held.updated_at);
+await assert.rejects(() => outcome(first, "no_answer"), /aggiornato/);
+const demoRow = await book(demo, "demo", lead, `appointment:${discovery}:outcome`);
+assert.equal(demoRow.assigned_to, "Giovanni");
+assert.equal(await scalar("select details->>'source_outcome_key' from lead_activities where event_type='demo_booked'"), `appointment:${discovery}:outcome`);
+await outcome(demoRow, "held", 41);
+await db.query("insert into sales_revenue_events(client_id,lead_id,occurred_at,sale_appointment_id) values ($1,$2,now(),$3)", [client, lead, demo]);
+await assert.rejects(() => db.query("insert into sales_revenue_events(client_id,lead_id,occurred_at,sale_appointment_id) values ($1,$2,now(),$3)", [client, lead, discovery]), /closing svolta/);
+const external = await book(standalone, "demo", null);
+await outcome(external, "no_show");
+assert.equal(await scalar("select appointment_outcome from sales_tasks where id=$1", [standalone]), "no_show");
+assert.equal(await scalar("select count(*)::int from lead_activities"), 4);
+await db.exec("set test.actor='Altro venditore'");
+await assert.rejects(() => outcome(held, "no_answer"), /accessibile/);
+await db.exec("reset role");
+assert.equal(await scalar("select has_function_privilege('anon','save_sales_appointment_outcome(uuid,timestamptz,text,integer,text,boolean)','execute')"), false);
+console.log("SQL OK: migrazione idempotente, retry, scritture atomiche, esito concorrente, collegamenti, senza lead, RLS");
+await db.close();

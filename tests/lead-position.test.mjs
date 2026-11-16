@@ -29,7 +29,7 @@ async function saveScenario(stageId, readError = null) {
   const context = {
     Error, supabase:db, topLeadPosition:exports.topLeadPosition,
     busy:false,leadSaveLock:lock,revenueAmount:'',setBusy:()=>{},setErr:e=>errors.push(e),
-    isNew:false,stageId,selectedPipelineId:'pipeline',originalPipelineId:'pipeline',
+    isNew:false,stageId,persistedStage:{current:"source"},selectedPipelineId:'pipeline',originalPipelineId:'pipeline',
     lead:{id:'lead',client_id:'client',pipeline_id:'pipeline',stage_id:'source'},
     quickNote:'',notes:'',name:'Synthetic lead',phone:'',email:'',source:'',
     assigned:'',canReassign:false,meName:'',value:'0',nextAction:'',closingDate:'',

@@ -60,7 +60,10 @@ export interface CreateAppointmentInput {
   startsAt: Date;
   durationMinutes?: number;
   note: string;
-  meName: string;
+  requestId: string;
+  previousOutcomeKey?: string;
+  sourceReplyId?: string;
+  host?: string;
 }
 
 export interface AppointmentResult {
@@ -71,13 +74,14 @@ export interface AppointmentResult {
   warning?: string;
   pipelineWarning?: string;
   taskId?: string;
+  advancedStageId?: string;
 }
 
 const stagesBeforeDiscovery = new Set(["SETTING", "RECALL", "NO ANSWER", "NO ANSWER 1-3", "NO ANSWER 4-5"]);
 
-async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Date, advanceDiscovery: boolean) {
+async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Date, targetType?: AppointmentType) {
   const nextAction = { next_action_date: romeDayOf(startsAt) };
-  if (advanceDiscovery) {
+  if (targetType) {
     const { data: current, error: leadError } = await supabase.from("leads")
       .select("pipeline_id,stage_id").eq("id", lead.id).eq("client_id", clientId).single();
     if (leadError) throw leadError;
@@ -86,19 +90,21 @@ async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Da
         .select("id,name").eq("client_id", clientId).eq("pipeline_id", current.pipeline_id);
       if (stageError) throw stageError;
       const currentStage = stages.find(stage => stage.id === current.stage_id)?.name.trim().toUpperCase();
-      if (currentStage && stagesBeforeDiscovery.has(currentStage)) {
-        const discovery = stages.find(stage => stage.name.trim().toUpperCase() === "DISCOVERY");
-        if (!discovery) throw new Error("La colonna Discovery non è presente in questa pipeline.");
-        const position = await topLeadPosition(supabase, clientId, current.pipeline_id, discovery.id);
+      const targetName = targetType === "discovery" ? "DISCOVERY" : "CLOSING";
+      const canAdvance = currentStage && (targetType === "discovery" ? stagesBeforeDiscovery.has(currentStage) : currentStage === "DISCOVERY");
+      if (canAdvance) {
+        const target = stages.find(stage => stage.name.trim().toUpperCase() === targetName);
+        if (!target) throw new Error(`La colonna ${targetName} non è presente in questa pipeline.`);
+        const position = await topLeadPosition(supabase, clientId, current.pipeline_id, target.id);
         // Preserve a simultaneous change by another user. The stage trigger records the move.
         const { data: moved, error } = await supabase.from("leads")
-          .update({ ...nextAction, stage_id: discovery.id, position })
+          .update({ ...nextAction, stage_id: target.id, position })
           .eq("id", lead.id).eq("client_id", clientId)
           .eq("pipeline_id", current.pipeline_id).eq("stage_id", current.stage_id)
           .select("id").maybeSingle();
         if (error) throw error;
         if (!moved) throw new Error("La fase del lead è cambiata durante il salvataggio. Controlla la scheda.");
-        return;
+        return target.id;
       }
     }
   }
@@ -107,81 +113,61 @@ async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Da
 }
 
 /**
- * Crea in un colpo solo l'evento Google, la task CRM e l'attività KPI.
- * Se un passaggio fallisce, i precedenti vengono annullati: non resta mai un
- * appuntamento a metà, né un KPI senza appuntamento.
+ * Il CRM salva task e KPI nella stessa transazione. Google usa l'ID della
+ * task, così il recupero di una sincronizzazione incerta non duplica l'evento.
  */
+async function synchronizeBooking(task: SalesTask, description: string) {
+  if (task.google_event_id) return;
+  try {
+    if (!await ensureGoogleCalendarConnection()) throw new Error("Google scollegato");
+    const start = new Date(task.due_at);
+    const end = new Date(start.getTime() + (task.duration_minutes || 60) * 60_000);
+    const event = await createGoogleCalendarEvent({
+      eventId: task.id.replace(/-/g, ""), title: task.title, start: start.toISOString(), end: end.toISOString(),
+      description, attendees: [OWNER_CALENDAR_ID],
+    });
+    if (!event.id) throw new Error("Identità evento mancante");
+    if ((event.start?.dateTime && Date.parse(event.start.dateTime) !== start.getTime()) ||
+      (event.end?.dateTime && Date.parse(event.end.dateTime) !== end.getTime())) {
+      await updateGoogleCalendarEvent(event.id, { title: task.title, start: start.toISOString(), end: end.toISOString() });
+    }
+    const { error } = await supabase.from("sales_tasks").update({ google_event_id: event.id })
+      .eq("id", task.id).eq("updated_at", task.updated_at).select("id").single();
+    if (error) throw error;
+  } catch {
+    return "Prenotazione salvata nel CRM. Google Calendar da sincronizzare.";
+  }
+}
+
+export async function retryAppointmentSync(task: SalesTask): Promise<AppointmentResult> {
+  const warning = await synchronizeBooking(task, task.description || "");
+  return { ok: !warning, error: warning, taskId: task.id };
+}
+
 export async function createAppointment(input: CreateAppointmentInput): Promise<AppointmentResult> {
-  const { clientId, lead, type, audience, subject, startsAt, durationMinutes = APPOINTMENT_DURATION[type], note, meName } = input;
-  const assignedTo = lead?.assigned_to || meName || "Venditore";
+  const { clientId, lead, type, audience, subject, startsAt, durationMinutes = APPOINTMENT_DURATION[type], note } = input;
   const title = appointmentTitle(type, subject);
-  const end = new Date(startsAt.getTime() + durationMinutes * 60_000);
   const description = [lead ? `Lead: ${lead.name || "Senza nome"}` : "", lead?.phone ? `Telefono: ${lead.phone}` : "", note.trim()].filter(Boolean).join("\n");
 
-  if (lead) {
-    const { data, error } = await supabase.from("sales_tasks").select("id,due_at,appointment_status,completed_at")
-      .eq("client_id", clientId).eq("lead_id", lead.id).eq("appointment_type", type).is("completed_at", null);
-    if (error) return { ok: false, error: "Impossibile verificare gli appuntamenti già fissati: " + error.message };
-    const open = (data || []).find((task) => !isAppointmentClosed(task) && task.appointment_status !== "cancelled");
-    if (open) {
-      return { ok: false, error: `Questo lead ha già una ${type === "demo" ? "closing" : "discovery"} da svolgere il ${new Date(open.due_at).toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" })}. Modifica quella prenotazione o registra prima il suo esito.` };
-    }
-  }
-
-  // Google Calendar è una comodità, non una condizione. Prima un token scaduto
-  // impediva di registrare l'appuntamento: il venditore restava bloccato e il
-  // KPI della giornata perdeva un dato reale per un problema di integrazione.
-  // Ora l'appuntamento si salva comunque e resta segnalato come da sincronizzare.
-  let googleEventId: string | null = null;
-  let googleWarning: string | undefined;
-  if (await ensureGoogleCalendarConnection()) {
-    try {
-      const event = await createGoogleCalendarEvent({ title, start: startsAt.toISOString(), end: end.toISOString(), description, attendees: [OWNER_CALENDAR_ID] });
-      googleEventId = event.id || null;
-    } catch {
-      googleWarning = "Appuntamento salvato nel CRM e nei KPI, ma Google Calendar l'ha rifiutato. Apri Calendario, premi “Collega Google Calendar” e risincronizzalo.";
-    }
-  } else {
-    googleWarning = "Appuntamento salvato nel CRM e nei KPI, ma non è finito su Google Calendar: il collegamento è scaduto. Apri Calendario e premi “Collega Google Calendar”.";
-  }
-
-  const taskResult = await supabase.from("sales_tasks").insert({
-    client_id: clientId, lead_id: lead?.id || null, title, description: description || null,
-    due_at: startsAt.toISOString(), assigned_to: assignedTo, created_by: meName || null,
-    appointment_type: type, appointment_status: "scheduled", audience, duration_minutes: durationMinutes,
-    google_event_id: googleEventId,
-  }).select("id").single();
-
-  if (taskResult.error || !taskResult.data) {
-    await rollbackGoogle(googleEventId);
-    return { ok: false, error: "Appuntamento non salvato: " + (taskResult.error?.message || "task non creata.") };
-  }
-  const taskId = taskResult.data.id as string;
-
+  const { data, error } = await supabase.rpc("book_sales_appointment", {
+    p_id: input.requestId, p_client_id: clientId, p_lead_id: lead?.id ?? null,
+    p_type: type, p_audience: audience, p_title: title, p_due_at: startsAt.toISOString(),
+    p_minutes: durationMinutes, p_description: description || null, p_note: note.trim() || null,
+    p_previous_outcome_key: input.previousOutcomeKey ?? null, p_source_reply_id: input.sourceReplyId ?? null, p_host: input.host ?? null,
+  });
+  const task = (Array.isArray(data) ? data[0] : data) as SalesTask | null;
+  if (error || !task?.id) return { ok: false, error: error?.message || "Prenotazione non confermata. Riprova." };
+  let advancedStageId: string | undefined;
   let pipelineWarning: string | undefined;
   if (lead) {
-    const tracked = await supabase.from("lead_activities").upsert({
-      lead_id: lead.id, client_id: clientId, pipeline_id: lead.pipeline_id,
-      activity_type: "meeting", event_type: `${type}_booked`, channel: channelFor(type),
-      call_type: audience === "client" ? "client" : "lead",
-      outcome: "scheduled", occurred_at: new Date().toISOString(), scheduled_at: startsAt.toISOString(),
-      duration_minutes: durationMinutes, note: note.trim() || null, created_by: meName || null,
-      details: { task_id: taskId, assigned_to: assignedTo }, event_key: bookingKey(taskId),
-    }, { onConflict: "client_id,event_key" });
-
-    if (tracked.error) {
-      await supabase.from("sales_tasks").delete().eq("id", taskId);
-      await rollbackGoogle(googleEventId);
-      return { ok: false, error: "Appuntamento non salvato: il KPI non è stato registrato (" + tracked.error.message + ")." };
-    }
     try {
-      await updateLeadAfterBooking(lead, clientId, startsAt, type === "discovery" && audience === "lead");
-    } catch (reason) {
-      const detail = reason && typeof reason === "object" && "message" in reason ? ` ${reason.message}` : "";
-      pipelineWarning = `Appuntamento salvato nei KPI e nel CRM. Aggiornamento della scheda lead non riuscito.${detail}`;
+      advancedStageId = await updateLeadAfterBooking(lead, clientId, startsAt, audience === "lead" ? type : undefined);
+    } catch {
+      pipelineWarning = "Appuntamento salvato. Verifica la fase e il prossimo passo nella scheda lead.";
     }
   }
-  return { ok: true, taskId, warning: googleWarning, pipelineWarning };
+  const warning = await synchronizeBooking(task, description);
+  return { ok: true, taskId: task.id, warning, pipelineWarning, advancedStageId };
 }
 
 /**
@@ -247,56 +233,21 @@ export async function deleteAppointment(task: SalesTask): Promise<AppointmentRes
  * Registra (o corregge) l'esito di un appuntamento.
  * La chiave è legata alla task, quindi lo stesso incontro conta una volta sola
  * anche se l'esito viene registrato dal Calendario e poi corretto dalla scheda
- * lead. Se il KPI non viene salvato, la task torna "da svolgere": un
- * appuntamento non resta mai falsamente completato.
+ * lead. Il database salva esito e KPI insieme e rifiuta le revisioni superate.
  */
 export async function recordAppointmentOutcome(
   task: SalesTask,
   outcome: AppointmentOutcome,
-  meName: string,
-  pipelineId: string | null,
-  /** Minuti effettivi della call. Senza questo dato vale la durata pianificata,
-   *  ma quando il venditore la dichiara è la sua a finire in "min call". */
   actualMinutes?: number,
   note?: string,
+  proposalMade?: boolean,
 ): Promise<AppointmentResult> {
-  const type = (task.appointment_type as AppointmentType | null) || "discovery";
-  if (!allowedOutcomes(type).includes(outcome)) {
-    return { ok: false, error: `Esito non valido per una ${type === "discovery" ? "discovery" : "closing"}.` };
-  }
-  if (!task.lead_id) return { ok: false, error: "L'appuntamento non è collegato a un lead: non può produrre KPI." };
-
-  // L'esito può essere registrato anche nei giorni successivi. `completed_at`
-  // conserva il momento in cui il venditore lo ha inserito, mentre
-  // `occurred_at` deve restare la data reale dell'appuntamento: in questo modo
-  // il report giornaliero non sposta una call di lunedì al giovedì solo perché
-  // l'esito è stato compilato in ritardo.
-  const completedAt = new Date().toISOString();
-  const occurredAt = task.due_at;
-  const status = outcome === "no_show" || outcome === "no_answer" ? "no_show" : "held";
-  const previous = { appointment_status: task.appointment_status || "scheduled", completed_at: task.completed_at || null, completed_by: task.completed_by || null };
-
-  const update = await supabase.from("sales_tasks")
-    .update({ appointment_status: status, completed_at: completedAt, completed_by: meName })
-    .eq("id", task.id);
-  if (update.error) return { ok: false, error: "Esito non salvato: " + update.error.message };
-
-  const tracked = await supabase.from("lead_activities").upsert({
-    lead_id: task.lead_id, client_id: task.client_id, pipeline_id: pipelineId,
-    activity_type: type === "discovery" ? "call" : "meeting",
-    event_type: type === "discovery" ? "discovery_call" : "demo_call",
-    channel: channelFor(type),
-    call_type: task.audience === "client" ? "client" : "lead",
-    outcome, occurred_at: occurredAt, scheduled_at: task.due_at,
-    ...(note?.trim() ? { note: note.trim() } : {}),
-    duration_minutes: status === "held" ? actualMinutes || task.duration_minutes || 60 : null,
-    created_by: meName || null, details: { task_id: task.id, assigned_to: task.assigned_to }, event_key: outcomeKey(task.id),
-  }, { onConflict: "client_id,event_key" });
-
-  if (tracked.error) {
-    await supabase.from("sales_tasks").update(previous).eq("id", task.id);
-    return { ok: false, error: "Esito non salvato: non è stato conteggiato nei KPI e l'appuntamento resta da svolgere. Riprova." };
-  }
+  const { data, error } = await supabase.rpc("save_sales_appointment_outcome", {
+    p_id: task.id, p_expected_updated_at: task.updated_at, p_outcome: outcome,
+    p_minutes: actualMinutes ?? null, p_note: note?.trim() ?? null, p_proposal_made: proposalMade ?? null,
+  });
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (error || saved?.id !== task.id) return { ok: false, error: error?.message || "Esito non confermato. Riprova." };
   return { ok: true, taskId: task.id };
 }
 

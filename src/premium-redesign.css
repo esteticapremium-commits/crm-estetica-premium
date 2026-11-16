@@ -2047,3 +2047,30 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
  .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="all"] { display:flex; overflow-x:auto; gap:12px; }
  .theme-premium.platform-shell .personal-task-kanban[data-mobile-column="all"] > .personal-task-column { display:block; flex:0 0 100%; }
 }
+
+.theme-premium.platform-shell .lead-appointment-draft details,
+.theme-premium.platform-shell .calendar-create details,
+.theme-premium.platform-shell .google-sale-modal details {
+  margin: 10px 0;
+}
+.theme-premium.platform-shell .lead-appointment-draft details label,
+.theme-premium.platform-shell .calendar-create details label {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.theme-premium.platform-shell .lead-appointment-draft .lead-appointment-actions {
+  margin-top: 8px;
+}
+.theme-premium.platform-shell .kpi-linked-rates {
+  overflow-x: auto;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.theme-premium.platform-shell .kpi-linked-rates table {
+  width: 100%;
+  text-align: left;
+}
+.theme-premium.platform-shell .kpi-linked-rates :is(th, td) {
+  padding: 6px 8px 6px 0;
+}

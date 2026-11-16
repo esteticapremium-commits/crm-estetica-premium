@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-function module(path, deps={}) { const exports={}; vm.runInNewContext(ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,require:name=>deps[name],Date,Map,Set}); return exports; }
+function module(path, deps={}) { const exports={}; vm.runInNewContext(ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,require:name=>deps[name],Date,Map,Set}); return exports; }
 const notes=module('src/leadNotes.ts',{'./async':{withTimeout:async p=>p}});
 function notesDb(initial, conflict=false, failure=null) {
  let stored=initial, writes=0;
@@ -28,128 +28,141 @@ test('data storica rimane visibile in assenza di task',()=>{assert.equal(work.ma
 test('tutti i richiami del giorno sono rilevati anche se esiste un arretrato',()=>{assert.equal(work.matchesWork(lead,[task('old','2026-10-30T09:00:00Z'),task('new','2026-11-02T09:00:00Z')],'today','2026-11-02',false),true);});
 const kpi=module('src/salesKpi.ts');
 test('ads e cold call non diventano DM',()=>{assert.equal(kpi.normalizedLeadSource('Facebook Ads'),'ads');assert.equal(kpi.normalizedLeadSource('Cold call'),'cold_call');assert.equal(kpi.normalizedLeadSource('DM Facebook'),'dm');assert.equal(kpi.normalizedLeadSource('Instantly'),'instantly');});
-test('esito appuntamento conserva nota, data originale e chiave unica',async()=>{
- const records=[];
- const db={from(table){return {update(){return {eq:async()=>({error:null})}},async upsert(data,options){records.push({table,data,options});return {error:null}}}}};
- const appointments=module('src/appointments.ts',{'./supabaseClient':{supabase:db},'./calendarGoogle':{}});
- const task={id:'meeting',lead_id:'lead',client_id:'company',appointment_type:'demo',due_at:'2026-10-30T10:00:00Z',assigned_to:'Giovanni',audience:'lead'};
- const result=await appointments.recordAppointmentOutcome(task,'held','Ettore','pipeline',30,'  Vuole ricevere la proposta  ');
- assert.equal(result.ok,true);assert.equal(records[0].data.note,'Vuole ricevere la proposta');assert.equal(records[0].data.occurred_at,task.due_at);assert.equal(records[0].data.event_key,'appointment:meeting:outcome');assert.equal(records[0].options.onConflict,'client_id,event_key');
-});
 
-test('una discovery salva il KPI prima di avanzare, senza riportare indietro una closing', async () => {
-  for (const stage of ['SETTING', 'CLOSING']) {
-    const writes = [];
-    const db = { from(table) {
-      const query = {
-        select() { return query; }, eq() { return query; }, is() { return query; },
-        async single() { return { data: table === 'sales_tasks' ? { id: 'task' } : { pipeline_id: 'current', stage_id: stage } }; },
-        async maybeSingle() { return { data: { id: 'lead' } }; },
-        then(resolve) { resolve({ data: table === 'stages' ? [{ id: stage, name: stage }, { id: 'discovery', name: 'DISCOVERY' }] : [] }); },
-        insert() { return query; },
-        async upsert(data) { writes.push(data.event_type); return {}; },
-        update(data) { writes.push({ ...data }); return query; },
-      };
-      return query;
-    } };
-    const appointments = module('src/appointments.ts', {
-      './supabaseClient': { supabase: db },
-      './calendarGoogle': { ensureGoogleCalendarConnection: async () => false },
-      './leadPosition': { topLeadPosition: async (_db, _client, pipeline) => { assert.equal(pipeline, 'current'); return -8; } },
-    });
-    const result = await appointments.createAppointment({
-      clientId: 'company', lead: { id: 'lead', pipeline_id: 'previous', source: 'DM' },
-      type: 'discovery', audience: 'lead', subject: 'Lead',
-      startsAt: new Date('2026-11-18T12:00:00Z'), durationMinutes: 60, note: '', meName: 'Giovanni',
-    });
-    assert.equal(result.ok, true);
-    assert.equal(result.pipelineWarning, undefined);
-    assert.deepEqual(writes, ['discovery_booked', stage === 'SETTING'
-      ? { next_action_date: '2026-11-18', stage_id: 'discovery', position: -8 }
-      : { next_action_date: '2026-11-18' }]);
-  }
-});
-
-test('CRM e Google Calendar ricevono la stessa durata per discovery e closing', async () => {
-  const start = new Date('2026-11-18T12:00:00Z');
-  for (const [type, override, expectedMinutes] of [['discovery', undefined, 30], ['demo', undefined, 60], ['demo', 45, 45]]) {
-    let crm;
-    let google;
-    const appointments = module('src/appointments.ts', {
-      './supabaseClient': { supabase: { from() { return { insert(fields) {
-        crm = fields;
-        return { select: () => ({ single: async () => ({ data: { id: 'task' } }) }) };
-      } }; } } },
-      './calendarGoogle': {
-        ensureGoogleCalendarConnection: async () => true,
-        createGoogleCalendarEvent: async (event) => { google = event; return { id: 'google-event' }; },
-      },
-    });
-    const result = await appointments.createAppointment({
-      clientId: 'company', lead: null, type, audience: 'lead', subject: 'Appuntamento',
-      startsAt: start, durationMinutes: override, note: '', meName: 'Giovanni',
-    });
-    assert.equal(result.ok, true);
-    assert.equal(crm.duration_minutes, expectedMinutes);
-    assert.equal(crm.google_event_id, 'google-event');
-    assert.equal(google.start, start.toISOString());
-    assert.equal(Date.parse(google.end) - Date.parse(google.start), expectedMinutes * 60_000);
-  }
-});
-
-test('spostamento e correzione riusano la prenotazione e l’esito KPIs', async () => {
+test('spostamento conserva la prenotazione, la durata e l’evento Google', async () => {
+  const updates = [];
   const rpcCalls = [];
-  const googleUpdates = [];
-  const outcomes = new Map();
-  const db = {
-    async rpc(name, args) { rpcCalls.push({ name, args }); return {}; },
-    from(table) {
-      return {
-        update() {
-          assert.equal(table, 'sales_tasks');
-          return { eq: async (_field, id) => { assert.equal(id, meeting.id); return {}; } };
-        },
-        async upsert(data, options) {
-          assert.equal(table, 'lead_activities');
-          assert.equal(options.onConflict, 'client_id,event_key');
-          outcomes.set(data.event_key, data);
-          return {};
-        },
-      };
-    },
+  const appointment = {
+    id:'task', title:'Discovery telefonica — Centro', due_at:'2026-11-10T12:00:00Z',
+    appointment_type:'discovery', updated_at:'2026-11-08T12:00:00Z', google_event_id:'g1', duration_minutes:30,
   };
-  const appointments = module('src/appointments.ts', {
-    './supabaseClient': { supabase: db },
-    './calendarGoogle': { updateGoogleCalendarEvent: async (id, data) => googleUpdates.push({ id, data }) },
+  const appointments=module('src/appointments.ts',{
+    './supabaseClient': {supabase:{async rpc(name,args){rpcCalls.push({name,args}); return {};}}},
+    './calendarGoogle': {updateGoogleCalendarEvent:async(id,data)=>updates.push({id,data})},
   });
-  const meeting = {
-    id: 'meeting', lead_id: 'lead', client_id: 'company', title: 'Discovery telefonica — Centro',
-    appointment_type: 'discovery', appointment_status: 'scheduled', updated_at: '2026-11-08T10:00:00Z',
-    due_at: '2026-11-10T10:00:00Z', duration_minutes: 30, assigned_to: 'Giovanni',
-    audience: 'lead', google_event_id: 'existing-google-id',
-  };
-  const newStart = new Date('2026-11-11T12:00:00Z');
-  const moved = await appointments.updateAppointment(meeting, {
-    subject: appointments.appointmentSubject(meeting), startsAt: newStart, note: '',
-  });
-  assert.equal(moved.taskId, meeting.id);
-  assert.equal(rpcCalls.length, 1);
-  assert.equal(rpcCalls[0].name, 'reschedule_crm_appointment');
-  assert.equal(rpcCalls[0].args.p_task_id, meeting.id);
-  assert.equal(rpcCalls[0].args.p_expected_updated_at, meeting.updated_at);
-  assert.equal(googleUpdates[0].id, meeting.google_event_id);
-  assert.equal(googleUpdates[0].data.start, newStart.toISOString());
-  assert.equal(googleUpdates[0].data.end, '2026-11-11T12:30:00.000Z');
+  const moved = new Date('2026-11-13T12:00:00Z');
+  assert.equal((await appointments.updateAppointment(appointment,{subject:'Centro',startsAt:moved,note:''})).ok,true);
+  assert.equal(rpcCalls[0].args.p_task_id, appointment.id);
+  assert.equal(rpcCalls[0].args.p_expected_updated_at, appointment.updated_at);
+  assert.equal(updates[0].id,'g1');
+  assert.equal(updates[0].data.end,'2026-11-13T12:30:00.000Z');
+  assert.equal(updates[0].data.description,undefined);
+});
 
-  const rescheduled = { ...meeting, due_at: newStart.toISOString() };
-  assert.equal((await appointments.recordAppointmentOutcome(rescheduled, 'no_answer', 'Giovanni', 'pipeline')).ok, true);
-  const key = appointments.outcomeKey(meeting.id);
-  assert.equal(outcomes.get(key).outcome, 'no_answer');
-  assert.equal((await appointments.recordAppointmentOutcome({ ...rescheduled, appointment_status: 'no_show' }, 'qualified', 'Ettore', 'pipeline', 22)).ok, true);
-  assert.equal(outcomes.size, 1);
-  const corrected = outcomes.get(key);
-  assert.equal(corrected.outcome, 'qualified');
-  assert.equal(corrected.occurred_at, newStart.toISOString());
-  assert.equal(corrected.duration_minutes, 22);
-  assert.equal(corrected.details.assigned_to, 'Giovanni');
+test('prenotazione propone alla transazione la stessa identità e la durata corretta', async () => {
+  const requests=[];
+  const appointments = module('src/appointments.ts',{
+    './supabaseClient':{supabase:{async rpc(name,args){requests.push({name,args});return {data:{id:args.p_id,google_event_id:'g1'}};}}},
+    './calendarGoogle':{},
+  });
+  for (const [type,minutes] of [['discovery',30],['demo',60]]) {
+    const input={clientId:'company',lead:null,type,audience:'lead',subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',requestId:'uuid-'+type};
+    assert.equal((await appointments.createAppointment(input)).taskId,input.requestId);
+    assert.equal(requests.at(-1).args.p_minutes,minutes);
+    assert.equal(requests.at(-1).args.p_lead_id,null);
+  }
+});
+
+test('la discovery fa avanzare solo le fasi iniziali e la closing parte dalla discovery', async () => {
+  for (const [type,phase,next] of [['discovery','SETTING','DISCOVERY'],['discovery','CLOSING',null],['demo','DISCOVERY','CLOSING']]) {
+    const changes=[];
+    const db={
+      async rpc(){return {data:{id:'booking',google_event_id:'linked'}};},
+      from(table){
+        const query={select(){return query;},eq(){return query;},
+          async single(){return {data:{pipeline_id:'real-pipeline',stage_id:phase}};},
+          async maybeSingle(){return {data:{id:'lead'}};},
+          update(data){changes.push(data); return query;},
+          then(resolve){resolve({data:table==='stages' ? ['SETTING','DISCOVERY','CLOSING'].map(name=>({id:name,name})) : null});},
+        };
+        return query;
+      },
+    };
+    const appointments=module('src/appointments.ts',{
+      './supabaseClient':{supabase:db}, './calendarGoogle':{},
+      './leadPosition':{topLeadPosition:async(_client,_owner,pipeline)=>{assert.equal(pipeline,'real-pipeline');return -2;}},
+    });
+    const result=await appointments.createAppointment({clientId:'company',lead:{id:'lead'},type,audience:'lead',
+      subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',requestId:'booking'});
+    assert.equal(result.advancedStageId,next || undefined);
+    assert.equal(changes[0].stage_id,next || undefined);
+  }
+});
+
+test('l’esito conserva la versione dell’appuntamento e i minuti dichiarati', async () => {
+  const requests=[];
+  const appointments=module('src/appointments.ts',{
+    './supabaseClient':{supabase:{async rpc(name,args){requests.push({name,args});return {data:[{id:args.p_id}]};}}},
+    './calendarGoogle':{},
+  });
+  const task={id:'task',updated_at:'2026-11-10T10:00:00Z'};
+  assert.equal((await appointments.recordAppointmentOutcome(task,'held',42,'  Nota  ')).ok,true);
+  assert.equal(requests[0].name,'save_sales_appointment_outcome');
+  assert.equal(requests[0].args.p_expected_updated_at,task.updated_at);
+  assert.equal(requests[0].args.p_minutes,42);
+  assert.equal(requests[0].args.p_note,'Nota');
+});
+
+const dailySales = module('src/dailySales.ts');
+const googleSales = module('src/googleSales.ts');
+const kpiRows = module('src/salesKpiRows.ts', {'./dates': dates, './googleSales': googleSales, './salesKpi': kpi});
+const reporting = module('src/salesReporting.ts', {'./dates': dates, './dailySales': dailySales, './salesKpiRows': kpiRows, './salesKpi': kpi});
+
+test('il resoconto usa la data della call e conta un appuntamento una sola volta', () => {
+  const booking = {id:'book', lead_id:'lead', event_type:'discovery_booked', occurred_at:'2026-11-08T21:00:00Z',
+    scheduled_at:'2026-11-09T09:00:00Z', details:{task_id:'task'}};
+  const outcome = {...booking,id:'outcome',event_type:'discovery_call',outcome:'qualified',occurred_at:'2026-11-12T09:00:00Z'};
+  const data={activities:[booking,outcome],revenue:[],outreach:[],standalone:[],externalSales:[]};
+  assert.equal(reporting.suggestDailyReport('2026-11-08',data).discovery_booked,1);
+  assert.equal(reporting.suggestDailyReport('2026-11-09',data).discovery_held,1);
+  assert.equal(reporting.suggestDailyReport('2026-11-12',data).discovery_held,0);
+});
+
+test('solo gli appuntamenti commerciali senza lead già classificati entrano nella giornata', () => {
+  const appointment={lead_id:null,appointment_type:'demo',appointment_status:'held',commercial_tracked:true,
+    created_at:'2026-11-08T11:00:00Z',due_at:'2026-11-13T11:00:00Z'};
+  const data={activities:[],revenue:[],outreach:[],standalone:[appointment,{...appointment,commercial_tracked:false}],externalSales:[]};
+  assert.equal(reporting.suggestDailyReport('2026-11-08',data).demo_booked,1);
+  assert.equal(reporting.suggestDailyReport('2026-11-13',data).demo_held,1);
+});
+
+test('la verifica per trattativa usa il link esplicito e l’ordine degli orari', () => {
+  const discovery={id:'disc',lead_id:'lead',event_key:'disc-outcome',event_type:'discovery_call',outcome:'qualified',occurred_at:'2026-11-09T10:00:00Z'};
+  const booking={id:'book',lead_id:'lead',event_type:'demo_booked',occurred_at:'2026-11-09T11:00:00Z',details:{source_outcome_key:'disc-outcome'}};
+  const compare = (rows) => reporting.linkedAppointmentRates(rows,[],[],[],'2026-11-09','2026-11-09');
+  assert.equal(compare([discovery,booking,{...booking,id:'retry'}]).discovery.converted,1);
+  assert.equal(compare([discovery,{...booking,details:{}}]).discovery.converted,0);
+  assert.equal(compare([discovery,{...booking,occurred_at:'2026-11-09T09:00:00Z'}]).discovery.converted,0);
+});
+
+test('KPI vendite e resoconto concordano sui sei contatori con Pipeline, chiamate esterne e rate', () => {
+  const day='2026-11-09';
+  const instant=day+'T15:00:00Z';
+  const activity=(id, event_type, outcome, details={})=>({id,lead_id:'a',event_type,outcome,details,occurred_at:instant});
+  const google={id:'google',lead_id:'b',contact_name:'Centro B',appointment_type:'demo',revenue_type:'new',outcome:'won',
+    starts_at:instant,booked_at:instant,collected_amount:300,contract_value:1900};
+  const standalone={id:'standalone',appointment_type:'discovery',appointment_status:'no_show',commercial_tracked:true,
+    title:'Call esterna',lead_id:null,created_at:instant,due_at:instant};
+  const payment=(id,amount,lead_id,event_key)=>({id,revenue_type:'new',status:'collected',occurred_at:instant,lead_id,amount,event_key});
+  const inputs={
+    activities:[
+      activity('book','demo_booked','scheduled',{task_id:'demo'}),
+      activity('held','demo_call','held',{task_id:'demo'}),
+      activity('qual','discovery_call','qualified'),
+      activity('contact','discovery_call','no_answer'),
+    ],
+    outreach:[{id:'reply-book',lead_id:'a',event_type:'booking',occurred_at:instant}],
+    standalone:[standalone],
+    externalSales:[google],
+    revenue:[payment('cash',500,'a'),payment('instalment',200,'a'),payment('g-cash',300,'b','google-sale:google')],
+  };
+  const {rows,evidence}=kpiRows.calculateKpiRows({...inputs,range:{from:day,to:day}});
+  const suggested = reporting.suggestDailyReport(day,inputs);
+  assert.deepEqual({...suggested}, {calls_made:3,discovery_booked:2,discovery_held:1,demo_booked:2,demo_held:2,demo_won:2});
+  assert.deepEqual({...suggested}, {...kpiRows.dailyReportFromKpi(rows[0])});
+  assert.equal(rows[0].collectedNew,1000);
+  assert.equal(rows[0].noShow,1);
+  assert.equal(evidence.filter(entry=>entry.kind==='discovery').length,2);
+  const duplicate={...inputs,activities:[...inputs.activities,activity('crm-book','discovery_booked','scheduled')]};
+  assert.equal(reporting.suggestDailyReport(day,duplicate).discovery_booked,2);
 });

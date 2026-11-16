@@ -1,8 +1,9 @@
+import { loadDailyReportSuggestion } from "../salesReportingData";
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { withTimeout } from '../async';
 import { romeToday, romeStamp } from '../dates';
-import { dailyMetrics, parseDailyNumbers, reportDays, reportRange, sumDailyReports, type DailyMetric, type DailyReport } from '../dailySales';
+import { dailyMetrics, parseDailyNumbers, reportDays, reportRange, sumDailyReports, type DailyMetric, type DailyNumbers, type DailyReport } from '../dailySales';
 import './DailySalesReport.css';
 const blank = () => Object.fromEntries(dailyMetrics.map(([k]) => [k,''])) as Record<DailyMetric,string>;
 const formatDay = (day:string) => day.split('-').reverse().join('/');
@@ -11,6 +12,10 @@ export default function DailySalesReportPage({clientId}:{clientId:string}) {
  const [mode,setMode] = useState<'week'|'month'>('week');
  const [rows,setRows] = useState<DailyReport[]>([]);
  const [values,setValues] = useState(blank);
+ const [suggestion, setSuggestion] = useState<DailyNumbers | null>(null);
+ const [suggestionError, setSuggestionError] = useState("");
+ const [suggestionRevision, setSuggestionRevision] = useState(0);
+ const [suggestionLoading, setSuggestionLoading] = useState(true);
  const [notes,setNotes] = useState('');
  const [dirty,setDirty] = useState(false);
  const [loading,setLoading] = useState(true);
@@ -38,6 +43,20 @@ export default function DailySalesReportPage({clientId}:{clientId:string}) {
   })();
   return ()=>{current=false;};
  },[clientId,day,range.from,range.to,reload]);
+ useEffect(() => {
+   let active = true;
+   setSuggestion(null); setSuggestionError(""); setSuggestionLoading(true);
+   withTimeout(loadDailyReportSuggestion(clientId, day), 25_000)
+     .then(data => { if (active) setSuggestion(data); })
+     .catch(() => { if (active) setSuggestionError("Dati CRM indisponibili. Puoi comunque compilare il resoconto."); })
+     .finally(() => { if (active) setSuggestionLoading(false); });
+   return () => { active = false; };
+ }, [clientId, day, reload, suggestionRevision]);
+ function useSuggestion() {
+   if (!suggestion) return;
+   setValues(current => Object.fromEntries(dailyMetrics.map(([key]) => [key, current[key] || String(suggestion[key])])) as Record<DailyMetric, string>);
+   setDirty(true);
+ }
  useEffect(()=>{
   if(!dirty) return;
   const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};
@@ -70,15 +89,22 @@ export default function DailySalesReportPage({clientId}:{clientId:string}) {
  const totals=sumDailyReports(rows);
  const days=reportDays(range.from,range.to).filter(d=>d<=today);
  return <div className="page daily-report-page">
-  <header className="daily-report-heading"><div><span className="eyebrow">CHIUSURA GIORNATA SALES</span><h1>Resoconto giornaliero</h1><p>Inserisci i risultati aziendali a fine giornata. Questo registro manuale è separato dai KPI automatici.</p></div></header>
+  <header className="daily-report-heading"><div><span className="eyebrow">CHIUSURA GIORNATA SALES</span><h1>Resoconto giornaliero</h1><p>Verifica i dati tracciati dal CRM, aggiungi quello che manca e conferma la giornata.</p></div></header>
   <div className="daily-report-date"><label>Giornata<input type="date" value={day} max={today} disabled={busy} onChange={e=>change(e.target.value)}/></label><button className="btn" disabled={busy} onClick={()=>change(today)}>Oggi</button><button className="btn" disabled={busy || loading} onClick={()=>{if(!dirty || window.confirm('Ricaricare e scartare le modifiche non salvate?')) setReload(v=>v+1);}}>Ricarica dati</button></div>
   {loading ? <p role="status">Caricamento resoconti…</p> : error ? <div className="notice err" role="alert">{error} Nessun valore viene considerato zero se non è stato salvato.</div> : <>
   <form className="panel daily-report-form" onSubmit={e=>{e.preventDefault();void save();}}>
    <div className="daily-report-section-title"><h2>{existing ? 'Modifica giornata' : 'Compila la giornata'}</h2><span>{existing ? `Salvato · ${romeStamp(existing.updated_at)}` : 'Non ancora compilata'}</span></div>
-   <fieldset disabled={busy}><div className="daily-report-inputs">{dailyMetrics.map(([key,label])=><label key={key}>{label}<input type="number" min="0" max="2147483647" step="1" required inputMode="numeric" value={values[key]} placeholder="0" onChange={e=>{setValues(v=>({...v,[key]:e.target.value}));setDirty(true);setMessage('');}}/></label>)}</div>
+   {suggestionLoading && <p role="status">Caricamento dei dati tracciati…</p>}
+   {suggestionError && <p role="status">{suggestionError}</p>}
+   <div className="daily-report-date">
+    <button type="button" className="btn" disabled={busy || suggestionLoading} onClick={() => setSuggestionRevision(value => value + 1)}>Aggiorna confronto KPI</button>
+    {suggestion && <button type="button" className="btn" disabled={busy || dailyMetrics.every(([key]) => values[key] !== "")} onClick={useSuggestion}>Usa i dati CRM nei campi vuoti</button>}
+   </div>
+   {suggestion && <p className="muted">Confronto con KPI vendite per questa data, tutto il team, tutti i canali e tutte le origini. Le correzioni manuali valgono per il solo resoconto.</p>}
+   <fieldset disabled={busy}><div className="daily-report-inputs">{dailyMetrics.map(([key,label])=><label key={key}>{label}<input type="number" min="0" max="2147483647" step="1" required inputMode="numeric" value={values[key]} placeholder="0" onChange={e=>{setValues(v=>({...v,[key]:e.target.value}));setDirty(true);setMessage('');}}/>{suggestion && <small className="muted">KPI vendite: {suggestion[key]}</small>}</label>)}</div>
    <p className="muted">Chiamate fatte = tentativi effettuati. Demo prenotate = appuntamenti fissati nella giornata, comprese le riprenotazioni dopo un no-show; conta ogni prenotazione una sola volta, non i semplici cambi di orario. Un no-show non è una demo svolta. Demo chiuse = chiusure positive della giornata, anche se la demo era stata svolta prima. Usa 0 solo per risultati effettivamente pari a zero.</p>
    <label>Nota sulla giornata <span className="muted">(facoltativa)</span><textarea maxLength={5000} rows={3} value={notes} onChange={e=>{setNotes(e.target.value);setDirty(true);}} placeholder="Cosa ha funzionato, ostacoli e cose da riprendere domani…"/></label></fieldset>
-   <div className="daily-report-save"><span>{dirty ? 'Modifiche da salvare' : existing ? 'Giornata registrata' : 'Tutte le metriche sono obbligatorie'}</span><button className="btn primary" disabled={busy || (!!existing && !dirty)}>{busy ? 'Salvataggio…' : existing ? 'Aggiorna giornata' : 'Salva giornata'}</button></div>
+   <div className="daily-report-save"><span>{dirty ? 'Modifiche da salvare' : existing ? 'Giornata registrata' : 'Verifica i valori prima di confermare'}</span><button className="btn primary" disabled={busy || (!!existing && !dirty)}>{busy ? 'Salvataggio…' : existing ? 'Aggiorna giornata' : 'Salva giornata'}</button></div>
   </form>
   {message && <p className="notice" role="status">{message}</p>}
   <section className="panel daily-report-summary"><div className="daily-report-section-title"><h2>Resoconto {mode==='week'?'settimanale':'mensile'}</h2><div className="view-switch"><button disabled={busy} aria-pressed={mode==='week'} onClick={()=>change(day,'week')}>Settimana</button><button disabled={busy} aria-pressed={mode==='month'} onClick={()=>change(day,'month')}>Mese</button></div></div>

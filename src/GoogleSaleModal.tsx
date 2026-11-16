@@ -26,7 +26,8 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
     return text.includes(query) || (/^\d+$/.test(phoneQuery) && (lead.phone || '').replace(/\D/g, '').includes(phoneQuery));
   }) : [];
   const selectedLead = leads.find(lead => lead.id === leadId);
-  const [type, setType] = useState<GoogleSale['appointment_type']>(sale?.appointment_type || 'demo');
+  const [type, setType] = useState<GoogleSale['appointment_type'] | "">(sale?.appointment_type ||
+    (/\bdiscovery\b/i.test(event?.summary || "") ? "discovery" : /\b(?:demo|closing)\b/i.test(event?.summary || "") ? "demo" : ""));
   const [revenueType, setRevenueType] = useState<GoogleSale['revenue_type']>(sale?.revenue_type || 'new');
   const [outcome, setOutcome] = useState<GoogleSale['outcome']>(sale?.outcome || 'pending');
   const [proposal, setProposal] = useState(sale?.proposal_made || false);
@@ -41,6 +42,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
   const [error, setError] = useState('');
   async function save() {
     if (lock.current) return;
+    if (!type) return setError('Scegli Discovery, Closing o Follow-up.');
     try {
       const payload = {
         google_key: sale?.google_key || googleSaleKey(event!), google_event_id: sale?.google_event_id || event!.id,
@@ -74,17 +76,12 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
       <form onSubmit={e => { e.preventDefault(); void save(); }}>
         <fieldset disabled={busy}>
           <label>Contatto<input required value={contact} onChange={e => setContact(e.target.value)} /></label>
-          <div className="google-sale-lead-picker">
-            <label>Lead collegato · facoltativo<input type="search" placeholder="Cerca per nome, telefono o email" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} /></label>
-            <div className="google-sale-selected-lead">{leadId ? <><span><b>{selectedLead?.name || 'Lead collegato'}</b>{selectedLead?.phone && <small>{selectedLead.phone}</small>}</span><button type="button" className="btn small" onClick={() => setLeadId('')}>Rimuovi collegamento</button></> : <small>Nessun lead collegato. Puoi salvare anche senza.</small>}</div>
-            {query && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
-          </div>
           <div className="google-sale-grid">
-            <label>Tipo di appuntamento<select value={type} onChange={e => setType(e.target.value as typeof type)}><option value="demo">Closing / demo</option><option value="discovery">Discovery</option><option value="follow_up">Follow-up post closing</option></select></label>
-            <label>Tipo di vendita<select value={revenueType} onChange={e => setRevenueType(e.target.value as typeof revenueType)}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></label>
+            <label>Tipo di appuntamento<select value={type} onChange={e => setType(e.target.value as typeof type)}><option value="">Scegli il tipo</option><option value="demo">Closing / demo</option><option value="discovery">Discovery</option><option value="follow_up">Follow-up post closing</option></select></label>
+            {type !== "discovery" && <label>Tipo di vendita<select value={revenueType} onChange={e => setRevenueType(e.target.value as typeof revenueType)}><option value="new">Nuovo cliente</option><option value="renewal">Rinnovo</option><option value="upsell">Upsell</option></select></label>}
           </div>
-          <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>
-          {sale && event?.start?.dateTime && new Date(event.start.dateTime).getTime() !== new Date(sale.starts_at).getTime() && <p className="notice">La data su Google è cambiata. Verifica e aggiorna qui la data effettiva prima di salvare l’esito.</p>}
+
+          {sale && event?.start?.dateTime && new Date(event.start.dateTime).getTime() !== new Date(sale.starts_at).getTime() && <p className="notice">La data su Google è cambiata. <button type="button" className="btn small" onClick={() => setStartsAt(localStamp(event.start?.dateTime))}>Usa il nuovo orario Google</button></p>}
           <label>Esito<select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>{Object.entries(saleOutcomes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
           {['follow_up','lost'].includes(outcome) && <label>Offerta presentata<select value={String(proposal)} onChange={e => setProposal(e.target.value === 'true')}><option value="false">No</option><option value="true">Sì</option></select></label>}
           {type === 'discovery' && ['won','lost','follow_up'].includes(outcome) && <label>Contatto in target<select required value={qualified} onChange={e => setQualified(e.target.value)}><option value="">Seleziona</option><option value="true">Sì</option><option value="false">No</option></select></label>}
@@ -96,7 +93,15 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
             {Number(cash) > 0 && <label>Data effettiva dell’incasso<input type="datetime-local" required disabled={!admin} value={cashAt} onChange={e => setCashAt(e.target.value)} /></label>}
             <small>Registra qui un pagamento, con la sua data effettiva, solo se non è già presente nel CRM. Questo campo corregge lo stesso pagamento: per rate in date diverse usa il registro incassi collegato al lead.</small>
           </>}
+          <details><summary>Data, nota e collegamento alla pipeline</summary>
+          <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>
+          <div className="google-sale-lead-picker">
+            <label>Lead collegato · facoltativo<input type="search" placeholder="Cerca per nome, telefono o email" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} /></label>
+            <div className="google-sale-selected-lead">{leadId ? <><span><b>{selectedLead?.name || 'Lead collegato'}</b>{selectedLead?.phone && <small>{selectedLead.phone}</small>}</span><button type="button" className="btn small" onClick={() => setLeadId('')}>Rimuovi collegamento</button></> : <small>Nessun lead collegato. Puoi salvare anche senza.</small>}</div>
+            {query && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
+          </div>
           <label>Nota {outcome === 'lost' ? '/ motivo' : '/ prossimo passo'}<textarea rows={3} maxLength={5000} value={note} onChange={e => setNote(e.target.value)} /></label>
+                  </details>
         </fieldset>
         <footer><button type="button" className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy}>{busy ? 'Salvataggio…' : 'Salva nei risultati'}</button></footer>
       </form>

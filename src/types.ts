@@ -101,6 +101,12 @@ export interface SalesTask {
   appointment_status?: "scheduled" | "held" | "no_show" | "cancelled" | "rescheduled" | null;
   duration_minutes?: number | null;
   google_event_id?: string | null;
+  commercial_tracked?: boolean;
+  appointment_outcome?: string | null;
+  outcome_minutes?: number | null;
+  outcome_note?: string | null;
+  appointment_host?: string | null;
+  proposal_made?: boolean | null;
   audience?: "lead" | "client" | null;
 }
 
@@ -118,6 +124,7 @@ export interface SalesRevenueEvent {
   created_by: string | null;
   note: string | null;
   created_at: string;
+  sale_appointment_id?: string | null;
   event_key?: string | null;
 }
 

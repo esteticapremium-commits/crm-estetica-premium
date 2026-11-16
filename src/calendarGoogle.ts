@@ -85,14 +85,23 @@ async function googleFetch(path: string, init?: RequestInit) {
       response = await fetch(`https://www.googleapis.com/calendar/v3${path}`, { ...init, headers: { Authorization: `Bearer ${renewed?.accessToken}`, "Content-Type": "application/json", ...(init?.headers || {}) } });
     }
   }
-  if (!response.ok) throw new Error("Google Calendar non ha accettato la richiesta.");
+  if (!response.ok) throw Object.assign(new Error("Google Calendar non ha accettato la richiesta."), { status: response.status });
   if (response.status === 204) return null;
   return response.json();
 }
-export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[] }) {
+export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[]; eventId?: string }) {
   const query = new URLSearchParams({ sendUpdates: "all", conferenceDataVersion: "1" });
-  const requestId = `ep-${crypto.randomUUID()}`;
-  return googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" }, attendees: input.attendees?.map((email) => ({ email })), conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } }) });
+  const requestId = `ep-${input.eventId || crypto.randomUUID()}`;
+  try {
+    return await googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({
+      id: input.eventId, summary: input.title, description: input.description || "",
+      start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" },
+      attendees: input.attendees?.map((email) => ({ email })), conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } },
+    }) });
+  } catch (error) {
+    if (!input.eventId || (error as { status?: number })?.status !== 409) throw error;
+    return googleFetch(`/calendars/primary/events/${encodeURIComponent(input.eventId)}`);
+  }
 }
 export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}?conferenceDataVersion=1`, {
