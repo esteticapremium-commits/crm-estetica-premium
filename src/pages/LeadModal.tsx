@@ -1,4 +1,5 @@
 import LeadTimeline from "../LeadTimeline";
+import LeadDateTimePicker from "../LeadDateTimePicker";
 import { appendLeadNote } from "../leadNotes";
 import { topLeadPosition } from "../leadPosition";
 import { useEffect, useRef, useState } from "react";
@@ -915,7 +916,9 @@ export default function LeadModal({
 
   async function savePlan(closeAfterSave = true): Promise<boolean> {
     if (!lead || planLock.current) return false;
-    if (!planDue) { setErr("Scegli data e orario."); return false; }
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(planDue) || !Number.isFinite(Date.parse(planDue))) {
+      setErr("Scegli data e orario."); return false;
+    }
     const subject = planTitle.trim() || lead.name || "Lead";
     planLock.current = true; setBusy(true); setErr(null);
 
@@ -1073,7 +1076,8 @@ export default function LeadModal({
           {!isNew && (
             <div className="activity-box lead-plan-box" id="lead-next-step">
               <b>Prossimo passo</b><p>Pianifica un richiamo sulla card oppure un appuntamento nel Calendario.</p>
-              <div className="modal-row"><div className="field" style={{ flex: 1 }}><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Richiamo / follow-up</option><option value="appointment">Appuntamento</option></select></div><div className="field" style={{ flex: 1 }}><label>Data e ora</label><input type="datetime-local" value={planDue} onChange={(e) => setPlanDue(e.target.value)} /></div></div>
+              <div className="field"><label>Tipo</label><select value={planKind} onChange={(e) => setPlanKind(e.target.value as "task" | "appointment")}><option value="task">Richiamo / follow-up</option><option value="appointment">Appuntamento</option></select></div>
+              <LeadDateTimePicker value={planDue} onChange={setPlanDue} disabled={busy} />
               {planKind === "appointment" && <><div className="field"><label>Fase dell'appuntamento</label><div className="channel-choice"><button type="button" className={planAppointmentType === "discovery" ? "active" : ""} onClick={() => setPlanAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={planAppointmentType === "demo" ? "active" : ""} onClick={() => setPlanAppointmentType("demo")}>Closing · video</button></div></div><div className="field"><label>Con chi</label><div className="channel-choice"><button type="button" className={planAudience === "lead" ? "active" : ""} onClick={() => setPlanAudienceOverride("lead")}>Nuovo lead</button><button type="button" className={planAudience === "client" ? "active" : ""} onClick={() => setPlanAudienceOverride("client")}>Già cliente</button></div></div></>}
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenzia il richiamo come prioritario.</small></span></label>}

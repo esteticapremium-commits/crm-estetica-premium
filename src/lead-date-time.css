@@ -1,0 +1,32 @@
+.lead-date-time-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lead-date-time-fields .field { min-width: 0; }
+.lead-date-time-fields input[type="time"] { width: 100%; min-width: 0; min-height: 44px; }
+.lead-date-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 44px; padding: 8px 12px; text-align: left;
+  background: var(--ep-surface, #fffdf9); color: var(--ep-brand, #57152a);
+  border: 1px solid var(--ep-border, #dfcbd0); border-radius: 9px; font: inherit; cursor: pointer;
+}
+.lead-date-month {
+  max-width: 360px; margin: 4px 0 12px; padding: 9px;
+  border: 1px solid var(--ep-border, #dfcbd0); border-radius: 12px;
+  background: var(--ep-brand-faint, #f8efed); color: var(--ep-ink, #301c23);
+}
+.lead-date-month-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.lead-date-month-header strong { text-transform: capitalize; font-size: 14px; }
+.lead-date-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.lead-date-weekday { padding-bottom: 5px; text-align: center; color: var(--ep-muted, #725b62); font-size: 11px; }
+.lead-date-month button {
+  min-width: 0; min-height: 38px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.lead-date-month-header button { width: 40px; font-size: 23px; line-height: 1; }
+.lead-date-month button:hover:enabled { background: var(--ep-brand-soft, #ecdce0); }
+.lead-date-month button[aria-current="date"] { border-color: var(--ep-brand, #57152a); font-weight: 700; }
+.lead-date-month button[aria-pressed="true"], .lead-date-month button[aria-pressed="true"]:hover {
+  background: var(--ep-brand, #57152a); color: #fffdf9;
+}
+.lead-date-month-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.lead-date-month-footer button { padding-inline: 7px; font-size: 12px; color: var(--ep-brand, #57152a); }
+.lead-date-time button:focus-visible { outline: 2px solid var(--ep-brand, #57152a); outline-offset: 1px; }
+.lead-date-time button:disabled { opacity: .55; cursor: default; }
