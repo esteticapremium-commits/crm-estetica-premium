@@ -513,10 +513,11 @@ export default function LeadModal({
     onUpdated?.();
   }
 
-  function prepareDemo() {
+  function prepareAppointment(type: "discovery" | "demo") {
     setPlanKind("appointment");
-    setPlanAppointmentType("demo");
-    setPlanTitle(`Closing video — ${lead?.name || "Lead"}`);
+    setPlanAppointmentType(type);
+    const label = type === "discovery" ? "Discovery telefonica" : "Closing video";
+    setPlanTitle(`${label} — ${lead?.name || "Lead"}`);
     requestAnimationFrame(() => document.getElementById("lead-next-step")?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
@@ -1013,10 +1014,19 @@ export default function LeadModal({
               <div className={"commercial-quick-actions action-group-" + actionGroup}>
                 <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
                 <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
+                <button
+                  data-action-group="contact"
+                  type="button"
+                  disabled={busy}
+                  className="accent"
+                  onClick={() => prepareAppointment("discovery")}
+                >
+                  <b>Prenota discovery</b><small>Vai a data e ora</small>
+                </button>
                 <button data-action-group="discovery" type="button" disabled={busy} className={quickAction === "qualified" ? "active success" : "success"} onClick={() => { setClosingAction(null); setQuickAction("qualified"); }}><b>In target</b><small>Discovery svolta</small></button>
                 <button data-action-group="discovery" type="button" disabled={busy} className={quickAction === "not_qualified" ? "active" : ""} onClick={() => { setClosingAction(null); setQuickAction("not_qualified"); }}><b>Fuori target</b><small>Discovery svolta</small></button>
                 <button data-action-group="other" type="button" disabled={busy} onClick={() => void recordQuickActivity("completed")}><b>Follow-up fatto</b><small>Registra il contatto</small></button>
-                <button data-action-group="discovery" type="button" disabled={busy} className="accent" onClick={prepareDemo}><b>Prenota closing</b><small>Vai a data e ora</small></button>
+                <button data-action-group="discovery" type="button" disabled={busy} className="accent" onClick={() => prepareAppointment("demo")}><b>Prenota closing</b><small>Vai a data e ora</small></button>
                 <button data-action-group="closing" type="button" disabled={busy} className={closingAction === "held" ? "active success" : "success"} onClick={() => { setQuickAction(null); setClosingAction("held"); }}><b>Closing svolta</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
                 <button data-action-group="closing" type="button" disabled={busy} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>{openDemo ? "Chiudi l’appuntamento" : "Non era in calendario"}</small></button>
                 <button data-action-group="other" type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
