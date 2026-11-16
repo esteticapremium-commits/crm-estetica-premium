@@ -13,6 +13,12 @@ import type { Lead, SalesTask } from "./types";
 
 export type AppointmentType = NonNullable<SalesTask["appointment_type"]>;
 export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { setting: 15, discovery: 30, demo: 60 };
+
+// The longer Google slot keeps a short setting call readable in the week view.
+function googleAppointmentEnd(start: Date, type: AppointmentType | null | undefined, minutes: number) {
+  return new Date(start.getTime() + (type === "setting" ? 30 : minutes) * 60_000).toISOString();
+}
+
 export type AppointmentAudience = "lead" | "client";
 export type DiscoveryOutcome = "qualified" | "not_qualified" | "no_answer";
 export type DemoOutcome = "held" | "no_show";
@@ -128,15 +134,15 @@ async function synchronizeBooking(task: SalesTask, description: string) {
   try {
     if (!await ensureGoogleCalendarConnection()) throw new Error("Google scollegato");
     const start = new Date(task.due_at);
-    const end = new Date(start.getTime() + (task.duration_minutes || 60) * 60_000);
+    const end = googleAppointmentEnd(start, task.appointment_type, task.duration_minutes || 60);
     const event = await createGoogleCalendarEvent({
-      eventId: task.id.replace(/-/g, ""), title: task.title, start: start.toISOString(), end: end.toISOString(),
+      eventId: task.id.replace(/-/g, ""), title: task.title, start: start.toISOString(), end,
       description, attendees: [OWNER_CALENDAR_ID],
     });
     if (!event.id) throw new Error("Identità evento mancante");
     if ((event.start?.dateTime && Date.parse(event.start.dateTime) !== start.getTime()) ||
-      (event.end?.dateTime && Date.parse(event.end.dateTime) !== end.getTime())) {
-      await updateGoogleCalendarEvent(event.id, { title: task.title, start: start.toISOString(), end: end.toISOString() });
+      (event.end?.dateTime && Date.parse(event.end.dateTime) !== Date.parse(end))) {
+      await updateGoogleCalendarEvent(event.id, { title: task.title, start: start.toISOString(), end });
     }
     const { error } = await supabase.from("sales_tasks").update({ google_event_id: event.id })
       .eq("id", task.id).eq("updated_at", task.updated_at).select("id").single();
@@ -186,7 +192,6 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
   const type = (task.appointment_type as AppointmentType | null) || null;
   const title = type ? appointmentTitle(type, changes.subject) : changes.subject.trim();
   const minutes = changes.durationMinutes || task.duration_minutes || 60;
-  const end = new Date(changes.startsAt.getTime() + minutes * 60_000);
   const updated = await supabase.rpc("reschedule_crm_appointment", {
     p_task_id: task.id, p_expected_updated_at: task.updated_at,
     p_title: title, p_starts_at: changes.startsAt.toISOString(),
@@ -199,7 +204,7 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
     try {
       const note = changes.note.trim();
       await updateGoogleCalendarEvent(task.google_event_id, {
-        title, start: changes.startsAt.toISOString(), end: end.toISOString(),
+        title, start: changes.startsAt.toISOString(), end: googleAppointmentEnd(changes.startsAt, type, minutes),
         description: note === (task.description || "") ? undefined : note,
       });
     } catch {

@@ -29,37 +29,54 @@ test('tutti i richiami del giorno sono rilevati anche se esiste un arretrato',()
 const kpi=module('src/salesKpi.ts');
 test('ads e cold call non diventano DM',()=>{assert.equal(kpi.normalizedLeadSource('Facebook Ads'),'ads');assert.equal(kpi.normalizedLeadSource('Cold call'),'cold_call');assert.equal(kpi.normalizedLeadSource('DM Facebook'),'dm');assert.equal(kpi.normalizedLeadSource('Instantly'),'instantly');});
 
-test('spostamento conserva la prenotazione, la durata e l’evento Google', async () => {
-  const updates = [];
-  const rpcCalls = [];
-  const appointment = {
-    id:'task', title:'Discovery telefonica — Centro', due_at:'2026-11-10T12:00:00Z',
-    appointment_type:'discovery', updated_at:'2026-11-08T12:00:00Z', google_event_id:'g1', duration_minutes:30,
-  };
-  const appointments=module('src/appointments.ts',{
-    './supabaseClient': {supabase:{async rpc(name,args){rpcCalls.push({name,args}); return {};}}},
-    './calendarGoogle': {updateGoogleCalendarEvent:async(id,data)=>updates.push({id,data})},
+for (const [type, duration, googleDuration] of [['setting', 15, 30], ['discovery', 30, 30], ['demo', 60, 60]]) {
+  test(`spostamento ${type} conserva la prenotazione, la durata e l’evento Google`, async () => {
+    const updates = [];
+    const rpcCalls = [];
+    const appointment = {
+      id:'task', title:'Discovery telefonica — Centro', due_at:'2026-11-10T12:00:00Z',
+      appointment_type:type, updated_at:'2026-11-08T12:00:00Z', google_event_id:'g1', duration_minutes:duration,
+    };
+    const appointments=module('src/appointments.ts',{
+      './supabaseClient': {supabase:{async rpc(name,args){rpcCalls.push({name,args}); return {};}}},
+      './calendarGoogle': {updateGoogleCalendarEvent:async(id,data)=>updates.push({id,data})},
+    });
+    const moved = new Date('2026-11-13T12:00:00Z');
+    assert.equal((await appointments.updateAppointment(appointment,{subject:'Centro',startsAt:moved,note:''})).ok,true);
+    assert.equal(rpcCalls[0].args.p_task_id, appointment.id);
+    assert.equal(rpcCalls[0].args.p_expected_updated_at, appointment.updated_at);
+    assert.equal(rpcCalls[0].args.p_duration_minutes, duration);
+    assert.equal(updates[0].id,'g1');
+    assert.equal(updates[0].data.end,new Date(moved.getTime() + googleDuration * 60_000).toISOString());
+    assert.equal(updates[0].data.description,undefined);
   });
-  const moved = new Date('2026-11-13T12:00:00Z');
-  assert.equal((await appointments.updateAppointment(appointment,{subject:'Centro',startsAt:moved,note:''})).ok,true);
-  assert.equal(rpcCalls[0].args.p_task_id, appointment.id);
-  assert.equal(rpcCalls[0].args.p_expected_updated_at, appointment.updated_at);
-  assert.equal(updates[0].id,'g1');
-  assert.equal(updates[0].data.end,'2026-11-13T12:30:00.000Z');
-  assert.equal(updates[0].data.description,undefined);
-});
+}
 
 test('prenotazione propone alla transazione la stessa identità e la durata corretta', async () => {
   const requests=[];
+  const googleEvents=[];
+  const updateQuery={eq(){return this;},select(){return this;},async single(){return {};}};
   const appointments = module('src/appointments.ts',{
-    './supabaseClient':{supabase:{async rpc(name,args){requests.push({name,args});return {data:{id:args.p_id,google_event_id:'g1'}};}}},
-    './calendarGoogle':{},
+    './supabaseClient':{supabase:{
+      async rpc(name,args){
+        requests.push({name,args});
+        return {data:{id:args.p_id, due_at:args.p_due_at, appointment_type:args.p_type, duration_minutes:args.p_minutes}};
+      },
+      from(){return {update(){return updateQuery;}};},
+    }},
+    './calendarGoogle':{
+      ensureGoogleCalendarConnection:async()=>true,
+      async createGoogleCalendarEvent(event){googleEvents.push(event);return {id:'g1'};},
+    },
   });
-  for (const [type,minutes] of [['discovery',30],['demo',60]]) {
+  for (const [type,minutes,googleMinutes] of [['setting',15,30],['discovery',30,30],['demo',60,60]]) {
     const input={clientId:'company',lead:null,type,audience:'lead',subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',requestId:'uuid-'+type};
-    assert.equal((await appointments.createAppointment(input)).taskId,input.requestId);
+    const result=await appointments.createAppointment(input);
+    assert.equal(result.taskId,input.requestId);
+    assert.equal(result.warning,undefined);
     assert.equal(requests.at(-1).args.p_minutes,minutes);
     assert.equal(requests.at(-1).args.p_lead_id,null);
+    assert.equal(Date.parse(googleEvents.at(-1).end)-Date.parse(googleEvents.at(-1).start),googleMinutes*60_000);
   }
 });
 
