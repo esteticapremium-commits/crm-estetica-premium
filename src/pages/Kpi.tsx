@@ -2,7 +2,6 @@ import { linkedAppointmentRates } from "../salesReporting";
 import { addDays, calculateKpiRows, isCallActivity, isHeldDiscovery, phoneAttempts, sumRows, kpiActivityDate, type DailyKpi, type EvidenceKind } from "../salesKpiRows";
 import { romeDay as dayInRome } from "../dates";
 import { loadSalesKpiSources } from "../salesReportingData";
-import { loadAppointmentRows } from "../appointmentWork";
 import { isGoogleRevenue, type GoogleSale } from "../googleSales";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
@@ -76,7 +75,7 @@ const costPerDiscovery = (row: DailyKpi) => (row.discoveryBooked > 0 ? row.costs
 const cac = (row: DailyKpi) => (row.won > 0 ? row.costs / row.won : null);
 const roi = (row: DailyKpi) => (row.costs > 0 ? collected(row) / row.costs : null);
 
-export default function Kpi({ client, meName, admin, headerTools, onOpenPending }: { client: Client; meName: string; admin: boolean; headerTools?: ReactNode; onOpenPending?: (keys: string[]) => void }) {
+export default function Kpi({ client, meName, admin, headerTools }: { client: Client; meName: string; admin: boolean; headerTools?: ReactNode }) {
   const [detail, setDetail] = useState<EvidenceKind | null>(null);
   const [rawActivities, setActivities] = useState<LeadActivity[]>([]);
   const [rawOutreach, setOutreach] = useState<SalesOutreachEvent[]>([]);
@@ -87,7 +86,6 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
   const [rawRevenue, setRevenue] = useState<SalesRevenueEvent[]>([]);
   const [rawCosts, setCosts] = useState<SalesCost[]>([]);
   const [standalone, setStandalone] = useState<SalesTask[]>([]);
-  const [pending, setPending] = useState<SalesTask[]>([]);
   const [appointmentReadError, setAppointmentReadError] = useState("");
   const [rawFutureAppointments, setFutureAppointments] = useState<SalesTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,14 +146,13 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
     const revision = ++loadRevision.current;
     setLoading(true); setError(null); setSetupWarning(false);
     try {
-      const [sources, leadResult, contractResult, costResult, integrationResult, futureResult, pendingResult] = await withTimeout(Promise.all([
+      const [sources, leadResult, contractResult, costResult, integrationResult, futureResult] = await withTimeout(Promise.all([
         loadSalesKpiSources(client.id),
         supabase.from("leads").select("*").eq("client_id", client.id),
         supabase.from("contracts").select("*").is("team_department", null).eq("client_id", client.id),
         admin ? supabase.from("sales_costs").select("*").eq("client_id", client.id).order("cost_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
         supabase.from("sales_integrations").select("*").eq("client_id", client.id),
         supabase.from("sales_tasks").select("*").eq("client_id", client.id).not("appointment_type", "is", null).gte("due_at", new Date().toISOString()).order("due_at").limit(2000),
-        loadAppointmentRows(client.id, "pending").then(data => ({ data, error: null })).catch(error => ({ data: null, error })),
       ]), 25_000, "Il calcolo dei KPI sta impiegando troppo tempo.");
       if (revision !== loadRevision.current) return;
       const { activities: activityResult, outreach: outreachResult, revenue: revenueResult, standalone: standaloneResult, google: googleResult } = sources;
@@ -175,8 +172,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
       setCosts((costResult.data as SalesCost[]) || []);
       setFutureAppointments((futureResult.data as SalesTask[]) || []);
       setStandalone(standaloneResult.data ?? []);
-      setPending(pendingResult.data ?? []);
-      setAppointmentReadError(standaloneResult.error || pendingResult.error ? "Alcuni dati dell’agenda non sono disponibili. Ricarica per verificare i conteggi." : "");
+      setAppointmentReadError(standaloneResult.error ? "Alcuni dati dell’agenda non sono disponibili. Ricarica per verificare i conteggi." : "");
       setForecastError(futureResult.error ? `Prospetto futuro non disponibile: ${futureResult.error.message}` : null);
     } catch (reason) {
       if (revision !== loadRevision.current) return;
@@ -324,13 +320,6 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outreach, range.from, range.to]);
 
-  const pendingKeys = [
-    ...(origin === "google" ? [] : pending.filter(task => (task.lead_id || task.commercial_tracked) &&
-      inRange(dayInRome(task.due_at)) && sellerMatches(task.assigned_to) && sourceMatches(task.lead_id)).map(task => `crm:${task.id}`)),
-    ...externalSales.filter(sale => sale.outcome === "pending" && Date.parse(sale.starts_at) <= Date.now() &&
-      inRange(dayInRome(sale.starts_at)) && sellerMatches(sale.assigned_to) && sourceMatches(sale.lead_id)).map(sale => `google:${sale.id}`),
-  ];
-  const pendingInRange = pendingKeys.length;
   const linked = linkedAppointmentRates(
     activities.filter(row => sellerMatchesActivity(row) && sourceMatches(row.lead_id, row.channel)),
     outreach.filter(row => sellerMatches(row.assigned_to) && sourceMatches(row.lead_id, row.channel)),
@@ -366,12 +355,6 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
     </div>
     {error && <div className="notice err">{error}</div>}
     {appointmentReadError && <div className="notice warn">{appointmentReadError}</div>}
-    {pendingInRange > 0 && <div className="notice warn">
-      <b>{pendingInRange} {pendingInRange === 1 ? "esito da registrare" : "esiti da registrare"} nel periodo.</b>{" "}
-      Quando salvi l’esito, lo show-up si aggiorna nel giorno della call.{" "}
-      {onOpenPending && <button className="btn small" onClick={() => onOpenPending(pendingKeys)}>Apri gli esiti da registrare</button>}
-    </div>}
-
     {setupWarning && <div className="notice warn"><b>Tracciamento KPI da completare nel database.</b> La pagina mostra i dati disponibili, ma incassi, costi e colonne nuove saranno completi dopo le migrazioni <code>upgrade_sales_kpis.sql</code> e <code>upgrade_sales_kpis_v2.sql</code>.</div>}
     {outreachConflicts.length > 0 && <div className="notice warn"><b>Possibile doppio conteggio Instantly.</b> In {outreachConflicts.length === 1 ? "questa giornata" : "queste giornate"} ({outreachConflicts.join(", ")}) risultano sia invii registrati a mano sia invii arrivati dal webhook: i volumi si sommano. Tieni una sola delle due fonti.</div>}
 

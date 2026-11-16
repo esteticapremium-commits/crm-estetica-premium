@@ -1,28 +1,107 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { romeDay, romeToday } from "./dates";
 import { layoutIntervals, romeMinutes } from "./calendarLayout";
-export type DisplayEvent = { id:string; at:string; endAt:string; title:string; subtitle:string; kind:"crm"|"google"; allDay?:boolean; onOpen:()=>void };
-export default function CalendarSchedule({days,events,onCreate}: {days:Date[];events:DisplayEvent[];onCreate:(date:Date)=>void}) {
-  const [view,setView] = useState<"week"|"agenda">(() => window.matchMedia("(max-width: 760px)").matches ? "agenda" : "week");
-  const forDay = (day:string) => events.filter(e => {
-    const start = e.allDay ? e.at.slice(0,10) : romeDay(e.at);
+
+export type DisplayEvent = {
+  id: string;
+  at: string;
+  endAt: string;
+  title: string;
+  subtitle: string;
+  kind: "crm" | "google";
+  allDay?: boolean;
+  onOpen: () => void;
+};
+
+const hourHeight = 100;
+const labelWidth = 64;
+const timeFormat = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+
+function EventButton({ event, compact = false }: { event: DisplayEvent; compact?: boolean }) {
+  const time = event.allDay ? "Tutto il giorno" : timeFormat.format(new Date(event.at));
+  return <button type="button" className={`schedule-event ${event.kind}${compact ? " compact" : ""}`}
+    onClick={event.onOpen} title={event.title} aria-label={`${time} · ${event.title} · ${event.subtitle}`}>
+    <time dateTime={event.at}>{time}</time>
+    <b>{event.title}</b>
+    {!compact && <small>{event.subtitle}</small>}
+  </button>;
+}
+
+export default function CalendarSchedule({ days, events, onCreate }: { days: Date[]; events: DisplayEvent[]; onCreate: (date: Date) => void }) {
+  const [view, setView] = useState<"week" | "agenda">(() => window.matchMedia("(max-width: 760px)").matches ? "agenda" : "week");
+  const forDay = (day: string) => events.filter(event => {
+    const start = event.allDay ? event.at.slice(0, 10) : romeDay(event.at);
     // Google all-day end dates are exclusive, as are timed midnight endings.
-    const end = e.allDay ? e.endAt.slice(0,10) : romeDay(new Date(new Date(e.endAt).getTime()-1));
-    return start <= day && (e.allDay ? day < end : day <= end);
+    const end = event.allDay ? event.endAt.slice(0, 10) : romeDay(new Date(Date.parse(event.endAt) - 1));
+    return start <= day && (event.allDay ? day < end : day <= end);
   });
-  const placed = days.map(date => {
+  const week = days.map(date => {
     const day = romeDay(date);
-    return layoutIntervals(forDay(day).filter(e => !e.allDay).map(e => {
-      const start = romeDay(e.at) < day ? 0 : romeMinutes(e.at);
-      const end = romeDay(e.endAt) > day ? 1440 : romeMinutes(e.endAt);
-      return {...e,start,end:Math.min(1440,Math.max(start+30,end))};
+    const dailyEvents = forDay(day).sort((a, b) => a.at.localeCompare(b.at));
+    const placed = layoutIntervals(dailyEvents.filter(event => !event.allDay).map(event => {
+      const start = romeDay(event.at) < day ? 0 : romeMinutes(event.at);
+      const end = romeDay(event.endAt) > day ? 1440 : romeMinutes(event.endAt);
+      return { ...event, start, end: Math.min(1440, Math.max(start + 30, end)) };
     }));
+    const lanes = Math.max(1, ...placed.map(event => event.columns));
+    return { day, date, dailyEvents, placed, lanes, minWidth: Math.max(134, lanes * 84) };
   });
-  const startHour = Math.min(8, ...placed.flat().map(e => Math.floor(e.start/60)));
-  const endHour = Math.max(20, ...placed.flat().map(e => Math.ceil(e.end/60)));
-  const hours = Array.from({length:endHour-startHour+1},(_,i)=>i+startHour);
-  const eventButton = (event:DisplayEvent) => <button className={`schedule-event ${event.kind}`} onClick={event.onOpen} title={`${event.title} · ${event.subtitle}`}><time>{event.allDay ? "Tutto il giorno" : new Date(event.at).toLocaleTimeString("it-IT",{timeZone:"Europe/Rome",hour:"2-digit",minute:"2-digit"})}</time><b>{event.title}</b><small>{event.subtitle}</small></button>;
-  return <><div className="schedule-controls"><div className="view-switch"><button aria-pressed={view==="week"} onClick={()=>setView("week")}>Settimana</button><button aria-pressed={view==="agenda"} onClick={()=>setView("agenda")}>Agenda</button></div><small>Orari Europe/Rome · clicca un evento per aprirlo</small></div>
-    {view === "agenda" ? <div className="schedule-agenda">{days.map(date => <section key={romeDay(date)}><header><b>{date.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"})}</b><button className="btn" onClick={()=>onCreate(date)}>+ Appuntamento</button></header>{forDay(romeDay(date)).sort((a,b)=>a.at.localeCompare(b.at)).map(event=><div key={event.id}>{eventButton(event)}</div>)}{!forDay(romeDay(date)).length && <p className="muted">Nessun appuntamento</p>}</section>)}</div> : <div className="schedule-scroll"><div className="schedule-week"><div className="schedule-head"><div className="schedule-zone">Roma</div>{days.map((date,index)=><header key={romeDay(date)} className={romeDay(date)===romeToday()?"today":""}><span>{date.toLocaleDateString("it-IT",{weekday:"short"})}</span><b>{date.getDate()}</b><button onClick={()=>onCreate(date)} aria-label={`Aggiungi il ${date.toLocaleDateString("it-IT")}`}>+</button>{placed[index].some(e=>e.columns>2) && <button className="schedule-dense-link" onClick={()=>setView("agenda")}>Vedi {placed[index].length} eventi in agenda</button>}{forDay(romeDay(date)).filter(e=>e.allDay).map(e=><div key={e.id}>{eventButton(e)}</div>)}</header>)}</div><div className="schedule-grid" style={{height:(endHour-startHour)*72}}><div className="schedule-hours">{hours.map(hour=><span key={hour} style={{top:(hour-startHour)*72}}>{String(hour).padStart(2,"0")}:00</span>)}</div>{days.map((date,index)=><div className="schedule-day" key={romeDay(date)}>{placed[index].map(event=><div className="schedule-position" key={event.id} style={{top:(event.start-startHour*60)*1.2,height:(event.end-event.start)*1.2,left:`${event.column*100/event.columns}%`,width:`${100/event.columns}%`}}>{eventButton(event)}</div>)}</div>)}</div></div></div>}
+  const timedEvents = week.flatMap(({ placed }) => placed);
+  const startHour = Math.min(8, ...timedEvents.map(event => Math.floor(event.start / 60)));
+  const endHour = Math.max(20, ...timedEvents.map(event => Math.ceil(event.end / 60)));
+  const hours = Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index);
+  const positionAt = (minute: number) => (minute / 60 - startHour) * hourHeight;
+  const weekStyle = {
+    minWidth: week.reduce((sum, day) => sum + day.minWidth, labelWidth),
+    "--schedule-columns": `${labelWidth}px ${week.map(({ minWidth }) => `minmax(${minWidth}px, 1fr)`).join(" ")}`,
+    "--schedule-hour": `${hourHeight}px`,
+  } as CSSProperties;
+
+  return <>
+    <div className="schedule-controls">
+      <div className="view-switch">
+        <button type="button" aria-pressed={view === "week"} onClick={() => setView("week")}>Settimana</button>
+        <button type="button" aria-pressed={view === "agenda"} onClick={() => setView("agenda")}>Agenda</button>
+      </div>
+      <small>Orari Europe/Rome · clicca un evento per aprirlo</small>
+    </div>
+    {view === "agenda" ? <div className="schedule-agenda">
+      {week.map(({ day, date, dailyEvents }) => <section key={day}>
+        <header>
+          <b>{date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</b>
+          <button className="btn" type="button" onClick={() => onCreate(date)}>+ Appuntamento</button>
+        </header>
+        {dailyEvents.map(event => <div key={event.id}><EventButton event={event} /></div>)}
+        {!dailyEvents.length && <p className="muted">Nessun appuntamento</p>}
+      </section>)}
+    </div> : <div className="schedule-scroll">
+      <div className="schedule-week" style={weekStyle}>
+        <div className="schedule-head">
+          <div className="schedule-zone">Roma</div>
+          {week.map(({ day, date, lanes, dailyEvents }) => <header key={day} className={day === romeToday() ? "today" : ""}>
+            <span>{date.toLocaleDateString("it-IT", { weekday: "short" })}</span>
+            <b>{date.getDate()}</b>
+            <button type="button" onClick={() => onCreate(date)} aria-label={`Aggiungi il ${date.toLocaleDateString("it-IT")}`}>+</button>
+            {lanes > 2 && <button type="button" className="schedule-dense-link" onClick={() => setView("agenda")}>Vedi {dailyEvents.length} eventi in agenda</button>}
+            {dailyEvents.filter(event => event.allDay).map(event => <div key={event.id}><EventButton event={event} /></div>)}
+          </header>)}
+        </div>
+        <div className="schedule-grid" style={{ height: (endHour - startHour) * hourHeight }}>
+          <div className="schedule-hours">
+            {hours.map(hour => <span key={hour} style={{ top: positionAt(hour * 60) }}>{String(hour).padStart(2, "0")}:00</span>)}
+          </div>
+          {week.map(({ day, placed }) => <div className="schedule-day" key={day}>
+            {placed.map(event => <div className="schedule-position" key={event.id} style={{
+              top: positionAt(event.start),
+              height: positionAt(event.end) - positionAt(event.start),
+              left: `${event.column * 100 / event.columns}%`,
+              width: `${100 / event.columns}%`,
+            }}>
+              <EventButton event={event} compact={event.end - event.start <= 30} />
+            </div>)}
+          </div>)}
+        </div>
+      </div>
+    </div>}
   </>;
 }

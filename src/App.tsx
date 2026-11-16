@@ -89,9 +89,7 @@ class ModuleBoundary extends Component<{ children: ReactNode; resetKey?: string 
 
 export default function App() {
   const auth = useAuth();
-  const [pendingCalendarKeys, setPendingCalendarKeys] = useState<string[] | null>(null);
   const [tab, setTab] = useState<Tab>("control");
-  useEffect(() => { if (tab !== "calendar") setPendingCalendarKeys(null); }, [tab]);
   const [navigationOwner, setNavigationOwner] = useState<string | null>(null);
   const navigationKey = auth.userId && auth.profile ? `ep-navigation:${auth.userId}:${auth.profile.role}` : null;
   const [clients, setClients] = useState<Client[]>([]);
@@ -361,7 +359,7 @@ export default function App() {
       {tab === "risveglio" && currentClient && <Automazioni key={currentClient.id} clientId={currentClient.id} admin={isAdmin} />}
 
       {tab === "kpi" && currentClient && (
-        <Kpi client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} onOpenPending={keys => { setPendingCalendarKeys(keys); setTab("calendar"); }} />
+        <Kpi client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "tasks" && currentClient && (
@@ -369,7 +367,7 @@ export default function App() {
       )}
 
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} initialPendingKeys={pendingCalendarKeys} />
+        <Calendar client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "control" && currentClient && (

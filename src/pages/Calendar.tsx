@@ -1,6 +1,5 @@
 import LeadDateTimePicker from "../LeadDateTimePicker";
 import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields";
-import { loadAppointmentRows } from "../appointmentWork";
 import { loadGoogleSales } from "../googleSalesData";
 import GoogleSaleModal from "../GoogleSaleModal";
 import { googleSaleKey, saleOutcomes, type GoogleSale } from "../googleSales";
@@ -17,16 +16,11 @@ const monday = (value: Date) => { const date = new Date(value); date.setHours(0,
 const localDateTime = (date: Date) => { const pad = (n: number) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
 const eventEnd = (task: SalesTask) => new Date(new Date(task.due_at).getTime() + (task.duration_minutes || 60) * 60 * 1000);
 type Selected = { kind: "crm"; task: SalesTask; lead: Lead | null } | { kind: "google"; event: GoogleEvent };
-export default function Calendar({ client, meName, admin = false, headerTools, initialPendingKeys = null }: { client: Client; meName: string; admin?: boolean; headerTools?: ReactNode; initialPendingKeys?: string[] | null }) {
+export default function Calendar({ client, meName, admin = false, headerTools }: { client: Client; meName: string; admin?: boolean; headerTools?: ReactNode }) {
   const [googleSales, setGoogleSales] = useState<GoogleSale[]>([]);
   const [saleRecord, setSaleRecord] = useState<GoogleSale | null>(null);
   const [saleOpen, setSaleOpen] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
-  const [pending, setPending] = useState<SalesTask[]>([]);
-  const [pendingError, setPendingError] = useState("");
-  const [pendingLoading, setPendingLoading] = useState(false);
-  const [showPending, setShowPending] = useState(initialPendingKeys !== null);
-  const [pendingSelection, setPendingSelection] = useState(initialPendingKeys);
   const [leadQuery, setLeadQuery] = useState("");
   const [appointmentHost, setAppointmentHost] = useState("");
   const [bookingId, setBookingId] = useState("");
@@ -63,17 +57,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
     } finally { if (version === loadVersion.current) setLoading(false); }
   }, [client.id, weekEnd, weekStart]);
   useEffect(() => { void load(); }, [load]);
-  const refreshPending = useCallback(async () => {
-    setPendingLoading(true);
-    try {
-      setPending(await loadAppointmentRows(client.id, "pending"));
-      setPendingError("");
-    } catch (reason) {
-      setPendingError(reason instanceof Error ? reason.message : "Esiti da registrare non disponibili.");
-    } finally { setPendingLoading(false); }
-  }, [client.id]);
-  useEffect(() => { if (showPending) void refreshPending(); }, [showPending, refreshPending]);
-
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
   const stageNameOf = (lead: Lead | null) => (lead ? stages.find((stage) => stage.id === lead.stage_id)?.name ?? null : null);
   // Un appuntamento con un lead in CLOSED è un appuntamento con un cliente:
@@ -105,7 +88,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
       if (!result.ok) return setFormError(result.error || "Appuntamento non salvato.");
       setCreateOpen(false);
       await load();
-      if (showPending) void refreshPending();
       if (result.warning || result.pipelineWarning) setError([result.pipelineWarning, result.warning].filter(Boolean).join(" "));
     } catch (reason) {
       setFormError(reason instanceof Error ? reason.message : "Prenotazione da verificare. Riprova.");
@@ -126,7 +108,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
       if (!result.ok) return setEditError(result.error || "Modifica non riuscita.");
       setSelected(null); setEditingEvent(false);
       await load();
-      if (showPending) void refreshPending();
       if (result.warning) setError(result.warning);
       return;
     }
@@ -154,7 +135,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
       setBusy(false);
     }
     setSelected(null); setEditingEvent(false); await load();
-    if (showPending) void refreshPending();
   }
 
   async function setAppointmentOutcome(outcome: AppointmentOutcome, rebook = false, proposalMade?: boolean) {
@@ -171,7 +151,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
         leadId: task.lead_id, title: appointmentSubject(task), audience: task.audience, previousOutcomeKey: task.lead_id ? outcomeKey(task.id) : undefined,
       });
       await load();
-      if (showPending) void refreshPending();
     } catch (reason) {
       setEditError(reason instanceof Error ? reason.message : "Esito da verificare.");
     } finally {
@@ -192,9 +171,6 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
     }
   }
 
-  const shownPending = pendingSelection ? pending.filter(task => pendingSelection.includes(`crm:${task.id}`)) : pending;
-  const shownGooglePending = googleSales.filter(sale => sale.outcome === "pending" && Date.parse(sale.starts_at) <= Date.now() &&
-    (!pendingSelection || pendingSelection.includes(`google:${sale.id}`)));
   const visibleTasks = tasks.filter(task => task.appointment_type || !task.completed_at);
   const displayEvents: DisplayEvent[] = [
     ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : "Richiamo"} · ${task.appointment_status === "held" ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
@@ -206,26 +182,9 @@ export default function Calendar({ client, meName, admin = false, headerTools, i
     {saleError && <div className="notice err">{saleError}</div>}
     <div className="calendar-toolbar"><b>{rangeLabel}</b><span><i className="crm-dot" /> CRM condiviso <i className="google-dot" /> Il mio Google Calendar</span></div>
     <div className="calendar-refresh-status"><button className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Aggiornamento…" : "Aggiorna"}</button>{loading && <span role="status">Caricamento appuntamenti…</span>}</div>
-    <section className="panel google-sales-pending">
-      <button type="button" className="btn" aria-expanded={showPending} onClick={() => setShowPending(value => !value)}>Esiti da registrare</button>
-      {showPending && <>
-        {pendingSelection && <button type="button" className="btn small" onClick={() => setPendingSelection(null)}>Mostra tutti</button>}
-        {pendingError && <p role="alert">{pendingError} <button className="btn small" onClick={() => void refreshPending()}>Riprova</button></p>}
-        {pendingLoading && <p role="status">Caricamento esiti…</p>}
-        {!pendingLoading && !pendingError && shownPending.length === 0 && shownGooglePending.length === 0 && <p>Nessun esito in sospeso.</p>}
-        {shownPending.map(task => <div className="google-sale-row" key={task.id}>
-          <div><b>{task.title}</b><small>{formatDateTime(task.due_at)} · {task.assigned_to}</small></div>
-          <button className="btn small" onClick={() => { setEditError(null); setSelected({ kind: "crm", task, lead: task.lead_id ? leadById.get(task.lead_id) || null : null }); }}>Registra esito</button>
-        </div>)}
-        {shownGooglePending.map(sale => <div className="google-sale-row" key={sale.id}>
-          <div><b>{sale.contact_name}</b><small>{formatDateTime(sale.starts_at)} · Google</small></div>
-          <button className="btn small" onClick={() => { setSelected(null); setSaleRecord(sale); setSaleOpen(true); }}>Registra esito</button>
-        </div>)}
-      </>}
-    </section>
     <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} />
     {!saleError && <section className="panel google-sales-pending"><h2>Vendite Google registrate · questa settimana</h2><p>Esiti consultabili anche quando Google non è collegato.</p>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</section>}
-    {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={() => { setSaleOpen(false); setSaleRecord(null); setSelected(null); void load(); if (showPending) void refreshPending(); }} />}
+    {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={() => { setSaleOpen(false); setSaleRecord(null); setSelected(null); void load(); }} />}
     {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName)) ? () => void syncSelected() : undefined} />}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
       <section className="calendar-modal calendar-create" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
