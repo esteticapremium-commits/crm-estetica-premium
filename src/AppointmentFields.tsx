@@ -1,7 +1,8 @@
 import LeadDateTimePicker from "./LeadDateTimePicker";
-import { APPOINTMENT_DURATION, allowedOutcomes, type AppointmentOutcome, type AppointmentType } from "./appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, allowedOutcomes, type AppointmentOutcome, type AppointmentType } from "./appointments";
 
 const labels: Record<AppointmentOutcome, string> = {
+  answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
 };
 
@@ -9,7 +10,7 @@ export function AppointmentTime({ type, value, disabled, onChange }: {
   type: AppointmentType; value: string; disabled?: boolean; onChange: (value: string) => void;
 }) {
   return <div>
-    <p className="muted">{type === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"} · {APPOINTMENT_DURATION[type]} min</p>
+    <p className="muted">{APPOINTMENT_LABELS[type]} · {APPOINTMENT_DURATION[type]} min</p>
     <LeadDateTimePicker value={value} disabled={!!disabled} onChange={onChange} />
   </div>;
 }
@@ -25,6 +26,6 @@ export function AppointmentOutcomeChoices({ type, value, disabled, onChange }: {
       disabled={disabled}
       aria-pressed={value === outcome}
       onClick={() => onChange(outcome)}
-    >{labels[outcome]}</button>)}
+    >{type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}
   </div>;
 }

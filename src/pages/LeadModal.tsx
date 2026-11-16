@@ -1,3 +1,4 @@
+import { awaitingOutcome } from "../appointmentWork";
 import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields";
 import LeadTimeline from "../LeadTimeline";
 import LeadDateTimePicker from "../LeadDateTimePicker";
@@ -11,7 +12,7 @@ import { romeDay, romeStamp } from "../dates";
 import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
-import { APPOINTMENT_DURATION, allowedOutcomes, appointmentSubject, createAppointment, isAppointmentClosed, leadAppointments, outcomeKey, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome } from "../appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_SHORT_LABELS, allowedOutcomes, appointmentSubject, createAppointment, isAppointmentClosed, leadAppointments, outcomeKey, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, Pipeline, SalesRevenueEvent, SalesOutreachEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -27,8 +28,10 @@ const localDateTime = (date: Date) => { const pad = (value: number) => String(va
 const appointmentStamp = (value: string) => new Date(value).toLocaleString("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const activityTaskId = (activity: LeadActivity) => String(activity.details?.task_id || "");
 const appointmentOutcomeLabel: Record<AppointmentOutcome, string> = {
+  answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
 };
+type ContactType = CallType | "setting";
 type AppointmentDraft = { task: SalesTask; due: string; note: string } & (
   { mode: "edit" } | { mode: "outcome"; outcome: AppointmentOutcome | ""; minutes: string; proposalMade?: boolean }
 );
@@ -259,17 +262,17 @@ export default function LeadModal({
   const currentStageName = stages.find((stage) => stage.id === stageId)?.name ?? null;
   // Tipo di chiamata e destinatario si deducono dalla fase del lead: il
   // venditore li corregge solo quando la deduzione sbaglia, non a ogni azione.
-  const [callTypeOverride, setCallTypeOverride] = useState<CallType | null>(null);
+  const [callTypeOverride, setCallTypeOverride] = useState<ContactType | null>(null);
   const commercialActionLock = useRef(false);
   const leadSaveLock = useRef(false);
   const revenueLock = useRef(false);
   const planLock = useRef(false);
-  const [booking, setBooking] = useState<{ id: string; type: "discovery" | "demo"; due: string; note: string; audience: AppointmentAudience; previousOutcomeKey?: string; sourceReplyId?: string; host?: string } | null>(null);
+  const [booking, setBooking] = useState<{ id: string; type: AppointmentType; due: string; note: string; audience: AppointmentAudience; previousOutcomeKey?: string; sourceReplyId?: string; host?: string } | null>(null);
   const [bookingReplies, setBookingReplies] = useState<SalesOutreachEvent[]>([]);
   const [manualCallAt, setManualCallAt] = useState("");
   const persistedStage = useRef(lead?.stage_id);
   const persistedNextAction = useRef(lead?.next_action_date || "");
-  const callType = callTypeOverride ?? defaultCallType(currentStageName);
+  const contactType = callTypeOverride ?? defaultCallType(currentStageName);
   const [planTitle, setPlanTitle] = useState("");
   const [planDue, setPlanDue] = useState("");
   const [planNote, setPlanNote] = useState("");
@@ -389,13 +392,16 @@ export default function LeadModal({
   useEffect(() => { if ((section === "payments" || section === "history") && canRecordRevenue) void reloadPayments(); }, [section, lead?.id, canRecordRevenue]);
 
   const activeAppointments = appointments.filter((task) => !isAppointmentClosed(task) && !task.completed_at && task.appointment_status !== "cancelled").sort((a, b) => a.due_at.localeCompare(b.due_at));
+  const planAudienceAllowsProspect = defaultAudience(currentStageName) === "lead";
+  const pendingSetting = activeAppointments.find(task => task.appointment_type === "setting");
+  const settingDue = pendingSetting && awaitingOutcome(pendingSetting);
   const hasDiscovery = activeAppointments.some(task => task.appointment_type === "discovery");
   const hasClosing = activeAppointments.some(task => task.appointment_type === "demo");
   const appointmentAttempts = new Map<string, number>();
-  const attemptsByType = { discovery: 0, demo: 0 };
+  const attemptsByType = { setting: 0, discovery: 0, demo: 0 };
   [...appointments].sort((a, b) => a.created_at.localeCompare(b.created_at)).forEach((task) => {
     const type = task.appointment_type;
-    if (type === "discovery" || type === "demo") appointmentAttempts.set(task.id, ++attemptsByType[type]);
+    if (type) appointmentAttempts.set(task.id, ++attemptsByType[type]);
   });
 
   function openAppointmentDraft(task: SalesTask, mode: AppointmentDraft["mode"]) {
@@ -408,13 +414,15 @@ export default function LeadModal({
       setAppointmentDraft({ mode, task, due, note: task.description || "" });
       return;
     }
+    const type = task.appointment_type ?? "discovery";
+    if (type === "setting") setActionGroup("contact");
     const result = activityHistory.find(activity => activity.event_key === outcomeKey(task.id));
-    const allowed = allowedOutcomes(task.appointment_type === "demo" ? "demo" : "discovery");
+    const allowed = allowedOutcomes(type);
     const outcome = allowed.find(option => option === result?.outcome) || "";
-    setAppointmentDraft({ mode, task, due, outcome, proposalMade: task.proposal_made ?? undefined, note: result?.note || "", minutes: String(result?.duration_minutes || task.duration_minutes || APPOINTMENT_DURATION[task.appointment_type === "demo" ? "demo" : "discovery"]) });
+    setAppointmentDraft({ mode, task, due, outcome, proposalMade: task.proposal_made ?? undefined, note: result?.note || "", minutes: type === "setting" ? String(result?.duration_minutes ?? "") : String(result?.duration_minutes || task.duration_minutes || APPOINTMENT_DURATION[type]) });
   }
 
-  async function saveAppointmentDraft(nextType?: "discovery" | "demo") {
+  async function saveAppointmentDraft(nextType?: AppointmentType) {
     const draft = appointmentDraft;
     if (!lead || !draft || busy || commercialActionLock.current || leadSaveLock.current || planLock.current) return;
     const start = new Date(draft.due);
@@ -457,12 +465,18 @@ export default function LeadModal({
     }
   }
 
-  async function recordQuickActivity(outcome: "no_answer" | "answered" | "qualified" | "not_qualified" | "completed" | "lost", bookClosing = false) {
+  async function recordQuickActivity(outcome: "no_answer" | "answered" | "not_interested" | "qualified" | "not_qualified" | "completed" | "lost", bookClosing = false) {
     if (!lead || commercialActionLock.current) return;
-    const isCall = ["no_answer", "answered", "qualified", "not_qualified"].includes(outcome);
+    const isContact = outcome === "no_answer" || outcome === "answered" || outcome === "not_interested";
+    const isSetting = isContact && contactType === "setting";
+    if (pendingSetting && settingDue && isContact) {
+      openAppointmentDraft(pendingSetting, "outcome");
+      return;
+    }
     // Solo "in target" e "fuori target" dichiarano una discovery svolta: un
     // recall a cui il cliente risponde e' una chiamata risposta, non una discovery.
     const isDiscovery = ["qualified", "not_qualified"].includes(outcome);
+    const isCall = isContact || isDiscovery;
     if (isDiscovery && (!appointmentsReady || hasDiscovery)) return setErr("Controlla Appuntamenti del lead prima di registrare una discovery non pianificata.");
     const minutes = Number(commercialMinutes) || 0;
     if (["qualified", "not_qualified"].includes(outcome) && minutes <= 0) return setErr("Seleziona la durata della discovery.");
@@ -485,7 +499,7 @@ export default function LeadModal({
       setBusy(false); commercialActionLock.current = false;
       return setErr("Scegli la data effettiva della call, nel passato.");
     }
-    const eventType = isCall ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
+    const eventType = isSetting ? "setting_call" : isCall ? "discovery_call" : outcome === "lost" ? "sale_outcome" : "follow_up";
     // Chiave deterministica: due clic sullo stesso esito nello stesso minuto sono
     // lo stesso evento e il database rifiuta il secondo. Un tentativo reale più
     // tardi ha una chiave diversa e viene registrato normalmente.
@@ -497,9 +511,9 @@ export default function LeadModal({
       activity_type: isCall ? "call" : "follow_up",
       event_type: eventType,
       channel: isCall ? "phone" : "other",
-      call_type: isCall ? callType : null,
+      call_type: isCall ? contactType === "setting" ? "outbound" : contactType : null,
       outcome,
-      duration_minutes: minutes || null,
+      duration_minutes: isSetting ? null : minutes || null,
       occurred_at: occurredAt.toISOString(),
       note: commercialNote.trim() || (outcome === "lost" ? lostReason.trim() : null),
       next_action_date: nextAction.trim() || null,
@@ -522,7 +536,7 @@ export default function LeadModal({
     }
     setActivityHistory((current) => [result.data as LeadActivity, ...current.filter((item) => item.id !== (result.data as LeadActivity).id)]);
     setCommercialNote(""); setCommercialMinutes(""); setQuickAction(null); setManualCallAt("");
-    setActivitySaved(outcome === "no_answer" ? "Tentativo registrato" : outcome === "answered" ? "Chiamata risposta registrata" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
+    setActivitySaved(isSetting ? "Tentativo di setting registrato" : outcome === "no_answer" ? "Tentativo registrato" : outcome === "answered" ? "Chiamata risposta registrata" : outcome === "completed" ? "Follow-up registrato" : outcome === "lost" ? "Lead segnato come perso" : "Discovery registrata");
     setBusy(false); commercialActionLock.current = false;
     if (bookClosing && outcome === "qualified") prepareAppointment("demo", eventKey);
     onUpdated?.();
@@ -578,9 +592,9 @@ export default function LeadModal({
     return () => { active = false; };
   }, [lead?.id, lead?.client_id, booking?.id, booking?.type]);
 
-  function prepareAppointment(type: "discovery" | "demo", previousOutcomeKey?: string) {
+  function prepareAppointment(type: AppointmentType, previousOutcomeKey?: string) {
     if (busy && !previousOutcomeKey) return;
-    setBooking({ id: crypto.randomUUID(), type, due: "", note: "", audience: defaultAudience(currentStageName), previousOutcomeKey });
+    setBooking({ id: crypto.randomUUID(), type, due: "", note: "", audience: type === "setting" ? "lead" : defaultAudience(currentStageName), previousOutcomeKey });
     setAppointmentFeedback(null);
     requestAnimationFrame(() => document.getElementById("lead-booking-form")?.scrollIntoView({ block: "nearest" }));
   }
@@ -1053,6 +1067,35 @@ export default function LeadModal({
   // formattazione, così su iPhone il link apre direttamente l'app Telefono.
   const callablePhone = phone.trim().replace(/[^\d+*#,;]/g, "");
 
+  const draftType = appointmentDraft?.task.appointment_type ?? "discovery";
+  const settingOutcomeDraft = appointmentDraft?.mode === "outcome" && draftType === "setting";
+  const appointmentForm = appointmentDraft && <div id="lead-appointment-draft" className="activity-box lead-appointment-draft">
+    <b>{appointmentDraft.mode === "edit" ? "Modifica appuntamento" : "Esito appuntamento"} · {APPOINTMENT_SHORT_LABELS[draftType]}</b>
+    {appointmentDraft.mode === "edit" ? (
+      <LeadDateTimePicker value={appointmentDraft.due} disabled={busy} onChange={due => setAppointmentDraft({ ...appointmentDraft, due })} />
+    ) : <>
+      <p>{appointmentStamp(appointmentDraft.task.due_at)}</p>
+      <AppointmentOutcomeChoices type={draftType} value={appointmentDraft.outcome} disabled={busy} onChange={outcome => setAppointmentDraft({ ...appointmentDraft, outcome })} />
+      {appointmentDraft.outcome === "held" && appointmentDraft.task.appointment_type === "demo" &&
+        <label><input type="checkbox" checked={appointmentDraft.proposalMade ?? false} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, proposalMade: event.target.checked })} /> Proposta presentata</label>}
+      <details><summary>Durata e nota</summary>
+        {appointmentDraft.outcome && !["no_answer", "no_show"].includes(appointmentDraft.outcome) && <label>Durata effettiva (min)<input type="number" min="1" step="1" value={appointmentDraft.minutes} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, minutes: event.target.value })} /></label>}
+        <label>Nota<textarea rows={2} value={appointmentDraft.note} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, note: event.target.value })} /></label>
+      </details>
+    </>}
+    {appointmentDraft.mode === "edit" && <div className="field"><label htmlFor="lead-appt-note">Nota (facoltativa)</label><textarea id="lead-appt-note" rows={2} value={appointmentDraft.note} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, note: event.target.value })} /></div>}
+    <div className="lead-appointment-actions">
+      <button type="button" className="btn small" disabled={busy} onClick={() => { setAppointmentDraft(null); setAppointmentFeedback(null); }}>Annulla</button>
+      <button type="button" className="btn small primary" disabled={busy || (appointmentDraft.mode === "outcome" && !appointmentDraft.outcome)} onClick={() => void saveAppointmentDraft()}>{appointmentDraft.mode === "edit" ? "Salva modifica" : "Salva esito"}</button>
+      {appointmentDraft.mode === "outcome" && appointmentDraft.outcome === "qualified" && !hasClosing &&
+        <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft("demo")}>Salva e prenota closing</button>}
+      {appointmentDraft.mode === "outcome" && draftType === "setting" && appointmentDraft.outcome === "answered" && !hasDiscovery &&
+        <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft("discovery")}>Salva e prenota discovery</button>}
+      {appointmentDraft.mode === "outcome" && ["no_show", "no_answer"].includes(appointmentDraft.outcome) &&
+        <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft(draftType)}>{draftType === "setting" ? "Non risponde e riprenota setting" : "No-show e riprenota"}</button>}
+    </div>
+  </div>;
+
   return (
     <div className="overlay lead-drawer-overlay" onClick={closeLead}>
       <div className="modal lead-drawer" role="dialog" aria-modal="true" aria-label={isNew ? "Nuovo lead" : name || "Scheda lead"} style={{width:`min(${drawerWidth}px, 96vw)`}} onClick={(e) => e.stopPropagation()}>
@@ -1083,7 +1126,7 @@ export default function LeadModal({
               {appointmentsReady && activeAppointments.length === 0 && <p>Nessun appuntamento da svolgere.</p>}
               {activeAppointments.map((task) => (
                 <div className="lead-appointment-overview-row" key={task.id}>
-                  <span><strong>{task.appointment_type === "demo" ? "Closing" : "Discovery"}{(appointmentAttempts.get(task.id) || 0) > 1 ? ` · ${appointmentAttempts.get(task.id)}ª prenotazione` : ""}</strong><small>{appointmentStamp(task.due_at)} · {task.appointment_host || task.assigned_to}</small></span>
+                  <span><strong>{APPOINTMENT_SHORT_LABELS[task.appointment_type ?? "discovery"]}{(appointmentAttempts.get(task.id) || 0) > 1 ? ` · ${appointmentAttempts.get(task.id)}ª prenotazione` : ""}</strong><small>{appointmentStamp(task.due_at)} · {task.appointment_host || task.assigned_to}</small></span>
                   <div className="lead-appointment-actions">
                     <button type="button" className="btn small" disabled={busy || !!appointmentDraft || !!booking} onClick={() => openAppointmentDraft(task, "edit")}>Sposta</button>
                     {Date.parse(task.due_at) <= Date.now()
@@ -1093,10 +1136,12 @@ export default function LeadModal({
                 </div>
               ))}
               {appointments.filter((task) => isAppointmentClosed(task)).slice(0, 2).map((task) => {
-                const outcome = activityHistory.find((activity) => activityTaskId(activity) === task.id && (activity.event_type === "demo_call" || activity.event_type === "discovery_call"));
-                const label = outcome?.outcome ? appointmentOutcomeLabel[outcome.outcome as AppointmentOutcome] : null;
+                const outcome = activityHistory.find((activity) => activityTaskId(activity) === task.id && (["setting_call", "discovery_call", "demo_call"].includes(activity.event_type || "")));
+                const recordedOutcome = task.appointment_outcome || outcome?.outcome;
+                const label = task.appointment_type === "setting" && recordedOutcome === "no_answer"
+                  ? "Non risponde" : recordedOutcome ? appointmentOutcomeLabel[recordedOutcome as AppointmentOutcome] : null;
                 return <div className="lead-appointment-overview-row past" key={task.id}>
-                  <span><strong>{task.appointment_type === "demo" ? "Closing" : "Discovery"} · {label || (task.appointment_status === "no_show" ? "No-show" : "Svolta")}</strong><small>{appointmentStamp(outcome?.scheduled_at || task.due_at)} · {task.appointment_host || task.assigned_to}</small></span>
+                  <span><strong>{APPOINTMENT_SHORT_LABELS[task.appointment_type ?? "discovery"]} · {label || (task.appointment_status === "no_show" ? "No-show" : "Svolta")}</strong><small>{appointmentStamp(outcome?.scheduled_at || task.due_at)} · {task.appointment_host || task.assigned_to}</small></span>
                   <div className="lead-appointment-actions">
                   <button type="button" className="btn small" disabled={busy || !!appointmentDraft || !!booking} onClick={() => openAppointmentDraft(task, "outcome")}>Correggi esito</button>
                     {canRecordRevenue && task.appointment_type === "demo" && task.appointment_status === "held" &&
@@ -1104,35 +1149,11 @@ export default function LeadModal({
                   </div>
                 </div>;
               })}
-              {appointmentDraft && <div id="lead-appointment-draft" className="activity-box lead-appointment-draft">
-                <b>{appointmentDraft.mode === "edit" ? "Modifica appuntamento" : "Esito appuntamento"} · {appointmentDraft.task.appointment_type === "demo" ? "Closing" : "Discovery"}</b>
-                {appointmentDraft.mode === "edit" ? (
-                  <LeadDateTimePicker value={appointmentDraft.due} disabled={busy} onChange={due => setAppointmentDraft({ ...appointmentDraft, due })} />
-                ) : <>
-                  <p>{appointmentStamp(appointmentDraft.task.due_at)}</p>
-                  <AppointmentOutcomeChoices type={appointmentDraft.task.appointment_type === "demo" ? "demo" : "discovery"} value={appointmentDraft.outcome} disabled={busy} onChange={outcome => setAppointmentDraft({ ...appointmentDraft, outcome })} />
-                  {appointmentDraft.outcome === "held" && appointmentDraft.task.appointment_type === "demo" &&
-                    <label><input type="checkbox" checked={appointmentDraft.proposalMade ?? false} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, proposalMade: event.target.checked })} /> Proposta presentata</label>}
-                  <details><summary>Durata e nota</summary>
-                    {appointmentDraft.outcome && !["no_answer", "no_show"].includes(appointmentDraft.outcome) && <label>Durata effettiva (min)<input type="number" min="1" step="1" value={appointmentDraft.minutes} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, minutes: event.target.value })} /></label>}
-                    <label>Nota<textarea rows={2} value={appointmentDraft.note} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, note: event.target.value })} /></label>
-                  </details>
-                </>}
-                {appointmentDraft.mode === "edit" && <div className="field"><label htmlFor="lead-appt-note">Nota (facoltativa)</label><textarea id="lead-appt-note" rows={2} value={appointmentDraft.note} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, note: event.target.value })} /></div>}
-                <div className="lead-appointment-actions">
-                  <button type="button" className="btn small" disabled={busy} onClick={() => { setAppointmentDraft(null); setAppointmentFeedback(null); }}>Annulla</button>
-                  <button type="button" className="btn small primary" disabled={busy || (appointmentDraft.mode === "outcome" && !appointmentDraft.outcome)} onClick={() => void saveAppointmentDraft()}>{appointmentDraft.mode === "edit" ? "Salva modifica" : "Salva esito"}</button>
-                  {appointmentDraft.mode === "outcome" && appointmentDraft.outcome === "qualified" && !hasClosing &&
-                    <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft("demo")}>Salva e prenota closing</button>}
-                  {appointmentDraft.mode === "outcome" && ["no_show", "no_answer"].includes(appointmentDraft.outcome) &&
-                    <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft(appointmentDraft.task.appointment_type === "demo" ? "demo" : "discovery")}>No-show e riprenota</button>}
-
-                </div>
-              </div>}
+              {!settingOutcomeDraft && appointmentForm}
               {booking && <div className="activity-box lead-appointment-draft" id="lead-booking-form">
                 <AppointmentTime type={booking.type} value={booking.due} disabled={busy} onChange={due => setBooking({ ...booking, due })} />
                 <details><summary>Opzioni</summary>
-                  <label>Con chi<select value={booking.audience} disabled={busy} onChange={event => setBooking({ ...booking, audience: event.target.value as AppointmentAudience })}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>
+                  {booking.type !== "setting" && <label>Con chi<select value={booking.audience} disabled={busy} onChange={event => setBooking({ ...booking, audience: event.target.value as AppointmentAudience })}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>}
                   {lead?.assigned_to && meName && lead.assigned_to !== meName &&
                     <label>Chi conduce<select value={booking.host || lead.assigned_to} disabled={busy} onChange={event => setBooking({ ...booking, host: event.target.value })}>
                       <option>{lead.assigned_to}</option><option>{meName}</option>
@@ -1151,6 +1172,7 @@ export default function LeadModal({
                 </div>
               </div>}
               {!appointmentDraft && !booking && <div className="lead-appointment-actions lead-appointment-new">
+                {!pendingSetting && planAudienceAllowsProspect && <button type="button" className="btn small" disabled={busy || !appointmentsReady} onClick={() => prepareAppointment("setting")}>Prenota setting</button>}
                 {!hasDiscovery && <button type="button" className="btn small" disabled={busy || !appointmentsReady} onClick={() => prepareAppointment("discovery")}>Prenota discovery</button>}
                 {!hasClosing && <button type="button" className="btn small" disabled={busy || !appointmentsReady} onClick={() => prepareAppointment("demo")}>Prenota closing</button>}
               </div>}
@@ -1159,13 +1181,21 @@ export default function LeadModal({
 
           {!isNew && (
             <div className="activity-box commercial-tracker quick-commercial-tracker">
-              <div className="tracker-heading"><div><b>Com’è andata?</b><p>Registra un contatto o una call non pianificata.</p></div><span>1 CLIC</span></div>
-              {actionGroup === "contact" && <div className="field quick-call-type"><label htmlFor="quick-call-type">Tipo di contatto</label><select id="quick-call-type" value={callType} onChange={e => setCallTypeOverride(e.target.value as CallType)}><option value="lead">Richiamo</option><option value="outbound">Outbound</option><option value="client">Già cliente</option><option value="other">Altro</option></select></div>}
+              <div className="tracker-heading"><div><b>Com’è andata?</b><p>Registra l’esito del setting o di un altro contatto.</p></div><span>1 CLIC</span></div>
+              {actionGroup === "contact" && pendingSetting && !settingOutcomeDraft && <div className="lead-appointment-overview-row">
+                <span><strong>Setting telefonico</strong><small>{appointmentStamp(pendingSetting.due_at)}</small></span>
+                {settingDue ? <button type="button" className="btn small primary" disabled={busy || !!appointmentDraft || !!booking} onClick={() => openAppointmentDraft(pendingSetting, "outcome")}>Registra esito setting</button>
+                  : <small>Esito disponibile dall’orario fissato</small>}
+              </div>}
+              {settingOutcomeDraft && appointmentFeedback?.warning && <p role="alert" className="notice warn">{appointmentFeedback.text}</p>}
+              {settingOutcomeDraft && appointmentForm}
+              {actionGroup === "contact" && !settingOutcomeDraft && !settingDue && <div className="field quick-call-type"><label htmlFor="quick-call-type">Tipo di contatto</label><select id="quick-call-type" value={contactType} onChange={e => setCallTypeOverride(e.target.value as ContactType)}><option value="setting">Setting</option><option value="lead">Richiamo</option><option value="outbound">Outbound</option><option value="client">Già cliente</option><option value="other">Altro</option></select></div>}
               {((actionGroup === "discovery" && hasDiscovery) || (actionGroup === "closing" && hasClosing)) && <p>Per le call in agenda usa «Registra esito» in Appuntamenti del lead.</p>}
               <div className="lead-action-groups">{[["contact", "Contatto"], ["discovery", "Discovery"], ["closing", "Closing"], ["other", "Altre azioni"]].map(([id, label]) => <button type="button" key={id} aria-pressed={actionGroup === id} onClick={() => { setActionGroup(id); setQuickAction(null); setClosingAction(null); setManualCallAt(""); }}>{label}</button>)}</div>
               <div className={"commercial-quick-actions action-group-" + actionGroup}>
-                <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>
-                <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>
+                {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>}
+                {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>}
+                {!settingDue && !settingOutcomeDraft && contactType === "setting" && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("not_interested")}><b>Non interessato</b><small>Registra l’esito del setting</small></button>}
                 <button
                   data-action-group="contact"
                   type="button"

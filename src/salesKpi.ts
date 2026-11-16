@@ -4,6 +4,8 @@ export type SalesEventType =
   | "outreach_sent"
   | "outreach_reply"
   | "follow_up"
+  | "setting_call"
+  | "setting_booked"
   | "discovery_call"
   | "discovery_booked"
   | "demo_booked"
@@ -17,6 +19,8 @@ export const EVENT_LABELS: Record<string, string> = {
   outreach_sent: "Outreach inviato",
   outreach_reply: "Risposta outreach",
   follow_up: "Follow-up",
+  setting_call: "Tentativo di setting",
+  setting_booked: "Setting fissato",
   discovery_call: "Discovery telefonica",
   discovery_booked: "Discovery fissata",
   demo_booked: "Closing fissata",
@@ -40,6 +44,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   neutral: "Risposta neutra",
   negative: "Risposta negativa",
   answered: "Risposto",
+  not_interested: "Non interessato",
   no_answer: "Non risponde",
   qualified: "Svolta · in target",
   not_qualified: "Svolta · fuori target",

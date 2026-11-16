@@ -166,3 +166,38 @@ test('KPI vendite e resoconto concordano sui sei contatori con Pipeline, chiamat
   const duplicate={...inputs,activities:[...inputs.activities,activity('crm-book','discovery_booked','scheduled')]};
   assert.equal(reporting.suggestDailyReport(day,duplicate).discovery_booked,2);
 });
+
+test('un setting entra solo nei tentativi telefonici, alla data fissata', () => {
+  const callDay='2026-11-10';
+  const bookingDay='2026-11-09';
+  const ledger={
+    id:'setting-call',lead_id:'lead',event_type:'setting_call',occurred_at:'2026-11-12T10:00:00Z',
+    scheduled_at:callDay+'T11:00:00Z',details:{task_id:'setting'},call_type:'outbound',
+  };
+  const inputs={activities:[{
+    ...ledger,id:'setting-booked',event_type:'setting_booked',occurred_at:bookingDay+'T15:00:00Z',
+  }],outreach:[],standalone:[],externalSales:[],revenue:[]};
+  const before=reporting.suggestDailyReport(bookingDay,inputs);
+  assert.equal(before.calls_made,0);
+  assert.equal(before.discovery_booked,0);
+  for (const outcome of ['answered','no_answer','not_interested']) {
+    const data={...inputs,activities:[...inputs.activities,{...ledger,outcome}]};
+    const {rows}=kpiRows.calculateKpiRows({...data,range:{from:callDay,to:callDay}});
+    const total=rows[0];
+    assert.equal(total.callOutbound,1);
+    assert.equal(total.settingContacts,1);
+    assert.equal(total.prospectCallsAnswered,outcome==='no_answer' ? 0 : 1);
+    assert.equal(total.noShow,0);
+    assert.equal(total.discoveryScheduled,0);
+    assert.equal(total.discoveryHeld,0);
+    assert.equal(reporting.suggestDailyReport(callDay,data).calls_made,1);
+  }
+  const manualSetting = {...ledger,id:'manual-setting',details:{},occurred_at:callDay+'T14:00:00Z',outcome:'not_interested'};
+  const ordinaryOutbound = {...manualSetting,id:'outbound',event_type:'discovery_call',outcome:'answered'};
+  const data={...inputs,activities:[...inputs.activities,manualSetting,ordinaryOutbound]};
+  const {rows}=kpiRows.calculateKpiRows({...data,range:{from:callDay,to:callDay}});
+  assert.equal(rows[0].settingContacts,1);
+  assert.equal(rows[0].callOutbound,2);
+  assert.equal(reporting.suggestDailyReport(callDay,data).calls_made,2);
+  assert.equal(rows[0].discoveryHeld,0);
+});

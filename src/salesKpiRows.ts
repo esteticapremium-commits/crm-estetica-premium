@@ -9,6 +9,7 @@ export interface DailyKpi {
   // Azioni di contatto
   callLead: number;
   callOutbound: number;
+  settingContacts: number;
   callClient: number;
   callOther: number;
   callFromCalendar: number;
@@ -84,12 +85,12 @@ export const taskIdOf = (activity: LeadActivity) => {
 };
 
 export function kpiActivityDate(activity: LeadActivity) {
-  const hasScheduledOutcome = taskIdOf(activity) && ["discovery_call", "demo_call"].includes(activity.event_type || "");
+  const hasScheduledOutcome = taskIdOf(activity) && ["setting_call", "discovery_call", "demo_call"].includes(activity.event_type || "");
   return hasScheduledOutcome && activity.scheduled_at ? activity.scheduled_at : activityTimestamp(activity);
 }
 
 const emptyDay = (day: string): DailyKpi => ({
-  day, callLead: 0, callOutbound: 0, callClient: 0, callOther: 0, callFromCalendar: 0, mexFollowUp: 0, callMinutes: 0,
+  day, callLead: 0, callOutbound: 0, settingContacts: 0, callClient: 0, callOther: 0, callFromCalendar: 0, mexFollowUp: 0, callMinutes: 0,
   prospectCallsAnswered: 0, reachedLeads: 0, leads: 0, instantlySent: 0, dmSent: 0, replies: 0, positiveReplies: 0,
   followUpBooked: 0, followUpScheduled: 0, followUpSameDay: 0, followUpHeld: 0, followUpHeldBooked: 0,
   discoveryBooked: 0, demoBooked: 0, demoClientBooked: 0, discoveryScheduled: 0, demoScheduled: 0, demoClientScheduled: 0,
@@ -113,13 +114,13 @@ export const isHeldDiscovery = (outcome?: string | null) => outcome === "qualifi
 // righe si riconoscono da activity_type e dall'esito scritto in italiano.
 // Senza queste tre righe il lavoro fatto finora resterebbe invisibile nei KPI.
 const isLegacy = (activity: LeadActivity) => !activity.event_type;
-export const isCallActivity = (activity: LeadActivity) => activity.event_type === "discovery_call" || (isLegacy(activity) && activity.activity_type === "call");
+export const isCallActivity = (activity: LeadActivity) => ["setting_call", "discovery_call"].includes(activity.event_type || "") || (isLegacy(activity) && activity.activity_type === "call");
 const isFollowUpActivity = (activity: LeadActivity) => activity.event_type === "follow_up" || (isLegacy(activity) && activity.activity_type === "follow_up");
 const isBookingActivity = (activity: LeadActivity) => activity.event_type === "discovery_booked" || (isLegacy(activity) && activity.outcome === "Appuntamento fissato");
 
 function standaloneAppointmentMetrics(task: SalesTask, day: string, now = Date.now()) {
   const result: Record<string, number> = {};
-  if (!task.appointment_type || task.lead_id || !task.commercial_tracked || task.appointment_status === "cancelled") return result;
+  if (!task.appointment_type || task.appointment_type === "setting" || task.lead_id || !task.commercial_tracked || task.appointment_status === "cancelled") return result;
   const key = task.appointment_type === "discovery" ? "discovery" : task.audience === "client" ? "demoClient" : "demo";
   const sameDay = dayInRome(task.created_at) === day;
   if (sameDay) result[`${key}Booked`] = 1;
@@ -331,6 +332,7 @@ export function calculateKpiRows({
     if (isFollowUpActivity(activity)) row.mexFollowUp += 1;
 
     if (isCallActivity(activity)) {
+      if (type === "setting_call") row.settingContacts += 1;
       if (callType === "outbound") row.callOutbound += 1;
       else if (callType === "client") row.callClient += 1;
       else if (callType === "other") row.callOther += 1;
@@ -347,7 +349,7 @@ export function calculateKpiRows({
           row.reachedLeads = reached.size;
         }
       }
-      if (isHeldDiscovery(outcome)) {
+      if (type !== "setting_call" && isHeldDiscovery(outcome)) {
         row.discoveryHeld += 1;
         if (fromAppointment) row.discoveryHeldBooked += 1;
         if (sameDay) row.discoverySameDay += 1;
@@ -357,14 +359,14 @@ export function calculateKpiRows({
         if (previous === undefined || occurredAt < previous) leadTimes.set(activity.lead_id, occurredAt);
         heldDiscoveryByDay.set(day, leadTimes);
       }
-      if (outcome === "qualified") row.qualified += 1;
-      if (outcome === "no_answer" && fromAppointment) row.noShow += 1;
+      if (type !== "setting_call" && outcome === "qualified") row.qualified += 1;
+      if (outcome === "no_answer" && fromAppointment && type !== "setting_call") row.noShow += 1;
     }
 
     const proof = {id:activity.id,leadId:activity.lead_id,at:eventAt,scheduled:activity.scheduled_at,owner:activityOwner(activity) || null,label:activity.outcome || "Prenotazione"};
     if (isBookingActivity(activity)) { row.discoveryBooked += 1; evidence.push({...proof,kind:"discovery"}); }
     if (type === "demo_booked") evidence.push({...proof,kind:"closing"});
-    if ((isCallActivity(activity) && isHeldDiscovery(outcome)) || (type === "demo_call" && outcome === "held")) evidence.push({...proof,kind:"held"});
+    if ((type !== "setting_call" && isCallActivity(activity) && isHeldDiscovery(outcome)) || (type === "demo_call" && outcome === "held")) evidence.push({...proof,kind:"held"});
     if (type === "demo_booked") { if (callType === "client") row.demoClientBooked += 1; else row.demoBooked += 1; }
 
     if (type === "demo_call") {

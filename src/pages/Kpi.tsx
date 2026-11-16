@@ -15,10 +15,11 @@ type RangePreset = "today" | "yesterday" | "7" | "14" | "30" | "month" | "custom
 type ForecastPreset = "tomorrow" | "day_after" | "week" | "7" | "30" | "custom";
 type ForecastOrder = "asc" | "desc";
 
-type ForecastAppointment = Omit<SalesTask, "appointment_type"> & { appointment_type?: GoogleSale["appointment_type"] | null };
+type ForecastAppointment = Omit<SalesTask, "appointment_type"> & { appointment_type?: GoogleSale["appointment_type"] | "setting" | null };
 
 interface ForecastDay {
   day: string;
+  setting: number;
   discovery: number;
   closing: number;
   clientClosing: number;
@@ -39,7 +40,7 @@ const formatForecastDay = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocale
 const formatForecastTime = (iso: string) => new Intl.DateTimeFormat("it-IT", {
   hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome",
 }).format(new Date(iso));
-const cleanAppointmentTitle = (title: string) => title.replace(/^(Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
+const cleanAppointmentTitle = (title: string) => title.replace(/^(Setting telefonico|Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
 const eur = (value: number) => `€ ${value.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const ratio = (value: number | null) => (value === null ? "—" : value.toLocaleString("it-IT", { maximumFractionDigits: 1 }));
 const number = (value: unknown) => Number(value) || 0;
@@ -199,7 +200,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
   const forecastSellers = useMemo(() => [...new Set(futureAppointments.map((task) => task.assigned_to).filter(Boolean))].sort(), [futureAppointments]);
 
   const openFutureAppointments = useMemo(() => futureAppointments.filter((task) => {
-    if (task.appointment_type !== "discovery" && task.appointment_type !== "demo" && task.appointment_type !== "follow_up") return false;
+    if (task.appointment_type !== "setting" && task.appointment_type !== "discovery" && task.appointment_type !== "demo" && task.appointment_type !== "follow_up") return false;
     if (task.completed_at || task.appointment_status === "held" || task.appointment_status === "no_show" || task.appointment_status === "cancelled") return false;
     if (new Date(task.due_at).getTime() <= Date.now()) return false;
     return forecastSeller === "all" || task.assigned_to.trim().toLowerCase() === forecastSeller.trim().toLowerCase();
@@ -211,6 +212,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
       return day >= from && day <= to;
     });
     return {
+      setting: tasks.filter(task => task.appointment_type === "setting").length,
       discovery: tasks.filter((task) => task.appointment_type === "discovery").length,
       closing: tasks.filter((task) => task.appointment_type === "demo" && task.audience !== "client").length,
       clientClosing: tasks.filter((task) => task.appointment_type === "demo" && task.audience === "client").length,
@@ -224,8 +226,9 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
     openFutureAppointments.forEach((task) => {
       const day = dayInRome(task.due_at);
       if (day < forecastRange.from || day > forecastRange.to) return;
-      const row = byDay.get(day) || { day, discovery: 0, closing: 0, clientClosing: 0, followUp: 0, appointments: [] };
-      if (task.appointment_type === "discovery") row.discovery += 1;
+      const row = byDay.get(day) || { day, setting: 0, discovery: 0, closing: 0, clientClosing: 0, followUp: 0, appointments: [] };
+      if (task.appointment_type === "setting") row.setting += 1;
+      else if (task.appointment_type === "discovery") row.discovery += 1;
       else if (task.appointment_type === "follow_up") row.followUp += 1;
       else if (task.audience === "client") row.clientClosing += 1;
       else row.closing += 1;
@@ -395,7 +398,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
     </details>
     <div className="kpi-summary-grid">
       <Summary label="Chiamate fatte" value={phoneAttempts(total)} detail="Tentativi telefonici registrati, incluse discovery da Calendario" />
-      <Summary label="Azioni di contatto" value={contactActions(total)} detail={`${total.callLead} richiami · ${total.mexFollowUp} mex FU`} />
+      <Summary label="Azioni di contatto" value={contactActions(total)} detail={`${total.callLead} richiami · ${total.callOutbound} outbound (di cui ${total.settingContacts} setting) · ${total.mexFollowUp} follow-up`} />
       <Summary label="% RISP" value={formatPct(answerRate(total))} detail={`${total.prospectCallsAnswered} risposte / ${prospectCalls(total)} call prospect`} />
       <Summary label="T/M" value={ratio(attemptsPerReached(total))} detail={`${prospectCalls(total)} tentativi / ${total.reachedLeads} lead raggiunti`} />
       <Summary label="Messaggi outreach" value={outreachSent(total)} detail={`${total.instantlySent} Instantly · ${total.dmSent} DM`} />
@@ -453,14 +456,15 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
             <option value="desc">Più lontane prima</option>
           </select>
         </label>
-        <div className="kpi-forecast-total"><span>Totale periodo</span><b>{forecastTotal.total}</b><small>{forecastTotal.discovery} discovery · {forecastTotal.closing} closing · {forecastTotal.followUp} follow-up{forecastTotal.clientClosing ? ` · ${forecastTotal.clientClosing} già clienti` : ""}</small></div>
+        <div className="kpi-forecast-total"><span>Totale periodo</span><b>{forecastTotal.total}</b><small>{forecastTotal.setting} setting · {forecastTotal.discovery} discovery · {forecastTotal.closing} closing · {forecastTotal.followUp} follow-up{forecastTotal.clientClosing ? ` · ${forecastTotal.clientClosing} già clienti` : ""}</small></div>
       </div>
       <div className="kpi-forecast-table-wrap">
         <table className="kpi-forecast-table">
-          <thead><tr><th>Data</th><th>Discovery</th><th>Closing</th><th>Già clienti</th><th>Follow-up</th><th>Totale</th><th>Agenda</th></tr></thead>
+          <thead><tr><th>Data</th><th>Setting</th><th>Discovery</th><th>Closing</th><th>Già clienti</th><th>Follow-up</th><th>Totale</th><th>Agenda</th></tr></thead>
           <tbody>
             {forecastRows.map((row) => <tr key={row.day}>
               <th><b>{formatForecastDay(row.day)}</b><small>{row.day}</small></th>
+              <td><span className="forecast-count">{row.setting}</span></td>
               <td><span className="forecast-count discovery">{row.discovery}</span></td>
               <td><span className="forecast-count closing">{row.closing}</span></td>
               <td><span className="forecast-count client">{row.clientClosing}</span></td>
@@ -468,7 +472,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
               <td><b className="forecast-day-total">{row.appointments.length}</b></td>
               <td><div className="forecast-agenda">{row.appointments.map((task) => <span key={task.id} className={`forecast-appointment ${task.appointment_type}`}><time>{formatForecastTime(task.due_at)}</time><b>{cleanAppointmentTitle(task.title) || "Appuntamento"}</b>{admin && <small>{task.assigned_to}</small>}</span>)}</div></td>
             </tr>)}
-            {forecastRows.length === 0 && <tr><td className="kpi-forecast-empty" colSpan={7}>Nessuna call in programma nel periodo selezionato.</td></tr>}
+            {forecastRows.length === 0 && <tr><td className="kpi-forecast-empty" colSpan={8}>Nessuna call in programma nel periodo selezionato.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -480,7 +484,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
         <thead>
           <tr className="kpi-group-row">
             <th className="sticky-col" />
-            <th colSpan={11}>Azioni di contatto</th>
+            <th colSpan={12}>Azioni di contatto</th>
             <th colSpan={5}>Lead e outreach</th>
             <th colSpan={6}>Prenotazioni</th>
             <th colSpan={5}>Fissati e svolti in giornata</th>
@@ -491,7 +495,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
           </tr>
           <tr>
             <th className="sticky-col">Data</th>
-            <th>Chiamate fatte</th><th>Richiami</th><th>Call outbound</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call prospect risp</th><th>% RISP</th><th>T/M</th>
+            <th>Chiamate fatte</th><th>Richiami</th><th>Call outbound</th><th>Di cui setting</th><th>Call già clienti</th><th>Altre call</th><th>Mex FU</th><th>Azioni tot</th><th>Min call</th><th>Call prospect risp</th><th>% RISP</th><th>T/M</th>
             <th>N. lead</th><th>Instantly</th><th>DM</th><th>Risposte</th>
             <th>Positive</th><th>Disco fiss</th><th>Closing fiss</th><th>Closing GC fiss</th><th>Follow-up fiss</th><th>% PRENOT</th>
             <th>% PREN RIS</th><th>Disco day</th><th>Closing day</th><th>Closing GC day</th><th>Follow-up day</th>
@@ -510,7 +514,7 @@ export default function Kpi({ client, meName, admin, headerTools, onOpenPending 
     </section>
 
     <details className="panel kpi-definitions"><summary>Come vengono calcolati i numeri</summary><div>
-      <p><b>Azioni di contatto:</b> richiami + call outbound + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ richiami e call outbound. <b>T/M:</b> tentativi di richiamo e outbound ÷ lead raggiunti.</p>
+      <p><b>Azioni di contatto:</b> richiami + call outbound (inclusi i setting) + call già clienti + altre call + messaggi di follow-up. <b>% RISP:</b> call a prospect con risposta ÷ richiami e call outbound. <b>T/M:</b> tentativi di richiamo e outbound ÷ lead raggiunti.</p>
       <p><b>Lead raggiunti:</b> nel totale del periodo ogni lead conta una volta sola anche se richiamato in giorni diversi; nelle righe giornaliere conta in ogni giornata in cui è stato davvero lavorato.</p>
       <p><b>Follow-up post closing:</b> gli appuntamenti Google di questo tipo hanno conteggi separati e rientrano nelle call totali e nello show-up totale. Non aumentano le closing fissate o svolte.</p>
       <p><b>% PRENOT:</b> lead unici con una closing successiva ÷ lead unici con discovery svolta. Riprogrammare la stessa closing non aumenta il dato e il tasso non può superare il 100%. <b>% PREN RIS:</b> discovery fissate ÷ risposte outreach.</p>
@@ -531,10 +535,10 @@ function Summary({ label, value, detail, positive, onClick }: { label: string; v
   return <article className={`kpi-summary${positive ? " positive" : ""}`}><span>{label}</span><b>{value}</b><small>{detail}</small>{onClick && <button className="kpi-detail-button" onClick={onClick}>Vedi registrazioni ↗</button>}</article>;
 }
 
-function ForecastSnapshot({ label, value, data }: { label: string; value: number; data: { discovery: number; closing: number; clientClosing: number; followUp: number } }) {
+function ForecastSnapshot({ label, value, data }: { label: string; value: number; data: { setting: number; discovery: number; closing: number; clientClosing: number; followUp: number } }) {
   return <article className="kpi-forecast-snapshot">
     <span>{label}</span><b>{value}</b>
-    <small><em>{data.discovery} discovery</em><em>{data.closing} closing</em><em>{data.followUp} follow-up</em>{data.clientClosing > 0 && <em>{data.clientClosing} già clienti</em>}</small>
+    <small><em>{data.setting} setting</em><em>{data.discovery} discovery</em><em>{data.closing} closing</em><em>{data.followUp} follow-up</em>{data.clientClosing > 0 && <em>{data.clientClosing} già clienti</em>}</small>
   </article>;
 }
 
@@ -543,7 +547,7 @@ function KpiRow({ row, total, admin }: { row: DailyKpi; total?: boolean; admin: 
   const money = (value: number | null) => (value === null ? "—" : eur(value));
   return <tr className={total ? "total" : row.day === today() ? "today" : ""}>
     <th className="sticky-col">{label}</th>
-    <td>{phoneAttempts(row)}</td><td>{row.callLead}</td><td>{row.callOutbound}</td><td>{row.callClient}</td><td>{row.callOther}</td><td>{row.mexFollowUp}</td>
+    <td>{phoneAttempts(row)}</td><td>{row.callLead}</td><td>{row.callOutbound}</td><td>{row.settingContacts}</td><td>{row.callClient}</td><td>{row.callOther}</td><td>{row.mexFollowUp}</td>
     <td>{contactActions(row)}</td><td>{row.callMinutes}</td><td>{row.prospectCallsAnswered}</td><td>{formatPct(answerRate(row))}</td><td>{ratio(attemptsPerReached(row))}</td>
     <td>{row.leads}</td><td>{row.instantlySent}</td><td>{row.dmSent}</td><td>{row.replies}</td><td>{row.positiveReplies}</td>
     <td>{row.discoveryBooked}</td><td>{row.demoBooked}</td><td>{row.demoClientBooked}</td><td>{row.followUpBooked}</td><td>{formatPct(bookingRate(row))}</td><td>{formatPct(bookingOnReplies(row))}</td>

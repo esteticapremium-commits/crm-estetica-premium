@@ -11,20 +11,22 @@ import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import { topLeadPosition } from "./leadPosition";
 import type { Lead, SalesTask } from "./types";
 
-export type AppointmentType = "discovery" | "demo";
-export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { discovery: 30, demo: 60 };
+export type AppointmentType = NonNullable<SalesTask["appointment_type"]>;
+export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { setting: 15, discovery: 30, demo: 60 };
 export type AppointmentAudience = "lead" | "client";
 export type DiscoveryOutcome = "qualified" | "not_qualified" | "no_answer";
 export type DemoOutcome = "held" | "no_show";
-export type AppointmentOutcome = DiscoveryOutcome | DemoOutcome;
+export type SettingOutcome = "answered" | "no_answer" | "not_interested";
+export type AppointmentOutcome = SettingOutcome | DiscoveryOutcome | DemoOutcome;
 
+const SETTING_OUTCOMES: SettingOutcome[] = ["answered", "no_answer", "not_interested"];
 export const DISCOVERY_OUTCOMES: DiscoveryOutcome[] = ["qualified", "not_qualified", "no_answer"];
 export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "no_show"];
 
 /** Gli unici esiti ammessi per fase. Una demo non può essere "in target" e una
  *  discovery non può essere genericamente "svolta": sono due domande diverse. */
 export function allowedOutcomes(type: AppointmentType): AppointmentOutcome[] {
-  return type === "discovery" ? DISCOVERY_OUTCOMES : DEMO_OUTCOMES;
+  return type === "setting" ? SETTING_OUTCOMES : type === "discovery" ? DISCOVERY_OUTCOMES : DEMO_OUTCOMES;
 }
 
 export function isAppointmentClosed(task: Pick<SalesTask, "appointment_status">) {
@@ -37,18 +39,23 @@ export function isAppointmentClosed(task: Pick<SalesTask, "appointment_status">)
 export const bookingKey = (taskId: string) => `appointment:${taskId}:booked`;
 export const outcomeKey = (taskId: string) => `appointment:${taskId}:outcome`;
 
-const appointmentLabel = (type: AppointmentType) => (type === "discovery" ? "Discovery telefonica" : "Closing video");
+export const APPOINTMENT_LABELS: Record<AppointmentType, string> = {
+  setting: "Setting telefonico", discovery: "Discovery telefonica", demo: "Closing video",
+};
+export const APPOINTMENT_SHORT_LABELS: Record<AppointmentType, string> = {
+  setting: "Setting", discovery: "Discovery", demo: "Closing",
+};
 const channelFor = (type: AppointmentType) => (type === "discovery" ? "phone" : "video_call");
 
 /** Il titolo conserva sempre il prefisso della fase: il Calendario lo usa per
  *  riconoscere l'evento e il venditore per leggerlo a colpo d'occhio. */
 export function appointmentTitle(type: AppointmentType, subject: string) {
-  const clean = subject.replace(/^(Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
-  return `${appointmentLabel(type)} — ${clean || "Appuntamento"}`;
+  const clean = subject.replace(/^(Setting telefonico|Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
+  return `${APPOINTMENT_LABELS[type]} — ${clean || "Appuntamento"}`;
 }
 
 export function appointmentSubject(task: Pick<SalesTask, "title">) {
-  return task.title.replace(/^(Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "");
+  return task.title.replace(/^(Setting telefonico|Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "");
 }
 
 export interface CreateAppointmentInput {
@@ -81,7 +88,7 @@ const stagesBeforeDiscovery = new Set(["SETTING", "RECALL", "NO ANSWER", "NO ANS
 
 async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Date, targetType?: AppointmentType) {
   const nextAction = { next_action_date: romeDayOf(startsAt) };
-  if (targetType) {
+  if (targetType && targetType !== "setting") {
     const { data: current, error: leadError } = await supabase.from("leads")
       .select("pipeline_id,stage_id").eq("id", lead.id).eq("client_id", clientId).single();
     if (leadError) throw leadError;

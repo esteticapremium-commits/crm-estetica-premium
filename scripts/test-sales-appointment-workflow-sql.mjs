@@ -17,7 +17,7 @@ await db.exec(`
   create function public.my_full_name() returns text language sql as $$select current_setting('test.actor')$$;
   create function public.is_admin() returns boolean language sql as $$select false$$;
   set test.actor='Giovanni';
-  create table leads(id uuid primary key, client_id uuid, pipeline_id uuid, assigned_to text);
+  create table leads(id uuid primary key, client_id uuid, pipeline_id uuid, assigned_to text, next_action_date date);
   create table sales_tasks(id uuid primary key, client_id uuid, lead_id uuid, title text, description text,
     due_at timestamptz, assigned_to text, created_by text, appointment_type text, appointment_status text,
     audience text, duration_minutes int, completed_at timestamptz, completed_by text, google_event_id text,
@@ -31,21 +31,25 @@ await db.exec(`
   create table sales_outreach_events(id uuid primary key, client_id uuid, lead_id uuid, event_type text,
     quantity int, occurred_at timestamptz);
   create table sales_revenue_events(id uuid default gen_random_uuid(), client_id uuid, lead_id uuid, occurred_at timestamptz);
-  insert into leads values ('${lead}', '${client}', null, 'Giovanni');
+  insert into leads values ('${lead}', '${client}', null, 'Giovanni', null);
   insert into sales_outreach_events values ('${reply}','${client}','${lead}','reply',1,'2020-11-12T11:00:00Z');
   alter table sales_tasks enable row level security;
   create policy task_scope on sales_tasks to authenticated using (client_id=my_client_id() and assigned_to=my_full_name());
   grant usage on schema auth to authenticated;
-  grant select on leads, sales_outreach_events to authenticated;
+  grant select, update on leads to authenticated;
+  grant select on sales_outreach_events to authenticated;
   grant select, insert, update on sales_tasks, lead_activities, sales_revenue_events to authenticated;
 `);
 const migration = readFileSync("supabase/upgrade_sales_appointment_workflow.sql", "utf8");
 await db.exec(migration);
 await db.exec(migration);
+const settingMigration = readFileSync("supabase/upgrade_setting_appointments.sql", "utf8");
+await db.exec(settingMigration);
+await db.exec(settingMigration);
 const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0])[0];
-const book = (id, type, forLead = lead, source = null, replyId = null, note = null) => scalar(
-  "select to_jsonb(book_sales_appointment($1,$2,$3,$4,'lead','Centro Test',$5,30,$6,$6,$7,$8,null))",
-  [id, client, forLead, type, date, note, source, replyId],
+const book = (id, type, forLead = lead, source = null, replyId = null, note = null, minutes = type === "setting" ? 15 : 30) => scalar(
+  "select to_jsonb(book_sales_appointment($1,$2,$3,$4,'lead','Centro Test',$5,$9,$6,$6,$7,$8,null))",
+  [id, client, forLead, type, date, note, source, replyId, minutes],
 );
 const outcome = (task, value, minutes = null, note = null) => scalar(
   "select to_jsonb(save_sales_appointment_outcome($1,$2,$3,$4,$5,null))",
@@ -72,6 +76,33 @@ const external = await book(standalone, "demo", null);
 await outcome(external, "no_show");
 assert.equal(await scalar("select appointment_outcome from sales_tasks where id=$1", [standalone]), "no_show");
 assert.equal(await scalar("select count(*)::int from lead_activities"), 4);
+const settingId = "00000000-0000-0000-0000-000000000010";
+const nextSettingId = "00000000-0000-0000-0000-000000000011";
+const linkedDiscoveryId = "00000000-0000-0000-0000-000000000012";
+await assert.rejects(() => book(settingId, "setting", null), /lead prospect/);
+await assert.rejects(() => book(settingId, "setting", lead, null, null, null, 30), /Dati appuntamento/);
+const setting = await book(settingId, "setting");
+assert.equal(setting.duration_minutes, 15);
+assert.equal((await book(settingId, "setting")).id, settingId);
+await assert.rejects(() => book(nextSettingId, "setting"), /già un appuntamento/);
+const movedTo = "2020-11-14T12:30:00Z";
+await db.query("select reschedule_crm_appointment($1,$2,'Setting telefonico — Centro Test',$3,null,15)", [settingId, setting.updated_at, movedTo]);
+const moved = await scalar("select to_jsonb(t) from sales_tasks t where id=$1", [settingId]);
+assert.equal(Date.parse(moved.due_at), Date.parse(movedTo));
+assert.equal(await scalar("select count(*)::int from lead_activities where event_type='setting_booked'"), 1);
+await assert.rejects(() => outcome(moved, "qualified"), /Esito non valido/);
+const noAnswer = await outcome(moved, "no_answer");
+assert.equal(noAnswer.appointment_status, "no_show");
+const answered = await outcome(noAnswer, "answered");
+assert.equal(answered.outcome_minutes, null);
+const result = await scalar("select to_jsonb(a) from lead_activities a where event_type='setting_call'");
+assert.equal(result.outcome, "answered");
+assert.equal(result.call_type, "outbound");
+assert.equal(Date.parse(result.occurred_at), Date.parse(movedTo));
+assert.equal(await scalar("select count(*)::int from lead_activities where event_type='setting_call'"), 1);
+const linked = await book(linkedDiscoveryId, "discovery", lead, `appointment:${settingId}:outcome`);
+assert.equal(linked.id, linkedDiscoveryId);
+assert.equal(await scalar("select details->>'source_outcome_key' from lead_activities where event_key=$1", [`appointment:${linkedDiscoveryId}:booked`]), `appointment:${settingId}:outcome`);
 await db.exec("set test.actor='Altro venditore'");
 await assert.rejects(() => outcome(held, "no_answer"), /accessibile/);
 await db.exec("reset role");
