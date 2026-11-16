@@ -7,7 +7,7 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
 import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 import { defaultAudience } from "../salesKpi";
-import { allowedOutcomes, appointmentSubject, createAppointment, deleteAppointment, isAppointmentClosed, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
+import { APPOINTMENT_DURATION, allowedOutcomes, appointmentSubject, createAppointment, deleteAppointment, isAppointmentClosed, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
@@ -26,7 +26,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
   const [saleError, setSaleError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<SalesTask[]>([]); const [leads, setLeads] = useState<Lead[]>([]); const [stages, setStages] = useState<Stage[]>([]); const [google, setGoogle] = useState<GoogleEvent[]>([]);
   const [selected, setSelected] = useState<Selected | null>(null); const [createOpen, setCreateOpen] = useState(false); const [editingEvent, setEditingEvent] = useState(false); const [weekStart, setWeekStart] = useState(() => monday(new Date()));
-  const [title, setTitle] = useState(""); const [startsAt, setStartsAt] = useState(""); const [duration, setDuration] = useState("60"); const [note, setNote] = useState(""); const [leadId, setLeadId] = useState(""); const [appointmentType, setAppointmentType] = useState<AppointmentType>("discovery"); const [audienceOverride, setAudienceOverride] = useState<AppointmentAudience | null>(null);
+  const [title, setTitle] = useState(""); const [startsAt, setStartsAt] = useState(""); const [durationOverride, setDurationOverride] = useState<number | null>(null); const [note, setNote] = useState(""); const [leadId, setLeadId] = useState(""); const [appointmentType, setAppointmentType] = useState<AppointmentType>("discovery"); const [audienceOverride, setAudienceOverride] = useState<AppointmentAudience | null>(null);
   // Il lucchetto è sincrono: a differenza di `busy`, che dipende da un
   // re-render, blocca il secondo clic anche quando la rete è lenta.
   const saveLock = useRef(false);
@@ -63,11 +63,16 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
   const rangeLabel = `${weekStart.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${new Date(weekEnd.getTime() - 86400000).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`;
   async function connect() { setBusy(true); setError(null); try { await connectGoogleCalendar(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Collegamento non riuscito."); } setBusy(false); }
   function shiftWeek(amount: number) { setSelected(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
-  function openCreate(date = new Date()) { const initial = new Date(date); initial.setHours(10, 0, 0, 0); if (initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000); setTitle(""); setStartsAt(localDateTime(initial)); setDuration("60"); setNote(""); setLeadId(""); setAppointmentType("discovery"); setAudienceOverride(null); setFormError(null); setCreateOpen(true); }
+  function openCreate(date = new Date()) { const initial = new Date(date); initial.setHours(10, 0, 0, 0); if (initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000); setTitle(""); setStartsAt(localDateTime(initial)); setDurationOverride(null); setNote(""); setLeadId(""); setAppointmentType("discovery"); setAudienceOverride(null); setFormError(null); setCreateOpen(true); }
+  function chooseAppointmentType(type: AppointmentType) {
+    if (type === appointmentType) return;
+    setAppointmentType(type);
+    setDurationOverride(null);
+  }
   async function saveAppointment() {
     if (saveLock.current) return;
     if (!title.trim() || !startsAt) return setFormError("Inserisci titolo, data e ora.");
-    const start = new Date(startsAt); const minutes = Number(duration);
+    const start = new Date(startsAt); const minutes = durationOverride ?? APPOINTMENT_DURATION[appointmentType];
     if (Number.isNaN(start.getTime()) || !minutes || minutes < 15) return setFormError("Controlla data, ora e durata.");
     saveLock.current = true; setBusy(true); setFormError(null);
     const result = await createAppointment({
@@ -146,10 +151,10 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
         <div className="calendar-detail-head"><span className="calendar-detail-label">Nuovo appuntamento</span><button type="button" aria-label="Chiudi" onClick={() => setCreateOpen(false)}>×</button></div>
         <h2>Fissa appuntamento</h2><p className="calendar-create-copy">Scegli la fase corretta: il CRM userà questo dato per i KPI giornalieri.</p>
         {formError && <div className="notice err">{formError}</div>}
-        <label>Fase commerciale<div className="channel-choice"><button type="button" className={appointmentType === "discovery" ? "active" : ""} onClick={() => setAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={appointmentType === "demo" ? "active" : ""} onClick={() => setAppointmentType("demo")}>Closing · video</button></div></label>
+        <label>Fase commerciale<div className="channel-choice"><button type="button" className={appointmentType === "discovery" ? "active" : ""} onClick={() => chooseAppointmentType("discovery")}>Discovery · telefono</button><button type="button" className={appointmentType === "demo" ? "active" : ""} onClick={() => chooseAppointmentType("demo")}>Closing · video</button></div></label>
         <label>Con chi<div className="channel-choice"><button type="button" className={audience === "lead" ? "active" : ""} onClick={() => setAudienceOverride("lead")}>Nuovo lead</button><button type="button" className={audience === "client" ? "active" : ""} onClick={() => setAudienceOverride("client")}>Già cliente</button></div><small>Le demo con clienti già acquisiti hanno una colonna KPI dedicata.</small></label>
         <label>Titolo<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Es. Nome del centro" /></label>
-        <div className="calendar-form-row"><label>Data e ora<input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label><label>Durata<select value={duration} onChange={(event) => setDuration(event.target.value)}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label></div>
+        <div className="calendar-form-row"><label>Data e ora<input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label><label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION[appointmentType]} onChange={(event) => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label></div>
         <label>Collega a un lead <small>(necessario per i KPI)</small><select value={leadId} onChange={(event) => setLeadId(event.target.value)}><option value="">Nessun lead / appuntamento interno</option>{leads.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((lead) => <option key={lead.id} value={lead.id}>{lead.name || "Senza nome"}{lead.phone ? ` · ${lead.phone}` : ""}</option>)}</select></label>
         <label>Note <small>(facoltativo)</small><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Contesto utile per l'appuntamento" /></label>
         <footer><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>

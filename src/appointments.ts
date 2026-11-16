@@ -12,6 +12,7 @@ import { topLeadPosition } from "./leadPosition";
 import type { Lead, SalesTask } from "./types";
 
 export type AppointmentType = "discovery" | "demo";
+export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { discovery: 30, demo: 60 };
 export type AppointmentAudience = "lead" | "client";
 export type DiscoveryOutcome = "qualified" | "not_qualified" | "no_answer";
 export type DemoOutcome = "held" | "no_show";
@@ -57,7 +58,7 @@ export interface CreateAppointmentInput {
   audience: AppointmentAudience;
   subject: string;
   startsAt: Date;
-  durationMinutes: number;
+  durationMinutes?: number;
   note: string;
   meName: string;
 }
@@ -111,7 +112,7 @@ async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Da
  * appuntamento a metà, né un KPI senza appuntamento.
  */
 export async function createAppointment(input: CreateAppointmentInput): Promise<AppointmentResult> {
-  const { clientId, lead, type, audience, subject, startsAt, durationMinutes, note, meName } = input;
+  const { clientId, lead, type, audience, subject, startsAt, durationMinutes = APPOINTMENT_DURATION[type], note, meName } = input;
   const assignedTo = lead?.assigned_to || meName || "Venditore";
   const title = appointmentTitle(type, subject);
   const end = new Date(startsAt.getTime() + durationMinutes * 60_000);

@@ -10,7 +10,7 @@ import { romeStamp } from "../dates";
 import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
-import { createAppointment, isAppointmentClosed, leadAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
+import { APPOINTMENT_DURATION, createAppointment, isAppointmentClosed, leadAppointments, recordAppointmentOutcome, type AppointmentAudience } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, Pipeline, SalesRevenueEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -927,7 +927,7 @@ export default function LeadModal({
     if (planKind === "appointment") {
       const result = await createAppointment({
         clientId: lead.client_id, lead, type: planAppointmentType, audience: planAudience,
-        subject, startsAt: new Date(planDue), durationMinutes: 60, note: planNote, meName: meName || "",
+        subject, startsAt: new Date(planDue), note: planNote, meName: meName || "",
       });
       planLock.current = false; setBusy(false);
       if (!result.ok) { setErr(result.error || "Appuntamento non salvato."); return false; }
@@ -1082,7 +1082,7 @@ export default function LeadModal({
               <div className="field"><label>{planKind === "appointment" ? "Titolo appuntamento" : "Cosa fare"} <small>(facoltativo)</small></label><input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} placeholder={planKind === "appointment" ? "Es. Consulenza in sede" : "Es. Richiamare dopo le 18"} /></div>
               {planKind === "task" && <label className={`task-priority-option compact${planPriority ? " active" : ""}`}><input type="checkbox" checked={planPriority} onChange={(e) => setPlanPriority(e.target.checked)} /><span><b>Task prioritaria</b><small>Evidenzia il richiamo come prioritario.</small></span></label>}
               <div className="field"><label>Dettagli <small>(facoltativo)</small></label><input value={planNote} onChange={(e) => setPlanNote(e.target.value)} placeholder="Nota utile prima del contatto" /></div>
-              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"}.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
+              {planKind === "appointment" && <p className="ettore-auto-invite"><b>{planAppointmentType === "discovery" ? "Discovery telefonica" : "Closing in videochiamata"} · {APPOINTMENT_DURATION[planAppointmentType]} min.</b> L’appuntamento viene registrato nei KPI quando lo salvi. Ettore viene invitato automaticamente nel calendario.</p>}
               <p className="lead-plan-save-hint">Compila data e ora, poi premi <b>Salva</b> in basso: il prossimo passo verrà creato insieme alle modifiche della scheda.</p>
             </div>
           )}

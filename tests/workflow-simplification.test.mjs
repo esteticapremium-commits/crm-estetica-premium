@@ -69,3 +69,30 @@ test('una discovery salva il KPI prima di avanzare, senza riportare indietro una
       : { next_action_date: '2026-11-18' }]);
   }
 });
+
+test('CRM e Google Calendar ricevono la stessa durata per discovery e closing', async () => {
+  const start = new Date('2026-11-18T12:00:00Z');
+  for (const [type, override, expectedMinutes] of [['discovery', undefined, 30], ['demo', undefined, 60], ['demo', 45, 45]]) {
+    let crm;
+    let google;
+    const appointments = module('src/appointments.ts', {
+      './supabaseClient': { supabase: { from() { return { insert(fields) {
+        crm = fields;
+        return { select: () => ({ single: async () => ({ data: { id: 'task' } }) }) };
+      } }; } } },
+      './calendarGoogle': {
+        ensureGoogleCalendarConnection: async () => true,
+        createGoogleCalendarEvent: async (event) => { google = event; return { id: 'google-event' }; },
+      },
+    });
+    const result = await appointments.createAppointment({
+      clientId: 'company', lead: null, type, audience: 'lead', subject: 'Appuntamento',
+      startsAt: start, durationMinutes: override, note: '', meName: 'Giovanni',
+    });
+    assert.equal(result.ok, true);
+    assert.equal(crm.duration_minutes, expectedMinutes);
+    assert.equal(crm.google_event_id, 'google-event');
+    assert.equal(google.start, start.toISOString());
+    assert.equal(Date.parse(google.end) - Date.parse(google.start), expectedMinutes * 60_000);
+  }
+});
