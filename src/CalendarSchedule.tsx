@@ -44,7 +44,7 @@ export default function CalendarSchedule({ days, events, onCreate }: { days: Dat
       return { ...event, start, end: Math.min(1440, Math.max(start + 30, end)) };
     }));
     const lanes = Math.max(1, ...placed.map(event => event.columns));
-    return { day, date, dailyEvents, placed, lanes, minWidth: Math.max(134, lanes * 84) };
+    return { day, date, dailyEvents, placed, lanes, minWidth: Math.max(134, lanes * 96) };
   });
   const timedEvents = week.flatMap(({ placed }) => placed);
   const startHour = Math.min(8, ...timedEvents.map(event => Math.floor(event.start / 60)));
