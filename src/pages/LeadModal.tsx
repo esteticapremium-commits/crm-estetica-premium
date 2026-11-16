@@ -932,6 +932,10 @@ export default function LeadModal({
       void reloadAppointments();
       void reloadActivityHistory();
       setPlanTitle(""); setPlanDue(""); setPlanNote(""); setPlanPriority(false);
+      if (result.pipelineWarning) {
+        setErr([result.pipelineWarning, result.warning].filter(Boolean).join(" "));
+        return false;
+      }
       if (closeAfterSave) onSaved();
       return true;
     }

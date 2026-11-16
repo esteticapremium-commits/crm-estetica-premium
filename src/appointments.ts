@@ -8,6 +8,7 @@
 import { supabase } from "./supabaseClient";
 import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
+import { topLeadPosition } from "./leadPosition";
 import type { Lead, SalesTask } from "./types";
 
 export type AppointmentType = "discovery" | "demo";
@@ -67,7 +68,41 @@ export interface AppointmentResult {
   /** L'operazione è riuscita ma qualcosa merita di essere detto: tipicamente
    *  l'appuntamento è nel CRM e nei KPI ma non su Google Calendar. */
   warning?: string;
+  pipelineWarning?: string;
   taskId?: string;
+}
+
+const stagesBeforeDiscovery = new Set(["SETTING", "RECALL", "NO ANSWER", "NO ANSWER 1-3", "NO ANSWER 4-5"]);
+
+async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Date, advanceDiscovery: boolean) {
+  const nextAction = { next_action_date: romeDayOf(startsAt) };
+  if (advanceDiscovery) {
+    const { data: current, error: leadError } = await supabase.from("leads")
+      .select("pipeline_id,stage_id").eq("id", lead.id).eq("client_id", clientId).single();
+    if (leadError) throw leadError;
+    if (current.pipeline_id) {
+      const { data: stages, error: stageError } = await supabase.from("stages")
+        .select("id,name").eq("client_id", clientId).eq("pipeline_id", current.pipeline_id);
+      if (stageError) throw stageError;
+      const currentStage = stages.find(stage => stage.id === current.stage_id)?.name.trim().toUpperCase();
+      if (currentStage && stagesBeforeDiscovery.has(currentStage)) {
+        const discovery = stages.find(stage => stage.name.trim().toUpperCase() === "DISCOVERY");
+        if (!discovery) throw new Error("La colonna Discovery non è presente in questa pipeline.");
+        const position = await topLeadPosition(supabase, clientId, current.pipeline_id, discovery.id);
+        // Preserve a simultaneous change by another user. The stage trigger records the move.
+        const { data: moved, error } = await supabase.from("leads")
+          .update({ ...nextAction, stage_id: discovery.id, position })
+          .eq("id", lead.id).eq("client_id", clientId)
+          .eq("pipeline_id", current.pipeline_id).eq("stage_id", current.stage_id)
+          .select("id").maybeSingle();
+        if (error) throw error;
+        if (!moved) throw new Error("La fase del lead è cambiata durante il salvataggio. Controlla la scheda.");
+        return;
+      }
+    }
+  }
+  const { error } = await supabase.from("leads").update(nextAction).eq("id", lead.id).eq("client_id", clientId);
+  if (error) throw error;
 }
 
 /**
@@ -122,6 +157,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
   }
   const taskId = taskResult.data.id as string;
 
+  let pipelineWarning: string | undefined;
   if (lead) {
     const tracked = await supabase.from("lead_activities").upsert({
       lead_id: lead.id, client_id: clientId, pipeline_id: lead.pipeline_id,
@@ -137,9 +173,14 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
       await rollbackGoogle(googleEventId);
       return { ok: false, error: "Appuntamento non salvato: il KPI non è stato registrato (" + tracked.error.message + ")." };
     }
-    await supabase.from("leads").update({ next_action_date: romeDayOf(startsAt) }).eq("id", lead.id);
+    try {
+      await updateLeadAfterBooking(lead, clientId, startsAt, type === "discovery" && audience === "lead");
+    } catch (reason) {
+      const detail = reason && typeof reason === "object" && "message" in reason ? ` ${reason.message}` : "";
+      pipelineWarning = `Appuntamento salvato nei KPI e nel CRM. Aggiornamento della scheda lead non riuscito.${detail}`;
+    }
   }
-  return { ok: true, taskId, warning: googleWarning };
+  return { ok: true, taskId, warning: googleWarning, pipelineWarning };
 }
 
 /**

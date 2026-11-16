@@ -79,7 +79,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     if (!result.ok) { await load(); return setFormError(result.error || "Appuntamento non salvato."); }
     setCreateOpen(false); await load();
     // L'appuntamento c'è; se Google non l'ha preso lo diciamo senza bloccare.
-    if (result.warning) setError(result.warning);
+    if (result.warning || result.pipelineWarning) setError([result.pipelineWarning, result.warning].filter(Boolean).join(" "));
   }
   function beginEdit() { if (!selected) return; const source = selected.kind === "crm" ? { title: appointmentSubject(selected.task), start: selected.task.due_at, note: selected.task.description || "" } : { title: selected.event.summary || "", start: selected.event.start?.dateTime || "", note: selected.event.description || "" }; if (!source.start) { setEditError("Gli eventi Google di intera giornata non sono modificabili dal CRM."); return; } setEditTitle(source.title); setEditStartsAt(localDateTime(new Date(source.start))); setEditNote(source.note); setEditError(null); setEditingEvent(true); }
 

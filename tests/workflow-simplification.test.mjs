@@ -36,3 +36,36 @@ test('esito appuntamento conserva nota, data originale e chiave unica',async()=>
  const result=await appointments.recordAppointmentOutcome(task,'held','Ettore','pipeline',30,'  Vuole ricevere la proposta  ');
  assert.equal(result.ok,true);assert.equal(records[0].data.note,'Vuole ricevere la proposta');assert.equal(records[0].data.occurred_at,task.due_at);assert.equal(records[0].data.event_key,'appointment:meeting:outcome');assert.equal(records[0].options.onConflict,'client_id,event_key');
 });
+
+test('una discovery salva il KPI prima di avanzare, senza riportare indietro una closing', async () => {
+  for (const stage of ['SETTING', 'CLOSING']) {
+    const writes = [];
+    const db = { from(table) {
+      const query = {
+        select() { return query; }, eq() { return query; }, is() { return query; },
+        async single() { return { data: table === 'sales_tasks' ? { id: 'task' } : { pipeline_id: 'current', stage_id: stage } }; },
+        async maybeSingle() { return { data: { id: 'lead' } }; },
+        then(resolve) { resolve({ data: table === 'stages' ? [{ id: stage, name: stage }, { id: 'discovery', name: 'DISCOVERY' }] : [] }); },
+        insert() { return query; },
+        async upsert(data) { writes.push(data.event_type); return {}; },
+        update(data) { writes.push({ ...data }); return query; },
+      };
+      return query;
+    } };
+    const appointments = module('src/appointments.ts', {
+      './supabaseClient': { supabase: db },
+      './calendarGoogle': { ensureGoogleCalendarConnection: async () => false },
+      './leadPosition': { topLeadPosition: async (_db, _client, pipeline) => { assert.equal(pipeline, 'current'); return -8; } },
+    });
+    const result = await appointments.createAppointment({
+      clientId: 'company', lead: { id: 'lead', pipeline_id: 'previous', source: 'DM' },
+      type: 'discovery', audience: 'lead', subject: 'Lead',
+      startsAt: new Date('2026-11-18T12:00:00Z'), durationMinutes: 60, note: '', meName: 'Giovanni',
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.pipelineWarning, undefined);
+    assert.deepEqual(writes, ['discovery_booked', stage === 'SETTING'
+      ? { next_action_date: '2026-11-18', stage_id: 'discovery', position: -8 }
+      : { next_action_date: '2026-11-18' }]);
+  }
+});
