@@ -939,6 +939,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [staffRole, setStaffRole] = useState<"venditore" | "setter">("venditore");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -961,14 +962,15 @@ function UsersPanel({ clients }: { clients: Client[] }) {
     setMsg(null);
     if (!email.trim() || !password.trim() || !clientId)
       return setErr("Compila email, password e cliente.");
-    const res = await callAdmin("create_venditore", {
+    if (staffRole === "setter" && !fullName.trim()) return setErr("Inserisci il nome del setter.");
+    const res = await callAdmin(staffRole === "setter" ? "create_setter" : "create_venditore", {
       email: email.trim(),
       password,
       client_id: clientId,
       full_name: fullName.trim() || null,
     });
     if (res.error) return setErr(res.error);
-    setMsg("Accesso creato. Comunica email e password al venditore.");
+    setMsg("Accesso creato. Comunica email e password alla persona interessata.");
     setEmail("");
     setPassword("");
     setFullName("");
@@ -977,7 +979,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
 
   return (
     <div className="panel">
-      <h2>Accessi (venditori)</h2>
+      <h2>Accessi del team</h2>
       <p style={{ color: "var(--muted)", marginTop: -6 }}>
         Crea gli accessi del team vendita, cambia le password o rimuovi chi non
         lavora più. Gli accessi sono limitati all’azienda assegnata e ai permessi del profilo.
@@ -1003,7 +1005,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
               <tr key={u.id}>
                 <td>{u.full_name || "—"}</td>
                 <td>{u.email}</td>
-                <td>{u.role === "admin" ? "Amministratore" : "Venditore"}</td>
+                <td>{u.role === "setter" ? "Setter" : "Venditore"}</td>
                 <td>{clients.find((c) => c.id === u.client_id)?.name ?? "—"}</td>
                 <td style={{ textAlign: "right" }}>
                   <button
@@ -1042,8 +1044,14 @@ function UsersPanel({ clients }: { clients: Client[] }) {
         </table>
       )}
 
-      <h3 style={{ fontSize: 14, marginTop: 18 }}>Crea nuovo accesso venditore</h3>
+      <h3 style={{ fontSize: 14, marginTop: 18 }}>Crea nuovo accesso</h3>
       <div className="users-create-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="field">
+          <label>Ruolo</label>
+          <select value={staffRole} onChange={e => setStaffRole(e.target.value as typeof staffRole)}>
+            <option value="venditore">Venditore</option><option value="setter">Setter</option>
+          </select>
+        </div>
         <div className="field">
           <label>Nome</label>
           <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="es. Mario Rossi" />
@@ -1064,7 +1072,7 @@ function UsersPanel({ clients }: { clients: Client[] }) {
         </div>
         <div className="field">
           <label>Password iniziale</label>
-          <input value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
       </div>
       <button className="btn primary" onClick={create}>

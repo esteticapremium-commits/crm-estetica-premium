@@ -1,0 +1,30 @@
+.setter-heading, .setter-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.setter-heading { justify-content: space-between; margin-bottom: 16px; }
+.setter-heading h1, .setter-metrics h2, .setter-dialog h2 { margin: 0; }
+.setter-heading p, .setter-dialog header p { margin: 4px 0 0; color: var(--ep-muted, var(--muted)); }
+.setter-metrics { padding: 16px; }
+.setter-metrics h2 { margin-right: auto; font-size: 17px; }
+.setter-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.setter-metric-grid article { border: 1px solid var(--ep-border, #e8dedb); border-radius: 12px; padding: 12px; }
+.setter-metric-grid article span { display: block; color: var(--ep-muted, var(--muted)); }
+.setter-metric-grid strong { display: block; margin-top: 4px; font-size: 24px; }
+.setter-filters { margin: 18px 0 12px; }
+.setter-filters input { min-width: 0; width: min(240px, 100%); }
+.setter-board { display: grid; grid-template-columns: repeat(4, minmax(195px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 12px; }
+.setter-column { padding: 12px; min-width: 0; }
+.setter-column h3 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 12px; font-size: 14px; }
+.setter-column h3 span { color: var(--ep-brand); font-variant-numeric: tabular-nums; }
+.setter-card { border: 1px solid var(--ep-border, #e8dedb); border-radius: 10px; margin-bottom: 8px; padding: 8px; display: flex; align-items: flex-start; gap: 4px; }
+.setter-card-main { background: transparent; border: 0; text-align: left; color: inherit; cursor: pointer; flex: 1; min-width: 0; padding: 4px; overflow-wrap: anywhere; }
+.setter-card-main strong, .setter-card-main small { display: block; }
+.setter-card-main small { margin-top: 3px; color: var(--ep-muted, var(--muted)); }
+.setter-card-main .setter-overdue { color: #9b391e; }
+.setter-dialog { max-width: min(520px, 94vw); }
+.setter-dialog .content { display: grid; gap: 12px; }
+.setter-dialog label textarea, .setter-dialog label input:not([type=checkbox]), .setter-dialog label select { display: block; width: 100%; margin-top: 4px; }
+@media (max-width: 640px) {
+  .setter-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .setter-tools .segmented { max-width: 100%; flex-wrap: wrap; }
+  .setter-board { grid-template-columns: repeat(4, minmax(230px, 72vw)); scroll-snap-type: x proximity; }
+  .setter-column { scroll-snap-align: start; }
+}

@@ -1,4 +1,4 @@
-export type Role = "admin" | "venditore";
+export type Role = "admin" | "venditore" | "setter";
 
 export interface Profile {
   id: string;
@@ -106,6 +106,7 @@ export interface SalesTask {
   outcome_minutes?: number | null;
   outcome_note?: string | null;
   appointment_host?: string | null;
+  setter_id?: string | null;
   proposal_made?: boolean | null;
   audience?: "lead" | "client" | null;
 }

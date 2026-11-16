@@ -2,7 +2,7 @@
 // Solo l'ADMIN autenticato può usarla: la service role vive SOLO qui
 // (segreto lato server), mai nel frontend.
 //
-// Azioni: list_users, create_venditore, set_password, delete_user.
+// Azioni: list_users, create_venditore, create_setter, set_password, delete_user.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -79,7 +79,9 @@ Deno.serve(async (req) => {
       });
       return json({ users: out });
     }
-    case "create_venditore": {
+    case "create_venditore":
+    case "create_setter": {
+      const role = body.action === "create_setter" ? "setter" : "venditore";
       const email = String(body.email ?? "").trim();
       const password = String(body.password ?? "");
       const clientId = (body.client_id as string) ?? null;
@@ -87,6 +89,7 @@ Deno.serve(async (req) => {
       if (!email || !password || !clientId) {
         return json({ error: "Compila email, password e cliente." }, 400);
       }
+      if (role === "setter" && !fullName) return json({ error: "Inserisci il nome del setter." }, 400);
       const { data: u, error } = await admin.auth.admin.createUser({
         email,
         password,
@@ -95,11 +98,14 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message }, 400);
       const { error: perr } = await admin.from("profiles").insert({
         id: u.user.id,
-        role: "venditore",
+        role,
         client_id: clientId,
         full_name: fullName,
       });
-      if (perr) return json({ error: perr.message }, 500);
+      if (perr) {
+        await admin.auth.admin.deleteUser(u.user.id);
+        return json({ error: perr.message }, 500);
+      }
       return json({ ok: true, user_id: u.user.id });
     }
     case "set_password": {
