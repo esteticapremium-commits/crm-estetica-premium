@@ -204,9 +204,13 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
   let googleWarning: string | undefined;
   if (task.google_event_id) {
     try {
-      await updateGoogleCalendarEvent(task.google_event_id, { title, start: changes.startsAt.toISOString(), end: end.toISOString(), description: changes.note.trim() });
+      const note = changes.note.trim();
+      await updateGoogleCalendarEvent(task.google_event_id, {
+        title, start: changes.startsAt.toISOString(), end: end.toISOString(),
+        description: note === (task.description || "") ? undefined : note,
+      });
     } catch {
-      googleWarning = "Appuntamento spostato nel CRM e nello storico, ma Google Calendar non ha accettato la modifica. Ricollega Google Calendar.";
+      googleWarning = "Appuntamento spostato nel CRM. Google Calendar non ha accettato la modifica: verifica il collegamento e i permessi sul calendario che ha creato l’evento.";
     }
   } else {
     googleWarning = "Appuntamento spostato nel CRM. Non era collegato a Google Calendar, quindi lì non cambia nulla.";

@@ -95,7 +95,15 @@ export async function createGoogleCalendarEvent(input: { title: string; start: s
   return googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" }, attendees: input.attendees?.map((email) => ({ email })), conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } }) });
 }
 export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
-  return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ summary: input.title, description: input.description || "", start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" } }) });
+  return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}?conferenceDataVersion=1`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      summary: input.title,
+      description: input.description,
+      start: { dateTime: input.start, timeZone: "Europe/Rome" },
+      end: { dateTime: input.end, timeZone: "Europe/Rome" },
+    }),
+  });
 }
 export async function deleteGoogleCalendarEvent(id: string) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "DELETE" });
