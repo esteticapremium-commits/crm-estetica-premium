@@ -299,10 +299,11 @@ export async function recordAppointmentOutcome(
 /** Storico completo degli appuntamenti del lead, inclusi esiti già chiusi:
  *  la scheda deve mostrarli prima di permettere una nuova prenotazione. */
 export async function leadAppointments(clientId: string, leadId: string) {
-  const { data } = await supabase.from("sales_tasks").select("*")
+  const { data, error } = await supabase.from("sales_tasks").select("*")
     .eq("client_id", clientId).eq("lead_id", leadId)
     .not("appointment_type", "is", null)
     .order("created_at", { ascending: false }).limit(50);
+  if (error) throw error;
   return (data as SalesTask[]) || [];
 }
 

@@ -96,3 +96,60 @@ test('CRM e Google Calendar ricevono la stessa durata per discovery e closing', 
     assert.equal(Date.parse(google.end) - Date.parse(google.start), expectedMinutes * 60_000);
   }
 });
+
+test('spostamento e correzione riusano la prenotazione e l’esito KPIs', async () => {
+  const rpcCalls = [];
+  const googleUpdates = [];
+  const outcomes = new Map();
+  const db = {
+    async rpc(name, args) { rpcCalls.push({ name, args }); return {}; },
+    from(table) {
+      return {
+        update() {
+          assert.equal(table, 'sales_tasks');
+          return { eq: async (_field, id) => { assert.equal(id, meeting.id); return {}; } };
+        },
+        async upsert(data, options) {
+          assert.equal(table, 'lead_activities');
+          assert.equal(options.onConflict, 'client_id,event_key');
+          outcomes.set(data.event_key, data);
+          return {};
+        },
+      };
+    },
+  };
+  const appointments = module('src/appointments.ts', {
+    './supabaseClient': { supabase: db },
+    './calendarGoogle': { updateGoogleCalendarEvent: async (id, data) => googleUpdates.push({ id, data }) },
+  });
+  const meeting = {
+    id: 'meeting', lead_id: 'lead', client_id: 'company', title: 'Discovery telefonica — Centro',
+    appointment_type: 'discovery', appointment_status: 'scheduled', updated_at: '2026-11-08T10:00:00Z',
+    due_at: '2026-11-10T10:00:00Z', duration_minutes: 30, assigned_to: 'Giovanni',
+    audience: 'lead', google_event_id: 'existing-google-id',
+  };
+  const newStart = new Date('2026-11-11T12:00:00Z');
+  const moved = await appointments.updateAppointment(meeting, {
+    subject: appointments.appointmentSubject(meeting), startsAt: newStart, note: '',
+  });
+  assert.equal(moved.taskId, meeting.id);
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0].name, 'reschedule_crm_appointment');
+  assert.equal(rpcCalls[0].args.p_task_id, meeting.id);
+  assert.equal(rpcCalls[0].args.p_expected_updated_at, meeting.updated_at);
+  assert.equal(googleUpdates[0].id, meeting.google_event_id);
+  assert.equal(googleUpdates[0].data.start, newStart.toISOString());
+  assert.equal(googleUpdates[0].data.end, '2026-11-11T12:30:00.000Z');
+
+  const rescheduled = { ...meeting, due_at: newStart.toISOString() };
+  assert.equal((await appointments.recordAppointmentOutcome(rescheduled, 'no_answer', 'Giovanni', 'pipeline')).ok, true);
+  const key = appointments.outcomeKey(meeting.id);
+  assert.equal(outcomes.get(key).outcome, 'no_answer');
+  assert.equal((await appointments.recordAppointmentOutcome({ ...rescheduled, appointment_status: 'no_show' }, 'qualified', 'Ettore', 'pipeline', 22)).ok, true);
+  assert.equal(outcomes.size, 1);
+  const corrected = outcomes.get(key);
+  assert.equal(corrected.outcome, 'qualified');
+  assert.equal(corrected.occurred_at, newStart.toISOString());
+  assert.equal(corrected.duration_minutes, 22);
+  assert.equal(corrected.details.assigned_to, 'Giovanni');
+});

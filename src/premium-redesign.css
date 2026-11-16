@@ -270,6 +270,17 @@
 .theme-premium.platform-shell .lead-appointment-overview-row small { margin-top: 3px; color: var(--ep-muted); font-size: 10px; }
 .theme-premium.platform-shell .lead-appointment-overview-row em { flex: 0 0 auto; font-size: 10px; color: var(--ep-brand); font-style: normal; font-weight: 700; }
 .theme-premium.platform-shell .lead-appointment-overview-row.past { opacity: .78; }
+.theme-premium.platform-shell .lead-appointment-overview-row { flex-wrap: wrap; }
+.theme-premium.platform-shell .lead-appointment-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.theme-premium.platform-shell .lead-appointment-new { margin-top: 8px; }
+.theme-premium.platform-shell .lead-appointment-draft { margin-top: 10px; }
+.theme-premium.platform-shell .lead-appointment-draft > b { display: block; margin-bottom: 8px; }
+.theme-premium.platform-shell .lead-appointment-draft > p { margin: 0 0 10px; color: var(--ep-muted); font-size: 12px; }
 .theme-premium.platform-shell .tracker-history summary { color: var(--ep-muted); font-size: 10px; font-weight: 800; cursor: pointer; }
 .theme-premium.platform-shell .tracker-history > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee5e2; }
 .theme-premium.platform-shell .tracker-history > div span,
