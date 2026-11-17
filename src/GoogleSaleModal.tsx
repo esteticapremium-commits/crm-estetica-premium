@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { withTimeout } from './async';
 import type { GoogleEvent } from './calendarGoogle';
 import type { Lead } from './types';
-import { googleSaleKey, saleOutcomes, validateGoogleSale, type GoogleSale } from './googleSales';
+import { googleOutcomesBeforeStart, googleSaleKey, saleOutcomes, validateGoogleSale, type GoogleSale, type GoogleSaleOutcome } from './googleSales';
 import './googleSales.css';
 const localStamp = (iso: string | null | undefined) => {
   if (!iso) return '';
@@ -33,6 +33,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
   const [proposal, setProposal] = useState(sale?.proposal_made || false);
   const [qualified, setQualified] = useState(sale?.qualified == null ? '' : String(sale.qualified));
   const [startsAt, setStartsAt] = useState(localStamp(sale?.starts_at || event?.start?.dateTime));
+  const beforeStart = Date.parse(startsAt) > Date.now();
   const [next, setNext] = useState(localStamp(sale?.next_action_at));
   const [value, setValue] = useState(String(sale?.contract_value || ''));
   const [cash, setCash] = useState(String(sale?.collected_amount || ''));
@@ -82,7 +83,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
           </div>
 
           {sale && event?.start?.dateTime && new Date(event.start.dateTime).getTime() !== new Date(sale.starts_at).getTime() && <p className="notice">La data su Google è cambiata. <button type="button" className="btn small" onClick={() => setStartsAt(localStamp(event.start?.dateTime))}>Usa il nuovo orario Google</button></p>}
-          <label>Esito<select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>{Object.entries(saleOutcomes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label>Esito<select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>{Object.entries(saleOutcomes).map(([key, label]) => <option key={key} value={key} disabled={beforeStart && !googleOutcomesBeforeStart.includes(key as GoogleSaleOutcome)}>{beforeStart && key === 'no_show' ? 'No-show preannunciato' : label}</option>)}</select></label>
           {['follow_up','lost'].includes(outcome) && <label>Offerta presentata<select value={String(proposal)} onChange={e => setProposal(e.target.value === 'true')}><option value="false">No</option><option value="true">Sì</option></select></label>}
           {type === 'discovery' && ['won','lost','follow_up'].includes(outcome) && <label>Contatto in target<select required value={qualified} onChange={e => setQualified(e.target.value)}><option value="">Seleziona</option><option value="true">Sì</option><option value="false">No</option></select></label>}
           {['follow_up','rescheduled'].includes(outcome) && <label>Prossimo passo · data e ora<input type="datetime-local" required value={next} onChange={e => setNext(e.target.value)} /><small>Comparirà nella home alla scadenza. Per spostare o creare l’evento usa Google Calendar.</small></label>}

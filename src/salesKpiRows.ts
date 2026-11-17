@@ -114,7 +114,9 @@ export const isHeldDiscovery = (outcome?: string | null) => outcome === "qualifi
 // righe si riconoscono da activity_type e dall'esito scritto in italiano.
 // Senza queste tre righe il lavoro fatto finora resterebbe invisibile nei KPI.
 const isLegacy = (activity: LeadActivity) => !activity.event_type;
-export const isCallActivity = (activity: LeadActivity) => ["setting_call", "discovery_call"].includes(activity.event_type || "") || (isLegacy(activity) && activity.activity_type === "call");
+export const isCallActivity = (activity: LeadActivity) =>
+  (["setting_call", "discovery_call"].includes(activity.event_type || "") && activity.outcome !== "no_show") ||
+  (isLegacy(activity) && activity.activity_type === "call");
 const isFollowUpActivity = (activity: LeadActivity) => activity.event_type === "follow_up" || (isLegacy(activity) && activity.activity_type === "follow_up");
 const isBookingActivity = (activity: LeadActivity) => activity.event_type === "discovery_booked" || (isLegacy(activity) && activity.outcome === "Appuntamento fissato");
 
@@ -124,7 +126,7 @@ function standaloneAppointmentMetrics(task: SalesTask, day: string, now = Date.n
   const key = task.appointment_type === "discovery" ? "discovery" : task.audience === "client" ? "demoClient" : "demo";
   const sameDay = dayInRome(task.created_at) === day;
   if (sameDay) result[`${key}Booked`] = 1;
-  if (dayInRome(task.due_at) !== day || Date.parse(task.due_at) > now) return result;
+  if (dayInRome(task.due_at) !== day || (Date.parse(task.due_at) > now && task.appointment_status !== "no_show")) return result;
   result[`${key}Scheduled`] = 1;
   if (task.appointment_status === "no_show") result.noShow = 1;
   if (task.appointment_status === "held") {
@@ -196,6 +198,8 @@ export function calculateKpiRows({
   const currentDay = dayInRome(now);
   const inRange = (day: string) => day >= range.from && day <= range.to;
   const sellerMatchesActivity = (activity: LeadActivity) => sellerMatches(activityOwner(activity));
+  const missedTaskIds = new Set(activities.filter(activity => activity.outcome === "no_show" &&
+    ["discovery_call", "demo_call"].includes(activity.event_type || "")).map(taskIdOf));
   // Giornata in cui ogni appuntamento è stato prenotato: serve a riconoscere
   // quelli fissati e svolti nella stessa giornata.
   const bookingDayByTask = (() => {
@@ -297,7 +301,9 @@ export function calculateKpiRows({
       // call: entrerà nel denominatore dello show-up quando arriva il suo
       // orario. Per i giorni passati, invece, tutti gli appuntamenti previsti
       // restano nel calcolo anche se l'esito non è stato compilato.
-      const isStillUpcomingToday = scheduledDay === currentDay && new Date(activity.scheduled_at).getTime() > now.getTime();
+      const bookingTask = taskIdOf(activity);
+      const isStillUpcomingToday = scheduledDay === currentDay && Date.parse(activity.scheduled_at) > now.getTime() &&
+        !(bookingTask && missedTaskIds.has(bookingTask));
       if (inRange(scheduledDay) && !isStillUpcomingToday) {
         const scheduledRow = rowOf(scheduledDay);
         const scheduledCallType = activity.call_type || "lead";
@@ -314,6 +320,7 @@ export function calculateKpiRows({
     if (!inRange(day) || !sellerMatchesActivity(activity) || !sourceMatches(activity.lead_id, activity.channel)) return;
     const row = rowOf(day);
     const outcome = activity.outcome || "";
+    if (type === "discovery_call" && outcome === "no_show" && fromAppointment) row.noShow += 1;
     const callType = activity.call_type || "lead";
     // Le colonne "day" misurano gli appuntamenti svolti senza attesa. Sono due
     // i casi: quelli fissati e chiusi nella stessa giornata, e quelli fatti al
@@ -422,7 +429,7 @@ export function calculateKpiRows({
       if (!inRange(day)) continue;
       const row = rowOf(day);
       const metrics = standaloneAppointmentMetrics(task, day, now.getTime());
-      if (task.appointment_type === "discovery" && (metrics.discoveryHeld || metrics.noShow)) row.callFromCalendar += 1;
+      if (task.appointment_type === "discovery" && (metrics.discoveryHeld || (metrics.noShow && task.appointment_outcome !== "no_show"))) row.callFromCalendar += 1;
       Object.entries(metrics).forEach(([key, value]) => { (row[key as keyof Omit<DailyKpi, "day">] as number) += value; });
       if (metrics.discoveryBooked || metrics.demoBooked || metrics.demoClientBooked) evidence.push({
         id: task.id, kind: task.appointment_type === "demo" ? "closing" : "discovery", leadId: null,
@@ -442,7 +449,7 @@ export function calculateKpiRows({
       if (!inRange(day)) continue;
       const row = rowOf(day);
       const metrics = googleSaleMetrics(sale, day, now);
-      if (sale.appointment_type === "discovery" && (metrics.discoveryHeld || metrics.noShow)) row.callFromCalendar += 1;
+      if (sale.appointment_type === "discovery" && (metrics.discoveryHeld || (metrics.noShow && !sale.early_no_show))) row.callFromCalendar += 1;
       Object.entries(metrics).forEach(([key, value]) => {
         if ((key === 'won' || key === 'contractValue') && !firstNewSales.has(`google:${sale.id}`)) return;
         (row[key as keyof Omit<DailyKpi, 'day'>] as number) += value;

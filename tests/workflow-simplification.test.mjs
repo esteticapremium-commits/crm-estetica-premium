@@ -125,6 +125,34 @@ const googleSales = module('src/googleSales.ts');
 const kpiRows = module('src/salesKpiRows.ts', {'./dates': dates, './googleSales': googleSales, './salesKpi': kpi});
 const reporting = module('src/salesReporting.ts', {'./dates': dates, './dailySales': dailySales, './salesKpiRows': kpiRows, './salesKpi': kpi});
 
+test('i no-show preannunciati entrano nel giorno della call senza gonfiare i tentativi', () => {
+  const day = '2026-11-09';
+  const startsAt = day + 'T16:00:00Z';
+  const previous = '2026-11-08';
+  const activities = ['setting', 'discovery', 'demo'].flatMap(type => {
+    const event = {lead_id:type, details:{task_id:type}, scheduled_at:startsAt};
+    return [
+      {...event,id:type+'-booked',event_type:type+'_booked',occurred_at:previous+'T16:00:00Z'},
+      {...event,id:type+'-outcome',event_type:type+'_call',outcome:'no_show',occurred_at:startsAt},
+    ];
+  });
+  const standalone = [{id:'standalone',appointment_type:'demo',appointment_status:'no_show',appointment_outcome:'no_show',
+    commercial_tracked:true,due_at:startsAt,created_at:previous+'T16:00:00Z'}];
+  const externalSales = [{id:'external',appointment_type:'discovery',outcome:'no_show',early_no_show:true,starts_at:startsAt}];
+  const tally = now => kpiRows.calculateKpiRows({activities,standalone,externalSales,outreach:[],revenue:[],range:{from:previous,to:day},now:new Date(now)}).rows;
+  for (const now of [day+'T10:00:00Z',day+'T18:00:00Z']) {
+    const rows = tally(now);
+    const prior = rows.find(row => row.day === previous);
+    const missed = rows.find(row => row.day === day);
+    assert.equal(prior.noShow, 0);
+    assert.equal(missed.noShow, 4);
+    assert.equal(missed.discoveryScheduled, 2);
+    assert.equal(missed.demoScheduled, 2);
+    assert.equal(missed.discoveryHeld + missed.demoHeld, 0);
+    assert.equal(kpiRows.phoneAttempts(missed), 0);
+  }
+});
+
 test('il resoconto usa la data della call e conta un appuntamento una sola volta', () => {
   const booking = {id:'book', lead_id:'lead', event_type:'discovery_booked', occurred_at:'2026-11-08T21:00:00Z',
     scheduled_at:'2026-11-09T09:00:00Z', details:{task_id:'task'}};

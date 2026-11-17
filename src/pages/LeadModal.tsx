@@ -1075,7 +1075,7 @@ export default function LeadModal({
       <LeadDateTimePicker value={appointmentDraft.due} disabled={busy} onChange={due => setAppointmentDraft({ ...appointmentDraft, due })} />
     ) : <>
       <p>{appointmentStamp(appointmentDraft.task.due_at)}</p>
-      <AppointmentOutcomeChoices type={draftType} value={appointmentDraft.outcome} disabled={busy} onChange={outcome => setAppointmentDraft({ ...appointmentDraft, outcome })} />
+      <AppointmentOutcomeChoices type={draftType} value={appointmentDraft.outcome} disabled={busy} beforeStart={Date.parse(appointmentDraft.task.due_at) > Date.now()} onChange={outcome => setAppointmentDraft({ ...appointmentDraft, outcome })} />
       {appointmentDraft.outcome === "held" && appointmentDraft.task.appointment_type === "demo" &&
         <label><input type="checkbox" checked={appointmentDraft.proposalMade ?? false} disabled={busy} onChange={event => setAppointmentDraft({ ...appointmentDraft, proposalMade: event.target.checked })} /> Proposta presentata</label>}
       <details><summary>Durata e nota</summary>
@@ -1092,7 +1092,7 @@ export default function LeadModal({
       {appointmentDraft.mode === "outcome" && draftType === "setting" && appointmentDraft.outcome === "answered" && !hasDiscovery &&
         <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft("discovery")}>Salva e prenota discovery</button>}
       {appointmentDraft.mode === "outcome" && ["no_show", "no_answer"].includes(appointmentDraft.outcome) &&
-        <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft(draftType)}>{draftType === "setting" ? "Non risponde e riprenota setting" : "No-show e riprenota"}</button>}
+        <button type="button" className="btn small" disabled={busy} onClick={() => void saveAppointmentDraft(draftType)}>{draftType === "setting" && appointmentDraft.outcome === "no_answer" ? "Non risponde e riprenota setting" : "No-show e riprenota"}</button>}
     </div>
   </div>;
 

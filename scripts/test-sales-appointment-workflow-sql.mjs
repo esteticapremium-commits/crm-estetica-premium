@@ -12,6 +12,8 @@ const reply = "00000000-0000-0000-0000-000000000007";
 const date = "2020-11-13T11:00:00Z";
 await db.exec(`
   create role anon; create role authenticated; create schema auth;
+  create table auth.users(id uuid primary key);
+  create table clients(id uuid primary key);
   create function auth.uid() returns uuid language sql as $$select '${account}'::uuid$$;
   create function public.my_client_id() returns uuid language sql as $$select '${client}'::uuid$$;
   create function public.my_full_name() returns text language sql as $$select current_setting('test.actor')$$;
@@ -46,6 +48,10 @@ await db.exec(migration);
 const settingMigration = readFileSync("supabase/upgrade_setting_appointments.sql", "utf8");
 await db.exec(settingMigration);
 await db.exec(settingMigration);
+await db.exec(readFileSync("supabase/upgrade_google_sales.sql", "utf8"));
+const earlyNoShow = readFileSync("supabase/upgrade_early_no_show.sql", "utf8");
+await db.exec(earlyNoShow);
+await db.exec(earlyNoShow);
 const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0])[0];
 const book = (id, type, forLead = lead, source = null, replyId = null, note = null, minutes = type === "setting" ? 15 : 30) => scalar(
   "select to_jsonb(book_sales_appointment($1,$2,$3,$4,'lead','Centro Test',$5,$9,$6,$6,$7,$8,null))",
@@ -103,6 +109,21 @@ assert.equal(await scalar("select count(*)::int from lead_activities where event
 const linked = await book(linkedDiscoveryId, "discovery", lead, `appointment:${settingId}:outcome`);
 assert.equal(linked.id, linkedDiscoveryId);
 assert.equal(await scalar("select details->>'source_outcome_key' from lead_activities where event_key=$1", [`appointment:${linkedDiscoveryId}:booked`]), `appointment:${settingId}:outcome`);
+await outcome(linked, "no_answer");
+const future = new Date(Date.now() + 86_400_000).toISOString();
+for (const [index, type, rejected] of [[20, "setting", "no_answer"], [21, "discovery", "qualified"], [22, "demo", "held"]]) {
+  const id = `00000000-0000-0000-0000-0000000000${index}`;
+  const task = await scalar("select to_jsonb(book_sales_appointment($1,$2,$3,$4,'lead','Test',$5,$6,null,null,null,null,null))",
+    [id, client, lead, type, future, type === "setting" ? 15 : 30]);
+  await assert.rejects(() => outcome(task, rejected), /solo un no-show/);
+  const missed = await outcome(task, "no_show");
+  assert.equal(missed.appointment_status, "no_show");
+  assert.equal(missed.outcome_minutes, null);
+  assert.equal((await outcome(task, "no_show")).updated_at, missed.updated_at);
+  const saved = await scalar("select to_jsonb(a) from lead_activities a where event_key=$1", [`appointment:${id}:outcome`]);
+  assert.equal(saved.outcome, "no_show");
+  assert.equal(Date.parse(saved.scheduled_at), Date.parse(future));
+}
 await db.exec("set test.actor='Altro venditore'");
 await assert.rejects(() => outcome(held, "no_answer"), /accessibile/);
 await db.exec("reset role");

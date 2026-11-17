@@ -6,7 +6,7 @@ export interface GoogleSale {
   google_key: string; google_event_id: string; title: string; contact_name: string;
   starts_at: string; booked_at: string | null; lead_id: string | null;
   appointment_type: 'discovery' | 'demo' | 'follow_up'; revenue_type: 'new' | 'renewal' | 'upsell';
-  outcome: GoogleSaleOutcome; proposal_made: boolean; qualified: boolean | null; next_action_at: string | null;
+  outcome: GoogleSaleOutcome; early_no_show?: boolean; proposal_made: boolean; qualified: boolean | null; next_action_at: string | null;
   contract_value: number; collected_amount: number; collected_at: string | null;
   note: string; version: number;
 }
@@ -25,10 +25,12 @@ export function saleNeedsAction(sale: GoogleSale, now = new Date()) {
   return (sale.outcome === 'pending' && new Date(sale.starts_at) <= now) ||
     (['follow_up', 'rescheduled'].includes(sale.outcome) && !!sale.next_action_at && new Date(sale.next_action_at) <= now);
 }
+export const googleOutcomesBeforeStart: GoogleSaleOutcome[] = ['pending', 'excluded', 'no_show'];
+
 export function validateGoogleSale(sale: Pick<GoogleSale, 'contact_name' | 'starts_at' | 'outcome' | 'next_action_at' | 'contract_value' | 'collected_amount' | 'collected_at' | 'appointment_type' | 'qualified'>, now = new Date()) {
   if (!sale.contact_name.trim()) return 'Inserisci il nome del contatto.';
   if (!Number.isFinite(Date.parse(sale.starts_at))) return 'Data appuntamento non valida.';
-  if (!['pending','excluded'].includes(sale.outcome) && new Date(sale.starts_at) > now) return 'Puoi registrare un esito dopo l’inizio dell’appuntamento.';
+  if (!googleOutcomesBeforeStart.includes(sale.outcome) && new Date(sale.starts_at) > now) return 'Prima dell’orario puoi registrare solo un no-show.';
   if (['follow_up', 'rescheduled'].includes(sale.outcome) && (!sale.next_action_at || !Number.isFinite(Date.parse(sale.next_action_at)) || new Date(sale.next_action_at) <= new Date(sale.starts_at))) return 'Scegli una data del prossimo passo successiva all’appuntamento.';
   if (![sale.contract_value, sale.collected_amount].every(n => Number.isFinite(n) && n >= 0 && n < 1e10)) return 'Gli importi devono essere numeri positivi o zero.';
   if (sale.outcome === 'won' && sale.contract_value <= 0) return 'Inserisci il valore dell’accordo.';
@@ -47,7 +49,7 @@ export function googleSaleMetrics(sale: GoogleSale, day: string, now = new Date(
   const prefix = sale.appointment_type === 'follow_up' ? 'followUp' : sale.appointment_type === 'discovery' ? 'discovery' : sale.revenue_type === 'new' ? 'demo' : 'demoClient';
   if (sale.booked_at && romeDay(sale.booked_at) === day) add(`${prefix}Booked`);
   if (romeDay(sale.starts_at) !== day) return result;
-  if (sale.outcome !== 'rescheduled' && new Date(sale.starts_at) <= now) add(`${prefix}Scheduled`);
+  if (sale.outcome !== 'rescheduled' && (sale.outcome === 'no_show' || new Date(sale.starts_at) <= now)) add(`${prefix}Scheduled`);
   if (saleHeld(sale)) {
     add(`${prefix}Held`); add(`${prefix}HeldBooked`);
     if (sale.booked_at && romeDay(sale.booked_at) === day) add(`${prefix}SameDay`);

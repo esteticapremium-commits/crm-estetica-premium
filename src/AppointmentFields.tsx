@@ -15,17 +15,18 @@ export function AppointmentTime({ type, value, disabled, onChange }: {
   </div>;
 }
 
-export function AppointmentOutcomeChoices({ type, value, disabled, onChange }: {
-  type: AppointmentType; value?: AppointmentOutcome | ""; disabled?: boolean; onChange: (value: AppointmentOutcome) => void;
+export function AppointmentOutcomeChoices({ type, value, disabled, beforeStart = false, onChange }: {
+  type: AppointmentType; value?: AppointmentOutcome | ""; disabled?: boolean; beforeStart?: boolean; onChange: (value: AppointmentOutcome) => void;
 }) {
+  const choices = beforeStart ? ["no_show"] as const : allowedOutcomes(type);
   return <div className="lead-appointment-actions" role="group" aria-label="Esito della call">
-    {allowedOutcomes(type).map(outcome => <button
+    {choices.map(outcome => <button
       key={outcome}
       className={`btn small${value === outcome ? " primary" : ""}`}
       type="button"
       disabled={disabled}
       aria-pressed={value === outcome}
       onClick={() => onChange(outcome)}
-    >{type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}
+    >{beforeStart ? "No-show preannunciato" : outcome === "no_show" && type !== "demo" ? "Disdetta" : type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}
   </div>;
 }
