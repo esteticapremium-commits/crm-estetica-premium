@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { romeToday } from "./dates";
 import "./lead-date-time.css";
 
@@ -10,10 +10,11 @@ const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "long", year: "nume
 const dayLabel = new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const monthStart = (day: string) => new Date(`${day.slice(0, 7)}-01T12:00:00Z`);
 
-export default function LeadDateTimePicker({ value, onChange, disabled }: {
+export default function LeadDateTimePicker({ value, onChange, disabled, revealPanel = false }: {
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
+  revealPanel?: boolean;
 }) {
   const [date, savedTime = ""] = value.split("T");
   const [timeWithoutDate, setTimeWithoutDate] = useState("");
@@ -27,9 +28,16 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
   const dateButton = useRef<HTMLButtonElement>(null);
   const timeButton = useRef<HTMLButtonElement>(null);
   const timeHeading = useRef<HTMLElement>(null);
+  const calendarPanel = useRef<HTMLDivElement>(null);
+  const clockPanel = useRef<HTMLDivElement>(null);
   const [hour, minute] = time.split(":");
   const focusTrigger = (field: "date" | "time") =>
     (field === "date" ? dateButton : timeButton).current?.focus({ preventScroll: true });
+
+  useEffect(() => {
+    if (!revealPanel || !panel || !window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)").matches) return;
+    (panel === "date" ? calendarPanel : clockPanel).current?.scrollIntoView({ block: "nearest" });
+  }, [panel, revealPanel]);
 
   function closePanel() {
     if (panel) focusTrigger(panel);
@@ -95,7 +103,7 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
         </button>
       </div>
     </div>
-    <div id={`${pickerId}-month`} hidden={panel !== "date"} className="lead-date-panel lead-date-month" role="group" aria-label="Calendario della prenotazione">
+    <div ref={calendarPanel} id={`${pickerId}-month`} hidden={panel !== "date"} className="lead-date-panel lead-date-month" role="group" aria-label="Calendario della prenotazione">
       <div className="lead-date-month-header">
         <button type="button" aria-label="Mese precedente" disabled={disabled} onClick={() => setMonth(new Date(Date.UTC(year, monthIndex - 1, 1, 12)))}>‹</button>
         <strong aria-live="polite">{monthLabel.format(month)}</strong>
@@ -117,7 +125,7 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
         {date && <button type="button" disabled={disabled} onClick={() => { onChange(""); closePanel(); }}>Cancella data e ora</button>}
       </div>
     </div>
-    <div id={`${pickerId}-clock`} hidden={panel !== "time"} className="lead-date-panel lead-time-panel" role="group" aria-label="Selettore dell’ora">
+    <div ref={clockPanel} id={`${pickerId}-clock`} hidden={panel !== "time"} className="lead-date-panel lead-time-panel" role="group" aria-label="Selettore dell’ora">
       <div className="lead-time-header">
         {selectedHour !== null && <button type="button" disabled={disabled} onClick={() => {
           setSelectedHour(null);

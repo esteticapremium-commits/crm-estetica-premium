@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppointmentTime } from "../AppointmentFields";
 import LeadDateTimePicker from "../LeadDateTimePicker";
 import { withTimeout } from "../async";
@@ -39,6 +39,8 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const [workspace, setWorkspace] = useState<Workspace>();
   const [period, setPeriod] = useState<"today" | "week" | "month">("today");
   const [owner, setOwner] = useState("");
+  const [metricsOpen, setMetricsOpen] = useState(admin);
+  const metricsId = useId();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffError, setStaffError] = useState("");
   const [filter, setFilter] = useState<"all" | "new" | "today" | "overdue">("all");
@@ -111,15 +113,21 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
     </header>
     {error && <p className="notice err" role="alert">{error}</p>}
     {staffError && <p className="notice warn" role="status">Elenco utenti indisponibile. {staffError}</p>}
-    <section className="panel setter-metrics" aria-label="KPI setter">
-      <div className="setter-tools">
-        <h2>KPI setter</h2>
-        <label>Periodo <select value={period} onChange={event => setPeriod(event.target.value as typeof period)}><option value="today">Oggi</option><option value="week">Settimana</option><option value="month">Mese</option></select></label>
-        {admin && <label>Setter <select value={owner} onChange={event => setOwner(event.target.value)}><option value="">Tutti</option>{staff.filter(p => p.role === "setter").map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}</select></label>}
-      </div>
-      <div className="setter-metric-grid">
-        {([["contacts", "Tentativi telefonici"], ["answered", "Risposte"], ["booked", "Discovery prenotate"], ["held", "Discovery svolte"]] as const).map(([id, label]) =>
-          <article key={id}><span>{label}</span><strong>{loading ? "—" : workspace?.totals[id] ?? "—"}</strong></article>)}
+    <section className="panel setter-metrics" aria-label="KPI setter" data-mobile-expanded={metricsOpen}>
+      <button className="btn setter-metrics-toggle" type="button" aria-expanded={metricsOpen} aria-controls={metricsId}
+        onClick={() => setMetricsOpen(open => !open)}>
+        <b>KPI setter</b><span aria-hidden="true">{metricsOpen ? "−" : "+"}</span>
+      </button>
+      <div className="setter-metrics-body" id={metricsId}>
+        <div className="setter-tools">
+          <h2>KPI setter</h2>
+          <label>Periodo <select value={period} onChange={event => setPeriod(event.target.value as typeof period)}><option value="today">Oggi</option><option value="week">Settimana</option><option value="month">Mese</option></select></label>
+          {admin && <label>Setter <select value={owner} onChange={event => setOwner(event.target.value)}><option value="">Tutti</option>{staff.filter(p => p.role === "setter").map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}</select></label>}
+        </div>
+        <div className="setter-metric-grid">
+          {([["contacts", "Tentativi telefonici"], ["answered", "Risposte"], ["booked", "Discovery prenotate"], ["held", "Discovery svolte"]] as const).map(([id, label]) =>
+            <article key={id}><span>{label}</span><strong>{loading ? "—" : workspace?.totals[id] ?? "—"}</strong></article>)}
+        </div>
       </div>
     </section>
     <div className="setter-tools setter-filters">
@@ -176,11 +184,21 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const [showCallback, setShowCallback] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const formId = useId();
+  const schedule = useRef<HTMLDivElement>(null);
   const pending = useRef(false);
   const request = useRef<string>();
   const canBook = workAllowed && lead.state !== "not_interested";
   const isBooking = action === "book_from_call" || action === "book_only";
   const needsCallbackTime = showCallback && (action === "answered" || action === "no_answer");
+  const timeRequired = isBooking || needsCallbackTime;
+  const readyToSave = action && (!timeRequired || Number.isFinite(Date.parse(time)));
+
+  useEffect(() => {
+    if (timeRequired && window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)").matches) {
+      schedule.current?.scrollIntoView({ block: "start" });
+    }
+  }, [action, timeRequired]);
 
   function choose(next: SetterAction) {
     if (next === action) return;
@@ -212,40 +230,43 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
     }
   }
 
-  return <div className="overlay">
+  return <div className="overlay setter-dialog-overlay">
     <section className="modal setter-dialog setter-lead-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
       <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy}>Chiudi</button></div></header>
-      <form className="content" onSubmit={event => void submit(event)}>
-        <div className="setter-tools setter-contact-tools">
+      <form className="content" id={formId} onSubmit={event => void submit(event)}>
+        {(lead.phone || lead.email) && <div className="setter-tools setter-contact-tools">
           {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
           {lead.email && <span>{lead.email}</span>}
-        </div>
+        </div>}
         {lead.note && <p>{lead.note}</p>}
         {lead.discovery_at && <p>Discovery · {romeStamp(lead.discovery_at)}</p>}
         {workAllowed && <>
           <b>Com’è andata?</b>
           <div className="setter-tools setter-outcome-tools" role="group" aria-label="Esito setting">
-            {canBook && <button className={action === "book_from_call" ? "btn primary" : "btn"} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
+            {canBook && <button className={`btn setter-discovery-action${action === "book_from_call" ? " primary" : ""}`} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
             {Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={action === key ? "btn primary" : "btn"} aria-pressed={action === key} disabled={busy} onClick={() => choose(key as Outcome)}>{label}</button>)}
           </div>
-          {canBook && <div className="setter-tools"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota senza nuova chiamata</button></div>}
-          {isBooking ? <>
-            <small>{action === "book_from_call" ? "Salvi un tentativo con risposta e una prenotazione." : "Usalo se hai già registrato la chiamata o se hai fissato l’appuntamento via messaggio."}</small>
-            <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} />
-          </> : <>
-            {(action === "answered" || action === "no_answer") && <label><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
-            {needsCallbackTime && <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} />}
-          </>}
+          {canBook && <div className="setter-tools setter-book-only"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota senza nuova chiamata</button></div>}
+          {(action === "answered" || action === "no_answer") && <label className="setter-callback-option"><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
+          {timeRequired && <div className="setter-schedule" ref={schedule}>
+            {isBooking ? <>
+              <small>{action === "book_from_call" ? "Salvi un tentativo con risposta e una prenotazione." : "Usalo se hai già registrato la chiamata o se hai fissato l’appuntamento via messaggio."}</small>
+              <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} revealPanel />
+            </> : <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} revealPanel />}
+          </div>}
           {action && <label>Nota (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
-          {error && <p className="notice err" role="alert">{error}</p>}
-          <button className="btn primary" disabled={busy || !action || ((isBooking || needsCallbackTime) && !time)}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
         </>}
       </form>
+      {workAllowed && <footer className="setter-dialog-footer">
+        {error && <p className="notice err" role="alert">{error}</p>}
+        <button className="btn primary" type="submit" form={formId} disabled={busy || !readyToSave}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
+      </footer>}
     </section>
   </div>;
 }
 
 function AssignmentDialog({ clientId, staff, onClose, onSaved }: { clientId: string; staff: Staff[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const formId = useId();
   const [term, setTerm] = useState("");
   const [choices, setChoices] = useState<LeadChoice[]>([]);
   const [lead, setLead] = useState("");
@@ -281,16 +302,18 @@ function AssignmentDialog({ clientId, staff, onClose, onSaved }: { clientId: str
     } catch (reason) { setMessage(errorMessage(reason)); }
     finally { saving.current = false; setBusy(false); }
   }
-  return <div className="overlay"><section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label="Assegna lead">
+  return <div className="overlay setter-dialog-overlay"><section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label="Assegna lead">
     <header><h2>Assegna lead</h2><button className="btn small" disabled={busy} onClick={onClose}>Chiudi</button></header>
-    <form className="content" onSubmit={event => void submit(event)}>
+    <form className="content" id={formId} onSubmit={event => void submit(event)}>
       {!setters.length && <p className="notice warn">Crea un accesso Setter in Impostazioni → Accessi per iniziare.</p>}
       <label>Cerca lead<input type="search" value={term} onChange={e => {setTerm(e.target.value);setLead("");setChoices([]);}} disabled={busy} /></label>
       <label>Lead<select value={lead} onChange={e => setLead(e.target.value)} disabled={busy}><option value="">Seleziona il contatto</option>{choices.map(item => <option key={item.id} value={item.id}>{item.name || item.phone || "Lead senza nome"}</option>)}</select></label>
       <label>Setter<select value={setter} onChange={e => setSetter(e.target.value)} disabled={busy}><option value="">Seleziona</option>{setters.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}</select></label>
       <label>Venditore per la discovery<select value={seller} onChange={e => setSeller(e.target.value)} disabled={busy}><option value="">Seleziona</option>{sellers.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}</select></label>
-      {message && <p role="alert" className="notice err">{message}</p>}
-      <button className="btn primary" disabled={!lead || !setter || !seller || busy}>{busy ? "Salvataggio…" : "Assegna lead"}</button>
     </form>
+    <footer className="setter-dialog-footer">
+      {message && <p role="alert" className="notice err">{message}</p>}
+      <button className="btn primary" type="submit" form={formId} disabled={!lead || !setter || !seller || busy}>{busy ? "Salvataggio…" : "Assegna lead"}</button>
+    </footer>
   </section></div>;
 }

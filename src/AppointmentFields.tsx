@@ -6,12 +6,12 @@ const labels: Record<AppointmentOutcome, string> = {
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
 };
 
-export function AppointmentTime({ type, value, disabled, onChange }: {
-  type: AppointmentType; value: string; disabled?: boolean; onChange: (value: string) => void;
+export function AppointmentTime({ type, value, disabled, onChange, revealPanel }: {
+  type: AppointmentType; value: string; disabled?: boolean; onChange: (value: string) => void; revealPanel?: boolean;
 }) {
   return <div>
     <p className="muted">{APPOINTMENT_LABELS[type]} · {APPOINTMENT_DURATION[type]} min</p>
-    <LeadDateTimePicker value={value} disabled={!!disabled} onChange={onChange} />
+    <LeadDateTimePicker value={value} disabled={!!disabled} onChange={onChange} revealPanel={revealPanel} />
   </div>;
 }
 
