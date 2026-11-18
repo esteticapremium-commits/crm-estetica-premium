@@ -29,13 +29,13 @@ test('tutti i richiami del giorno sono rilevati anche se esiste un arretrato',()
 const kpi=module('src/salesKpi.ts');
 test('ads e cold call non diventano DM',()=>{assert.equal(kpi.normalizedLeadSource('Facebook Ads'),'ads');assert.equal(kpi.normalizedLeadSource('Cold call'),'cold_call');assert.equal(kpi.normalizedLeadSource('DM Facebook'),'dm');assert.equal(kpi.normalizedLeadSource('Instantly'),'instantly');});
 
-for (const [type, duration, googleDuration] of [['setting', 15, 30], ['discovery', 30, 30], ['demo', 60, 60]]) {
-  test(`spostamento ${type} conserva la prenotazione, la durata e l’evento Google`, async () => {
+for (const [type, stored, duration, googleDuration] of [['setting', 15, 15, 30], ['discovery', 60, 30, 30], ['discovery', null, 30, 30], ['demo', 60, 60, 60]]) {
+  test(`spostamento ${type} da ${stored} minuti mantiene l’identità e usa ${googleDuration} minuti su Google`, async () => {
     const updates = [];
     const rpcCalls = [];
     const appointment = {
       id:'task', title:'Discovery telefonica — Centro', due_at:'2026-11-10T12:00:00Z',
-      appointment_type:type, updated_at:'2026-11-08T12:00:00Z', google_event_id:'g1', duration_minutes:duration,
+      appointment_type:type, updated_at:'2026-11-08T12:00:00Z', google_event_id:'g1', duration_minutes:stored,
     };
     const appointments=module('src/appointments.ts',{
       './supabaseClient': {supabase:{async rpc(name,args){rpcCalls.push({name,args}); return {};}}},
@@ -73,7 +73,7 @@ test('prenotazione propone alla transazione la stessa identità e la durata corr
     },
   });
   for (const [type,minutes,googleMinutes] of [['setting',15,30],['discovery',30,30],['demo',60,60]]) {
-    const input={clientId:'company',lead:null,type,audience:'lead',subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',requestId:'uuid-'+type};
+    const input={clientId:'company',lead:null,type,audience:'lead',subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',durationMinutes:type==='discovery' ? 60 : undefined,requestId:'uuid-'+type};
     const result=await appointments.createAppointment(input);
     assert.equal(result.taskId,input.requestId);
     assert.equal(result.warning,undefined);

@@ -77,7 +77,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     const lead = leadId ? leadById.get(leadId) : null;
     const subject = title.trim() || lead?.name || "";
     const start = new Date(startsAt);
-    const minutes = appointmentType === "setting" ? APPOINTMENT_DURATION.setting : durationOverride ?? APPOINTMENT_DURATION[appointmentType];
+    const minutes = appointmentType === "demo" ? durationOverride ?? APPOINTMENT_DURATION.demo : APPOINTMENT_DURATION[appointmentType];
     if (appointmentType === "setting" && !lead) return setFormError("Cerca e seleziona il lead a cui collegare il setting.");
     if (!subject || !Number.isFinite(start.getTime()) || minutes < 15) return setFormError("Inserisci contatto, data e ora.");
     saveLock.current = true; setBusy(true); setFormError(null);
@@ -219,8 +219,8 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
             <label>Chi conduce<select value={appointmentHost} onChange={event => setAppointmentHost(event.target.value)}>
               <option value="">{leadById.get(leadId)?.assigned_to}</option><option>{meName}</option>
             </select></label>}
-          {appointmentType !== "setting" && <><label>Con chi<select value={audience} onChange={event => setAudienceOverride(event.target.value as AppointmentAudience)}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>
-          <label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION[appointmentType]} onChange={event => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label></>}
+          {appointmentType !== "setting" && <label>Con chi<select value={audience} onChange={event => setAudienceOverride(event.target.value as AppointmentAudience)}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>}
+          {appointmentType === "demo" && <label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION.demo} onChange={event => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label>}
           <label>Nota<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
         </details>
         <footer className="calendar-appointment-footer"><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>

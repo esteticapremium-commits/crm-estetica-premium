@@ -14,6 +14,11 @@ import type { Lead, SalesTask } from "./types";
 export type AppointmentType = NonNullable<SalesTask["appointment_type"]>;
 export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { setting: 15, discovery: 30, demo: 60 };
 
+function plannedDuration(type: AppointmentType | null | undefined, preferred?: number | null) {
+  if (type === "setting" || type === "discovery") return APPOINTMENT_DURATION[type];
+  return preferred || APPOINTMENT_DURATION.demo;
+}
+
 // The longer Google slot keeps a short setting call readable in the week view.
 function googleAppointmentEnd(start: Date, type: AppointmentType | null | undefined, minutes: number) {
   return new Date(start.getTime() + (type === "setting" ? 30 : minutes) * 60_000).toISOString();
@@ -157,7 +162,8 @@ export async function retryAppointmentSync(task: SalesTask): Promise<Appointment
 }
 
 export async function createAppointment(input: CreateAppointmentInput): Promise<AppointmentResult> {
-  const { clientId, lead, type, audience, subject, startsAt, durationMinutes = APPOINTMENT_DURATION[type], note } = input;
+  const { clientId, lead, type, audience, subject, startsAt, note } = input;
+  const durationMinutes = plannedDuration(type, input.durationMinutes);
   const title = appointmentTitle(type, subject);
   const description = [lead ? `Lead: ${lead.name || "Senza nome"}` : "", lead?.phone ? `Telefono: ${lead.phone}` : "", note.trim()].filter(Boolean).join("\n");
 
@@ -190,7 +196,7 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
   if (isAppointmentClosed(task) || task.completed_at) return { ok: false, error: "Questa call ha già un esito: non spostarla. Crea una nuova prenotazione per il secondo tentativo." };
   const type = (task.appointment_type as AppointmentType | null) || null;
   const title = type ? appointmentTitle(type, changes.subject) : changes.subject.trim();
-  const minutes = changes.durationMinutes || task.duration_minutes || 60;
+  const minutes = plannedDuration(type, changes.durationMinutes ?? task.duration_minutes);
   const updated = await supabase.rpc("reschedule_crm_appointment", {
     p_task_id: task.id, p_expected_updated_at: task.updated_at,
     p_title: title, p_starts_at: changes.startsAt.toISOString(),
