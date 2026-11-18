@@ -1,3 +1,4 @@
+import LeadDateTimePicker from './LeadDateTimePicker';
 import { useEffect, useRef, useState } from 'react';
 import { createAppointment } from './appointments';
 import { supabase } from './supabaseClient';
@@ -190,19 +191,26 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
               <option value="new">Prenota una nuova Closing</option>
               <option value="existing">Collega un evento già in agenda</option>
             </select></label>
-            <div className="google-sale-grid">
+            {closingMode === 'new' ? <LeadDateTimePicker
+              value={closingDay ? `${closingDay}T${closingTime}` : ''}
+              disabled={busy || !!bookedClosing.current}
+              onChange={datetime => {
+                const [day, time = ''] = datetime.split('T');
+                setClosingDay(day);
+                setClosingTime(time);
+                setClosingReference('');
+              }}
+            /> : <div className="google-sale-grid">
               <label>Data della Closing<input type="date" required disabled={!!bookedClosing.current} value={closingDay} onChange={e => {setClosingDay(e.target.value);setClosingReference('');setClosingChoices([]);}} /></label>
-              {closingMode === 'new'
-                ? <label>Ora della Closing<input type="time" required disabled={!!bookedClosing.current} value={closingTime} onChange={e => setClosingTime(e.target.value)} /></label>
-                : <label>Evento già in agenda<select required value={closingReference} disabled={closingLoading} onChange={e => setClosingReference(e.target.value)}>
+              <label>Evento già in agenda<select required value={closingReference} disabled={closingLoading} onChange={e => setClosingReference(e.target.value)}>
                 <option value="">{closingLoading ? 'Ricerca in calendario…' : 'Scegli la Closing'}</option>
                 {closingReference && closingReference === sale?.closing_reference && !closingChoices.some(choice => choice.reference === closingReference) &&
                   <option value={closingReference}>Closing già collegata</option>}
                 {closingChoices.map(choice => <option key={choice.reference} value={choice.reference}>
                   {new Date(choice.starts_at).toLocaleTimeString('it-IT', {timeZone:'Europe/Rome', hour:'2-digit',minute:'2-digit'})} · {choice.title}
                 </option>)}
-              </select></label>}
-            </div>
+              </select></label>
+            </div>}
             <small role="status">{closingMode === 'new' ? 'Il CRM prenota la Closing e registra la Discovery come svolta e in target.' : closingWarning || (!closingLoading && !closingChoices.length && !closingReference
               ? 'Nessun evento successivo alla Discovery in questa data. Seleziona “Prenota una nuova Closing” per fissarla qui.'
               : 'La Discovery risulta svolta e in target. Il CRM usa la Closing già in agenda, senza duplicarla.')}</small>
