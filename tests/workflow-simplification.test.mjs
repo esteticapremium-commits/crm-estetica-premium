@@ -43,10 +43,13 @@ for (const [type, duration, googleDuration] of [['setting', 15, 30], ['discovery
     });
     const moved = new Date('2026-11-13T12:00:00Z');
     assert.equal((await appointments.updateAppointment(appointment,{subject:'Centro',startsAt:moved,note:''})).ok,true);
+    assert.deepEqual(rpcCalls.map(call => call.name), ['reschedule_crm_appointment']);
+    assert.equal(updates.length, 1);
     assert.equal(rpcCalls[0].args.p_task_id, appointment.id);
     assert.equal(rpcCalls[0].args.p_expected_updated_at, appointment.updated_at);
     assert.equal(rpcCalls[0].args.p_duration_minutes, duration);
     assert.equal(updates[0].id,'g1');
+    assert.equal(updates[0].data.start,moved.toISOString());
     assert.equal(updates[0].data.end,new Date(moved.getTime() + googleDuration * 60_000).toISOString());
     assert.equal(updates[0].data.description,undefined);
   });

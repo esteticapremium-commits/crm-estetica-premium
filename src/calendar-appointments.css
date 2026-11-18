@@ -1,0 +1,117 @@
+.theme-premium.platform-shell .calendar-appointment-dialog {
+  width: min(100%, 560px);
+  display: grid;
+  gap: 20px;
+  padding: clamp(16px, 4vw, 26px);
+}
+
+.calendar-appointment-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.calendar-appointment-dialog .calendar-appointment-header h2 {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.calendar-appointment-header .calendar-close {
+  flex: 0 0 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 23px;
+  line-height: 1;
+}
+
+.calendar-appointment-dialog .calendar-appointment-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.calendar-appointment-dialog .calendar-appointment-facts > div {
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+.calendar-fact-full { grid-column: 1 / -1; }
+
+.calendar-appointment-kind,
+.theme-premium.platform-shell .calendar-appointment-dialog .appointment-outcomes,
+.calendar-sale-action {
+  display: grid;
+  gap: 12px;
+}
+
+.theme-premium.platform-shell .calendar-appointment-dialog .appointment-outcomes {
+  margin-top: 0;
+  padding: 14px;
+  border-color: var(--ep-border);
+  background: var(--ep-surface-muted);
+}
+
+.theme-premium.platform-shell .calendar-appointment-dialog .appointment-outcomes > b {
+  margin: 0;
+  font-size: 14px;
+}
+
+.calendar-appointment-dialog .calendar-type-options,
+.calendar-appointment-dialog .calendar-outcome-actions,
+.calendar-appointment-dialog .appointment-outcomes [role="group"],
+.calendar-appointment-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.calendar-type-options > button { flex: 1 1 auto; }
+
+.theme-premium.platform-shell .calendar-type-options .btn[aria-pressed="true"] {
+  border-color: var(--ep-brand);
+  background: var(--ep-brand-soft);
+  color: var(--ep-brand);
+}
+
+.theme-premium.platform-shell .calendar-appointment-dialog .btn { min-height: 44px; white-space: normal; }
+.calendar-appointment-dialog .calendar-sale-action > button,
+.calendar-appointment-dialog > .calendar-sync-action { justify-self: start; }
+.calendar-appointment-dialog .calendar-sale-action .calendar-detail-note { margin: 0; }
+
+.calendar-appointment-dialog .calendar-appointment-footer {
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--ep-border);
+}
+
+.calendar-appointment-footer.calendar-manage-footer { justify-content: space-between; }
+
+@media (max-width: 560px) {
+  .theme-premium.platform-shell .calendar-appointment-dialog { gap: 16px; }
+  .calendar-appointment-dialog .calendar-outcome-actions > .btn { flex: 1 1 100%; }
+  .calendar-appointment-dialog .calendar-appointment-footer > .btn { flex: 1 1 auto; }
+  .calendar-appointment-dialog .calendar-sale-action > button,
+  .calendar-appointment-dialog > .calendar-sync-action { justify-self: stretch; }
+}
+.calendar-appointment-dialog .calendar-reschedule-action {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 10px;
+  padding: 14px;
+  background: var(--ep-surface-muted);
+  border: 1px solid var(--ep-border);
+  border-radius: 12px;
+}
+
+.calendar-appointment-dialog .calendar-reschedule-action .btn { justify-self: start; }
+.calendar-appointment-dialog .calendar-reschedule-action p,
+.calendar-appointment-dialog .calendar-early-outcome > p {
+  margin: 4px 0 0;
+  color: var(--ep-muted);
+  font-size: 13px;
+}
+.calendar-appointment-dialog .calendar-early-outcome { padding: 8px 0; }
+.calendar-appointment-dialog .calendar-early-outcome > summary { cursor: pointer; font-weight: 600; }
+

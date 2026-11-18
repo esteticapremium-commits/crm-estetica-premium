@@ -25,6 +25,7 @@ export const EVENT_LABELS: Record<string, string> = {
   discovery_booked: "Discovery fissata",
   demo_booked: "Closing fissata",
   appointment_rescheduled: "Appuntamento spostato",
+  appointment_correction: "Esito appuntamento corretto",
   demo_call: "Closing in videochiamata",
   proposal_sent: "Proposta inviata",
   sale_outcome: "Esito vendita",

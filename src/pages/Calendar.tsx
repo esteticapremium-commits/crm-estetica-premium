@@ -1,3 +1,4 @@
+import "../calendar-appointments.css";
 import LeadDateTimePicker from "../LeadDateTimePicker";
 import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields";
 import { loadGoogleSales } from "../googleSalesData";
@@ -140,6 +141,10 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
   async function setAppointmentOutcome(outcome: AppointmentOutcome, rebook = false, proposalMade?: boolean) {
     if (!selected || selected.kind !== "crm" || saveOutcomeLock.current) return;
     const { task } = selected;
+    if (rebook && outcome === "no_show" && !isAppointmentClosed(task) && Date.parse(task.due_at) > Date.now()) {
+      beginEdit();
+      return;
+    }
     saveOutcomeLock.current = true;
     setBusy(true); setEditError(null);
     try {
@@ -171,10 +176,11 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     }
   }
 
-  const visibleTasks = tasks.filter(task => task.appointment_type || !task.completed_at);
+  const visibleTasks = tasks.filter(task => task.appointment_status !== "cancelled" && (task.appointment_type || !task.completed_at));
+  const linkedGoogleIds = new Set(tasks.map(task => task.google_event_id).filter(Boolean));
   const displayEvents: DisplayEvent[] = [
     ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : "Richiamo"} · ${task.appointment_status === "held" ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
-    ...google.filter(event => !visibleTasks.some(task => task.google_event_id === event.id || (task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000))).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})}))
+    ...google.filter(event => !linkedGoogleIds.has(event.id) && !visibleTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})}))
   ].filter(event => event.at && event.endAt);
   return <div className="page calendar-page">
     <div className="calendar-intro"><div><div className="calendar-kicker">Agenda commerciale</div><h1>Calendario</h1><p>Appuntamenti CRM condivisi; Google personale privato. Gli appuntamenti sovrapposti restano tutti visibili.</p></div><div className="calendar-top-actions">{headerTools}<button className="btn primary" type="button" onClick={() => openCreate()}>+ Nuovo appuntamento</button><div className="calendar-navigation"><button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button><button type="button" onClick={() => { setSelected(null); setWeekStart(monday(new Date())); }}>Oggi</button><button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button></div>{googleCalendarConfigured() ? <button className={`btn ${googleCalendarConnected() ? "" : "primary"}`} disabled={busy} onClick={() => void connect()}>{googleCalendarConnected() ? "Google collegato" : "Collega Google Calendar"}</button> : <span className="calendar-notice">Google Calendar da configurare</span>}</div></div>
@@ -187,12 +193,20 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={() => { setSaleOpen(false); setSaleRecord(null); setSelected(null); void load(); }} />}
     {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName)) ? () => void syncSelected() : undefined} />}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
-      <section className="calendar-modal calendar-create" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
-        <div className="calendar-detail-head"><span className="calendar-detail-label">Nuovo appuntamento</span><button type="button" aria-label="Chiudi" onClick={() => setCreateOpen(false)}>×</button></div>
-        <h2>Fissa appuntamento</h2><p className="calendar-create-copy">Scegli la fase corretta: il CRM userà questo dato per i KPI giornalieri.</p>
+      <section className="calendar-modal calendar-create calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
+        <header className="calendar-appointment-header">
+          <h2>Fissa appuntamento</h2>
+          <button type="button" className="btn calendar-close" aria-label="Chiudi" disabled={busy} onClick={() => setCreateOpen(false)}>×</button>
+        </header>
         {formError && <div className="notice err">{formError}</div>}
-        <div>Tipo di appuntamento<div className="channel-choice">{(["setting", "discovery", "demo"] as const).map(type =>
-          <button key={type} type="button" className={appointmentType === type ? "active" : ""} onClick={() => chooseAppointmentType(type)}>{APPOINTMENT_LABELS[type]}</button>)}</div></div>
+        <div className="calendar-appointment-kind">
+          <b>Tipo di appuntamento</b>
+          <div className="calendar-type-options" role="group" aria-label="Tipo di appuntamento">
+            {(["setting", "discovery", "demo"] as const).map(type =>
+              <button key={type} type="button" className="btn" aria-pressed={appointmentType === type} disabled={busy}
+                onClick={() => chooseAppointmentType(type)}>{APPOINTMENT_SHORT_LABELS[type]}</button>)}
+          </div>
+        </div>
         <label>Contatto<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Nome del centro o della persona" /></label>
         <AppointmentTime type={appointmentType} value={startsAt} disabled={busy} onChange={setStartsAt} />
         <details key={appointmentType} open={appointmentType === "setting" || undefined}><summary>{appointmentType === "setting" ? "Lead da contattare" : "Opzioni e collegamento alla pipeline"}</summary>
@@ -209,19 +223,122 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
           <label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION[appointmentType]} onChange={event => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label></>}
           <label>Nota<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
         </details>
-        <footer><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>
+        <footer className="calendar-appointment-footer"><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>
       </section>
     </div>}
   </div>;
 }
 
-function EventDetailsModal({ onSale, saleDisabled, hasSale, selected, editing, title, startsAt, note, error, busy, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onSync }: { onSale: () => void; saleDisabled: boolean; hasSale: boolean; selected: Selected; editing: boolean; title: string; startsAt: string; note: string; error: string | null; busy: boolean; onClose: () => void; onEdit: () => void; onCancelEdit: () => void; onTitle: (value: string) => void; onStartsAt: (value: string) => void; onNote: (value: string) => void; onSave: () => void; onDelete: () => void; onOutcome: (outcome: AppointmentOutcome, rebook?: boolean, proposalMade?: boolean) => void; onSync?: () => void }) {
-  const heading = selected.kind === "crm" ? selected.task.title.replace(/^Appuntamento —\s*/, "") : selected.event.summary || "Impegno Google";
-  return <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && onClose()}><section className="calendar-modal calendar-event-modal" role="dialog" aria-modal="true" aria-label="Dettagli evento" onClick={(event) => event.stopPropagation()}><div className="calendar-detail-head"><span className={`calendar-detail-label${selected.kind === "google" ? " google-label" : ""}`}>{selected.kind === "google" ? "Evento Google personale" : selected.task.appointment_type ? APPOINTMENT_LABELS[selected.task.appointment_type] : "Appuntamento CRM"}</span><button type="button" aria-label="Chiudi dettagli" onClick={onClose}>×</button></div><h2>{editing ? "Modifica appuntamento" : heading}</h2>{error && <div className="notice err">{error}</div>}{editing ? <div className="calendar-event-edit"><label>Titolo<input autoFocus value={title} onChange={(event) => onTitle(event.target.value)} /></label><LeadDateTimePicker value={startsAt} onChange={onStartsAt} disabled={busy} /><label>Note<textarea value={note} onChange={(event) => onNote(event.target.value)} /></label></div> : <><dl>{selected.kind === "crm" ? <><div><dt>Quando</dt><dd>{formatDateTime(selected.task.due_at)}</dd></div><div><dt>Durata</dt><dd>{selected.task.duration_minutes || (selected.task.appointment_type ? APPOINTMENT_DURATION[selected.task.appointment_type] : 60)} minuti</dd></div><div><dt>Stato</dt><dd>{selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show" ? selected.task.appointment_type === "setting" && selected.task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : "Da svolgere"}</dd></div><div><dt>Assegnato a</dt><dd>{selected.task.assigned_to || "Non assegnato"}</dd></div>{selected.task.appointment_host && <div><dt>Conduce</dt><dd>{selected.task.appointment_host}</dd></div>}{selected.lead && <div><dt>Lead</dt><dd><b>{selected.lead.name || "Senza nome"}</b>{selected.lead.phone && <small>{selected.lead.phone}</small>}{selected.lead.email && <small>{selected.lead.email}</small>}</dd></div>}{selected.task.description && <div><dt>Dettagli</dt><dd>{selected.task.description}</dd></div>}</> : <><div><dt>Quando</dt><dd>{selected.event.start?.dateTime ? formatDateTime(selected.event.start.dateTime) : selected.event.start?.date || "Tutto il giorno"}</dd></div>{selected.event.location && <div><dt>Luogo</dt><dd>{selected.event.location}</dd></div>}{selected.event.description && <div><dt>Note</dt><dd>{selected.event.description}</dd></div>}</>}</dl>{selected.kind === "crm" && selected.task.appointment_type && selected.task.appointment_status !== "cancelled" && <CalendarOutcome key={selected.task.id} task={selected.task} busy={busy} onOutcome={onOutcome} />}
-    {selected.kind === "crm" && selected.task.commercial_tracked && onSync && !selected.task.google_event_id && !selected.task.completed_at && <button type="button" className="btn small" disabled={busy} onClick={onSync}>Sincronizza con Google</button>}
-    <p className="calendar-detail-note">{selected.kind === "google" ? "L’evento Google resta personale. Con “Appuntamento di vendita” puoi condividere nel CRM solo i dati commerciali scelti." : "L'esito vale una volta sola: correggerlo aggiorna la registrazione esistente, non ne crea una seconda."}</p></>}{selected.kind === "google" && !editing && <button className="btn primary" disabled={busy || saleDisabled || !selected.event.start?.dateTime} onClick={onSale}>{hasSale ? "Registra / correggi esito vendita" : "Appuntamento di vendita"}</button>}{hasSale && <p className="calendar-detail-note">Questa call ha una registrazione commerciale nel CRM. Modifiche a Google non riscrivono l’esito: aggiorna anche la registrazione.</p>}<footer className="calendar-event-footer">{editing ? <><button className="btn" type="button" disabled={busy} onClick={onCancelEdit}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={onSave}>{busy ? "Salvataggio…" : "Salva modifiche"}</button></> : <><button className="btn danger" type="button" disabled={busy || hasSale} onClick={onDelete}>Elimina</button><button className="btn" type="button" onClick={onEdit}>Modifica</button></>}</footer></section></div>;
-}
+type EventDetailsProps = {
+  selected: Selected;
+  editing: boolean;
+  title: string;
+  startsAt: string;
+  note: string;
+  error: string | null;
+  busy: boolean;
+  saleDisabled: boolean;
+  hasSale: boolean;
+  onSale: () => void;
+  onClose: () => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onTitle: (value: string) => void;
+  onStartsAt: (value: string) => void;
+  onNote: (value: string) => void;
+  onSave: () => void;
+  onDelete: () => void;
+  onOutcome: (outcome: AppointmentOutcome, rebook?: boolean, proposalMade?: boolean) => void;
+  onSync?: () => void;
+};
 
+function EventDetailsModal({
+  selected, editing, title, startsAt, note, error, busy, saleDisabled, hasSale,
+  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onSync,
+}: EventDetailsProps) {
+  const task = selected.kind === "crm" ? selected.task : null;
+  const heading = selected.kind === "crm" ? appointmentSubject(selected.task) : selected.event.summary || "Impegno Google";
+  const canEdit = !task || (!task.completed_at && !isAppointmentClosed(task) && task.appointment_status !== "cancelled");
+  const canReschedule = Boolean(task?.appointment_type && canEdit && Date.parse(task.due_at) > Date.now());
+  const kindLabel = task
+    ? task.appointment_type ? APPOINTMENT_LABELS[task.appointment_type] : "Appuntamento CRM"
+    : "Evento Google personale";
+
+  return <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
+    <section className="calendar-modal calendar-event-modal calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Dettagli evento" onClick={event => event.stopPropagation()}>
+      <header className="calendar-appointment-header">
+        <div>
+          <h2>{editing ? "Modifica appuntamento" : heading}</h2>
+          <span className={`calendar-detail-label${task ? "" : " google-label"}`}>{kindLabel}</span>
+        </div>
+        <button type="button" className="btn calendar-close" aria-label="Chiudi dettagli" disabled={busy} onClick={onClose}>×</button>
+      </header>
+      {error && <div className="notice err" role="alert">{error}</div>}
+
+      {editing ? <div className="calendar-event-edit">
+        <label>Titolo<input autoFocus value={title} onChange={event => onTitle(event.target.value)} /></label>
+        <LeadDateTimePicker value={startsAt} onChange={onStartsAt} disabled={busy} />
+        <label>Note<textarea value={note} onChange={event => onNote(event.target.value)} /></label>
+      </div> : <>
+        <dl className="calendar-appointment-facts">
+          {selected.kind === "crm" ? <>
+            <div><dt>Quando</dt><dd>{formatDateTime(selected.task.due_at)}</dd></div>
+            <div><dt>Durata</dt><dd>{selected.task.duration_minutes || (selected.task.appointment_type ? APPOINTMENT_DURATION[selected.task.appointment_type] : 60)} minuti</dd></div>
+            <div><dt>Stato</dt><dd>{selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show"
+              ? selected.task.appointment_type === "setting" && selected.task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show"
+              : selected.task.appointment_status === "cancelled" ? "Annullata" : "Da svolgere"}</dd></div>
+            <div><dt>Assegnato a</dt><dd>{selected.task.assigned_to || "Non assegnato"}</dd></div>
+            {selected.task.appointment_host && <div><dt>Conduce</dt><dd>{selected.task.appointment_host}</dd></div>}
+            {selected.lead && <div className="calendar-fact-full"><dt>Lead</dt><dd>
+              <b>{selected.lead.name || "Senza nome"}</b>
+              {selected.lead.phone && <small>{selected.lead.phone}</small>}
+              {selected.lead.email && <small>{selected.lead.email}</small>}
+            </dd></div>}
+            {selected.task.description && <div className="calendar-fact-full"><dt>Dettagli</dt><dd>{selected.task.description}</dd></div>}
+          </> : <>
+            <div className="calendar-fact-full"><dt>Quando</dt><dd>{selected.event.start?.dateTime ? formatDateTime(selected.event.start.dateTime) : selected.event.start?.date || "Tutto il giorno"}</dd></div>
+            {selected.event.location && <div className="calendar-fact-full"><dt>Luogo</dt><dd>{selected.event.location}</dd></div>}
+            {selected.event.description && <div className="calendar-fact-full"><dt>Note</dt><dd>{selected.event.description}</dd></div>}
+          </>}
+        </dl>
+
+        {canReschedule && <div className="calendar-reschedule-action">
+          <div><b>Il contatto ha chiesto un rinvio?</b><p>Sposta lo stesso evento nel CRM e su Google Calendar, senza segnare un no-show.</p></div>
+          <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
+        </div>}
+        {task?.appointment_type && task.appointment_status !== "cancelled" &&
+          (canReschedule
+            ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
+                <p>Usalo se il contatto ha annullato e non avete concordato un nuovo orario.</p>
+                <CalendarOutcome key={task.id} task={task} busy={busy} onOutcome={onOutcome} />
+              </details>
+            : <CalendarOutcome key={task.id} task={task} busy={busy} onOutcome={onOutcome} />)}
+
+        {task?.commercial_tracked && onSync && !task.google_event_id && !task.completed_at &&
+          <button type="button" className="btn calendar-sync-action" disabled={busy} onClick={onSync}>Sincronizza con Google</button>}
+
+        {selected.kind === "google" && <div className="calendar-sale-action">
+          <button type="button" className="btn primary" disabled={busy || saleDisabled || !selected.event.start?.dateTime} onClick={onSale}>
+            {hasSale ? "Registra / correggi esito vendita" : "Appuntamento di vendita"}
+          </button>
+          <p className="calendar-detail-note">{hasSale
+            ? "Se sposti l’evento su Google, aggiorna anche la registrazione dell’esito."
+            : "Registri nel CRM solo i dati commerciali che scegli di condividere."}</p>
+        </div>}
+      </>}
+
+      <footer className={`calendar-appointment-footer${editing ? "" : " calendar-manage-footer"}`}>
+        {editing ? <>
+          <button className="btn" type="button" disabled={busy} onClick={onCancelEdit}>Annulla</button>
+          <button className="btn primary" type="button" disabled={busy} onClick={onSave}>{busy ? "Salvataggio…" : "Salva modifiche"}</button>
+        </> : <>
+          <button className="btn danger" type="button" disabled={busy || hasSale} onClick={onDelete}>Elimina</button>
+          {canEdit && !canReschedule && <button className="btn" type="button" disabled={busy} onClick={onEdit}>Modifica appuntamento</button>}
+        </>}
+      </footer>
+    </section>
+  </div>;
+}
 
 function CalendarOutcome({ task, busy, onOutcome }: {
   task: SalesTask; busy: boolean; onOutcome: (outcome: AppointmentOutcome, rebook?: boolean, proposalMade?: boolean) => void;
@@ -230,18 +347,21 @@ function CalendarOutcome({ task, busy, onOutcome }: {
   const [proposalMade, setProposalMade] = useState(task.proposal_made ?? undefined);
   if (!task.appointment_type) return null;
   const beforeStart = Date.parse(task.due_at) > Date.now();
-  const canSave = value && (!beforeStart || value === "no_show");
-  const nextAction = value === "qualified" ? "Salva e prenota closing"
+  const saveValue = !beforeStart || value === "no_show" ? value : "";
+  const canAdvance = value === "qualified" || (task.appointment_type === "setting" && value === "answered");
+  const nextAction = beforeStart ? null : value === "qualified" ? "Salva e prenota closing"
     : task.appointment_type === "setting" && value === "answered" ? "Salva e prenota discovery"
     : value === "no_show" || value === "no_answer" ? value === "no_answer" && task.appointment_type === "setting" ? "Non risponde e riprenota setting" : "No-show e riprenota"
     : null;
   return <div className="appointment-outcomes">
-    <b>{isAppointmentClosed(task) ? "Correggi l’esito" : beforeStart ? "Il contatto ha annullato?" : "Com’è andata?"}</b>
+    {!beforeStart && <b>{isAppointmentClosed(task) ? "Correggi l’esito" : "Com’è andata?"}</b>}
     <AppointmentOutcomeChoices type={task.appointment_type} value={value} disabled={busy} beforeStart={beforeStart} onChange={setValue} />
     {value === "held" && <label><input type="checkbox" checked={proposalMade ?? false} disabled={busy} onChange={event => setProposalMade(event.target.checked)} /> Proposta presentata</label>}
-    {canSave && <div className="lead-appointment-actions">
-      <button className="btn small primary" disabled={busy} onClick={() => onOutcome(value, false, proposalMade)}>Salva esito</button>
-      {nextAction && <button className="btn small" disabled={busy} onClick={() => onOutcome(value, true)}>{nextAction}</button>}
-    </div>}
+    <div className="calendar-outcome-actions">
+      <button type="button" className={canAdvance ? "btn" : "btn primary"}
+        disabled={busy || !saveValue} onClick={() => { if (saveValue) onOutcome(saveValue, false, proposalMade); }}>Salva esito</button>
+      {saveValue && nextAction && <button type="button" className={canAdvance ? "btn primary" : "btn"}
+        disabled={busy} onClick={() => onOutcome(saveValue, true)}>{nextAction}</button>}
+    </div>
   </div>;
 }

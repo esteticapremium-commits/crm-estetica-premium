@@ -46,22 +46,21 @@ export const bookingKey = (taskId: string) => `appointment:${taskId}:booked`;
 export const outcomeKey = (taskId: string) => `appointment:${taskId}:outcome`;
 
 export const APPOINTMENT_LABELS: Record<AppointmentType, string> = {
-  setting: "Setting telefonico", discovery: "Discovery telefonica", demo: "Closing video",
+  setting: "Setting telefonico", discovery: "Discovery", demo: "Closing video",
 };
 export const APPOINTMENT_SHORT_LABELS: Record<AppointmentType, string> = {
   setting: "Setting", discovery: "Discovery", demo: "Closing",
 };
+const titleLabels = [...Object.values(APPOINTMENT_LABELS), "Discovery telefonica", "Demo video", "Appuntamento"].join("|");
+const titleLabelPattern = new RegExp(`^(?:${titleLabels})\\s*—\\s*|\\s*—\\s*(?:${titleLabels})$`, "g");
 const channelFor = (type: AppointmentType) => (type === "discovery" ? "phone" : "video_call");
 
-/** Il titolo conserva sempre il prefisso della fase: il Calendario lo usa per
- *  riconoscere l'evento e il venditore per leggerlo a colpo d'occhio. */
 export function appointmentTitle(type: AppointmentType, subject: string) {
-  const clean = subject.replace(/^(Setting telefonico|Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "").trim();
-  return `${APPOINTMENT_LABELS[type]} — ${clean || "Appuntamento"}`;
+  return `${appointmentSubject({ title: subject }) || "Appuntamento"} — ${APPOINTMENT_LABELS[type]}`;
 }
 
 export function appointmentSubject(task: Pick<SalesTask, "title">) {
-  return task.title.replace(/^(Setting telefonico|Discovery telefonica|Closing video|Demo video|Appuntamento)\s*—\s*/, "");
+  return task.title.trim().replace(titleLabelPattern, "").trim();
 }
 
 export interface CreateAppointmentInput {
