@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createAppointment } from './appointments';
 import { supabase } from './supabaseClient';
 import { withTimeout } from './async';
 import { listGoogleCalendarEvents, type GoogleEvent } from './calendarGoogle';
@@ -20,7 +21,7 @@ type ClosingChoice = {
 };
 export default function GoogleSaleModal({ clientId, event, sale, leads, admin, onClose, onSaved }: {
   clientId: string; event?: GoogleEvent; sale?: GoogleSale; leads: Lead[]; admin: boolean;
-  onClose: () => void; onSaved: () => void;
+  onClose: () => void; onSaved: (warning?: string) => void;
 }) {
   const [contact, setContact] = useState(sale?.contact_name || event?.summary || '');
   const [leadId, setLeadId] = useState(sale?.lead_id || '');
@@ -44,6 +45,10 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
   const [next, setNext] = useState(localStamp(sale?.next_action_at));
   const [closingDay, setClosingDay] = useState(() => (localStamp(sale?.next_action_at) || localStamp(new Date().toISOString())).slice(0, 10));
   const [closingReference, setClosingReference] = useState(sale?.outcome === 'closing_booked' ? sale.closing_reference || '' : '');
+  const [closingMode, setClosingMode] = useState<'new' | 'existing'>(sale?.closing_reference ? 'existing' : 'new');
+  const [closingTime, setClosingTime] = useState('');
+  const bookingId = useRef('');
+  const bookedClosing = useRef<{ reference: string; warning?: string } | null>(null);
   const [closingChoices, setClosingChoices] = useState<ClosingChoice[]>([]);
   const [closingLoading, setClosingLoading] = useState(false);
   const [closingWarning, setClosingWarning] = useState('');
@@ -56,7 +61,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
   const discoveryKey = sale?.google_key || (event ? googleSaleKey(event) : '');
   const discoveryId = sale?.google_event_id || event?.id;
   useEffect(() => {
-    if (outcome !== 'closing_booked' || !closingDay) return;
+    if (outcome !== 'closing_booked' || closingMode !== 'existing' || !closingDay) return;
     const start = new Date(`${closingDay}T00:00:00`);
     if (!Number.isFinite(start.getTime())) return;
     const end = new Date(start); end.setDate(end.getDate() + 1);
@@ -89,7 +94,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
       setClosingLoading(false);
     });
     return () => { current = false; };
-  }, [clientId, closingDay, discoveryId, discoveryKey, outcome, startsAt]);
+  }, [clientId, closingDay, closingMode, discoveryId, discoveryKey, outcome, startsAt]);
 
   async function save() {
     if (lock.current) return;
@@ -109,11 +114,36 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
       const invalid = validateGoogleSale(payload);
       if (invalid) { setError(invalid); return; }
       const choice = closingChoices.find(item => item.reference === closingReference);
-      const closing = choice
+      let closing = choice
         ? {reference: choice.reference, starts_at: choice.starts_at, google_event_id: choice.google_event_id, booked_at: choice.booked_at}
         : closingReference && closingReference === sale?.closing_reference ? {reference: closingReference} : null;
-      if (outcome === 'closing_booked' && !closing) return setError('Seleziona la Closing già in calendario.');
+      const newClosing = outcome === 'closing_booked' && closingMode === 'new';
+      const closingStart = new Date(`${closingDay}T${closingTime}`);
+      if (newClosing && !bookedClosing.current &&
+        (!Number.isFinite(closingStart.getTime()) || closingStart.getTime() <= Math.max(Date.now(), Date.parse(payload.starts_at)))) {
+        return setError('Scegli una data e un’ora future per la Closing, successive alla Discovery.');
+      }
+      if (outcome === 'closing_booked' && !newClosing && !closing) {
+        return setError('Seleziona la Closing già in calendario.');
+      }
       lock.current = true; setBusy(true); setError('');
+      if (newClosing) {
+        if (leadId && !selectedLead) throw new Error('Il lead collegato non è accessibile.');
+        if (!bookedClosing.current) {
+          bookingId.current ||= crypto.randomUUID();
+          const booking = await createAppointment({
+            clientId, lead: selectedLead || null, type: 'demo', audience: 'lead',
+            subject: selectedLead?.name || contact.trim(), startsAt: closingStart,
+            note: '', requestId: bookingId.current,
+          });
+          if (!booking.ok || !booking.taskId) throw new Error(booking.error || 'Prenotazione non confermata.');
+          bookedClosing.current = {
+            reference: `crm:${booking.taskId}`,
+            warning: [booking.pipelineWarning, booking.warning].filter(Boolean).join(' '),
+          };
+        }
+        closing = { reference: bookedClosing.current.reference };
+      }
       const args = {p_client_id: clientId, p_sale: payload, p_expected_version: sale?.version || 0};
       const request = outcome === 'closing_booked'
         ? supabase.rpc('save_google_discovery_with_closing', {...args, p_closing: closing})
@@ -122,8 +152,13 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
       if (result.error) throw new Error(result.error.message);
       const saved = Array.isArray(result.data) ? result.data[0] : result.data;
       if (!saved?.id) throw new Error('Il server non ha confermato il salvataggio.');
-      onSaved();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Salvataggio non riuscito.'); }
+      onSaved(newClosing ? bookedClosing.current?.warning : undefined);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Salvataggio non riuscito.';
+      setError(bookedClosing.current
+        ? `Closing già prenotata nel CRM. Riprova per salvare l’esito della Discovery. ${message}`
+        : message);
+    }
     finally { lock.current = false; setBusy(false); }
   }
   return <div className="calendar-modal-overlay" onClick={() => !busy && onClose()}>
@@ -137,7 +172,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
         <fieldset disabled={busy}>
           <label>Contatto<input required value={contact} onChange={e => setContact(e.target.value)} /></label>
           <div className="google-sale-grid">
-            <label>Tipo di appuntamento<select value={type} onChange={e => {
+            <label>Tipo di appuntamento<select disabled={!!bookedClosing.current} value={type} onChange={e => {
               const nextType = e.target.value as typeof type;
               setType(nextType);
               if (nextType !== 'discovery' && outcome === 'closing_booked') setOutcome('pending');
@@ -146,24 +181,30 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
           </div>
 
           {sale && event?.start?.dateTime && new Date(event.start.dateTime).getTime() !== new Date(sale.starts_at).getTime() && <p className="notice">La data su Google è cambiata. <button type="button" className="btn small" onClick={() => setStartsAt(localStamp(event.start?.dateTime))}>Usa il nuovo orario Google</button></p>}
-          <label>Esito<select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
+          <label>Esito<select disabled={!!bookedClosing.current} value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
             {type === 'discovery' && <option value="closing_booked" disabled={beforeStart}>Closing prenotata</option>}
             {Object.entries(saleOutcomes).filter(([key]) => key !== 'closing_booked').map(([key, label]) => <option key={key} value={key} disabled={beforeStart && !googleOutcomesBeforeStart.includes(key as GoogleSaleOutcome)}>{beforeStart && key === 'no_show' ? 'No-show preannunciato' : label}</option>)}
           </select></label>
           {outcome === 'closing_booked' && <>
+            <label>Closing<select value={closingMode} disabled={!!bookedClosing.current} onChange={e => setClosingMode(e.target.value as typeof closingMode)}>
+              <option value="new">Prenota una nuova Closing</option>
+              <option value="existing">Collega un evento già in agenda</option>
+            </select></label>
             <div className="google-sale-grid">
-              <label>Data della Closing<input type="date" required value={closingDay} onChange={e => {setClosingDay(e.target.value);setClosingReference('');setClosingChoices([]);}} /></label>
-              <label>Evento già in agenda<select required value={closingReference} disabled={closingLoading} onChange={e => setClosingReference(e.target.value)}>
+              <label>Data della Closing<input type="date" required disabled={!!bookedClosing.current} value={closingDay} onChange={e => {setClosingDay(e.target.value);setClosingReference('');setClosingChoices([]);}} /></label>
+              {closingMode === 'new'
+                ? <label>Ora della Closing<input type="time" required disabled={!!bookedClosing.current} value={closingTime} onChange={e => setClosingTime(e.target.value)} /></label>
+                : <label>Evento già in agenda<select required value={closingReference} disabled={closingLoading} onChange={e => setClosingReference(e.target.value)}>
                 <option value="">{closingLoading ? 'Ricerca in calendario…' : 'Scegli la Closing'}</option>
                 {closingReference && closingReference === sale?.closing_reference && !closingChoices.some(choice => choice.reference === closingReference) &&
                   <option value={closingReference}>Closing già collegata</option>}
                 {closingChoices.map(choice => <option key={choice.reference} value={choice.reference}>
                   {new Date(choice.starts_at).toLocaleTimeString('it-IT', {timeZone:'Europe/Rome', hour:'2-digit',minute:'2-digit'})} · {choice.title}
                 </option>)}
-              </select></label>
+              </select></label>}
             </div>
-            <small role="status">{closingWarning || (!closingLoading && !closingChoices.length && !closingReference
-              ? 'Nessun evento successivo alla Discovery in questa data. Se la Closing non è in agenda, creala prima dal calendario.'
+            <small role="status">{closingMode === 'new' ? 'Il CRM prenota la Closing e registra la Discovery come svolta e in target.' : closingWarning || (!closingLoading && !closingChoices.length && !closingReference
+              ? 'Nessun evento successivo alla Discovery in questa data. Seleziona “Prenota una nuova Closing” per fissarla qui.'
               : 'La Discovery risulta svolta e in target. Il CRM usa la Closing già in agenda, senza duplicarla.')}</small>
           </>}
           {['follow_up','lost'].includes(outcome) && <label>Offerta presentata<select value={String(proposal)} onChange={e => setProposal(e.target.value === 'true')}><option value="false">No</option><option value="true">Sì</option></select></label>}
@@ -186,7 +227,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
           <label>Nota {outcome === 'lost' ? '/ motivo' : '/ prossimo passo'}<textarea rows={3} maxLength={5000} value={note} onChange={e => setNote(e.target.value)} /></label>
                   </details>
         </fieldset>
-        <footer><button type="button" className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy || (outcome === 'closing_booked' && (closingLoading || !closingReference))}>{busy ? 'Salvataggio…' : 'Salva nei risultati'}</button></footer>
+        <footer><button type="button" className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy || (outcome === 'closing_booked' && (closingMode === 'existing' ? closingLoading || !closingReference : !closingDay || !closingTime))}>{busy ? 'Salvataggio…' : outcome === 'closing_booked' && closingMode === 'new' ? bookedClosing.current ? 'Salva esito Discovery' : 'Prenota Closing e salva esito' : 'Salva nei risultati'}</button></footer>
       </form>
     </section>
   </div>;
