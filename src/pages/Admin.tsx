@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import { normalizeSpecificApprovalSignature } from "../contractPdf";
+import SetterRegistrationAdmin from "./SetterRegistrationAdmin";
 import type { Client, Contract, ContractTemplate, Pipeline, Stage } from "../types";
 
 /* Chiamata alla funzione protetta che gestisce gli utenti */
@@ -113,7 +114,10 @@ export default function Admin({
 
       <div className="settings-content">
         {sub === "attivita" && <ActivityPanel clients={clients} />}
-        {sub === "accessi" && <UsersPanel clients={clients} />}
+        {sub === "accessi" && <>
+          {clients.filter(client => client.name === "Estetica Premium").map(client => <SetterRegistrationAdmin key={client.id} clientId={client.id} />)}
+          <UsersPanel clients={clients} />
+        </>}
         {sub === "contratti" && <ContractsPanel clients={clients} />}
         {sub === "fasi" &&
           (current ? (

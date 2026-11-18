@@ -13,6 +13,7 @@ function lazyPage<T extends ComponentType<any>>(loader: () => Promise<{ default:
 
 const Automazioni = lazyPage(() => import("./pages/Automazioni"));
 const Login = lazyPage(() => import("./pages/Login"));
+const SetterRegistration = lazyPage(() => import("./pages/SetterRegistration"));
 const Board = lazyPage(() => import("./pages/Board"));
 const Admin = lazyPage(() => import("./pages/Admin"));
 const Vendite = lazyPage(() => import("./pages/Vendite"));
@@ -258,6 +259,11 @@ export default function App() {
   const firmaMatch = window.location.hash.match(/^#\/firma\/([^/]+)/);
   if (firmaMatch) {
     return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento documento…</div>}><FirmaPage token={firmaMatch[1]} /></Suspense></ModuleBoundary>;
+  }
+
+  const setterRegistration = window.location.hash.match(/^#\/setter-(registrazione|attiva)\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i);
+  if (setterRegistration) {
+    return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento…</div>}><SetterRegistration token={setterRegistration[2]} activation={setterRegistration[1] === "attiva"} /></Suspense></ModuleBoundary>;
   }
 
   if (auth.loading || (navigationKey && navigationOwner !== navigationKey)) {
