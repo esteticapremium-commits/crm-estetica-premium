@@ -60,6 +60,19 @@ test('linking a sale and recording later instalments never adds a second new cus
 test('excluded calls do not contribute even their booking',()=>{
  assert.equal(Object.keys(googleSaleMetrics({...sale,outcome:'excluded'},'2026-11-09',now)).length,0);
 });
+test('closing link counts Discovery held and qualified, leaving the booking to the actual Closing',()=>{
+ const discovery={...sale,appointment_type:'discovery',outcome:'closing_booked',qualified:true,next_action_at:'2026-11-12T11:00:00Z'};
+ const metrics=googleSaleMetrics(discovery,'2026-11-10',now);
+ assert.equal(validateGoogleSale(discovery,now),null);
+ assert.equal(metrics.discoveryHeld,1);
+ assert.equal(metrics.qualified,1);
+ assert.equal(metrics.demoBooked,undefined);
+ assert.equal(metrics.won,undefined);
+ assert.equal(saleNeedsAction(discovery,now),false);
+ assert.ok(validateGoogleSale({...discovery,appointment_type:'demo'},now));
+ const closing={...sale,booked_at:'2026-11-10T10:20:00Z',starts_at:discovery.next_action_at};
+ assert.equal(googleSaleMetrics(closing,'2026-11-10',now).demoBooked,1);
+});
 test('post-closing follow-ups keep separate call counts and retain sales outcomes',()=>{
  const followUp={...sale,appointment_type:'follow_up',outcome:'won',contract_value:3000};
  const booked=googleSaleMetrics(followUp,'2026-11-09',now);
