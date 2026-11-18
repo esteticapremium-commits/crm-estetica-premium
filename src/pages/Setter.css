@@ -22,6 +22,21 @@
 .setter-dialog { max-width: min(520px, 94vw); }
 .setter-dialog .content { display: grid; gap: 12px; }
 .setter-dialog label textarea, .setter-dialog label input:not([type=checkbox]), .setter-dialog label select { display: block; width: 100%; margin-top: 4px; }
+.setter-instructions {
+  box-sizing: border-box; width: min(700px, calc(100vw - 24px)); max-height: calc(100dvh - 24px);
+  padding: 0; overflow: auto; background: var(--ep-surface, #fffdf9); color: var(--ep-ink-strong, #30272b);
+  border: 1px solid var(--ep-border, #e8dedb); border-radius: 14px; box-shadow: var(--ep-shadow-lg);
+}
+.setter-instructions::backdrop { background: rgba(36, 16, 24, .35); }
+.setter-instructions > header {
+  position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; padding: 14px 20px; background: inherit; border-bottom: 1px solid var(--ep-border, #e8dedb);
+}
+.setter-instructions h2 { margin: 0; font-size: 19px; }
+.setter-instruction-text { padding: 18px 20px 22px; overflow-wrap: anywhere; }
+.setter-instruction-text h3 { color: var(--ep-brand, #51162b); margin: 24px 0 10px; font-size: 14px; line-height: 1.45; }
+.setter-instruction-text h3:first-child { margin-top: 0; }
+.setter-instruction-text p { margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap; }
 @media (max-width: 640px) {
   .setter-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setter-tools .segmented { max-width: 100%; flex-wrap: wrap; }

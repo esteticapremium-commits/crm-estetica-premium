@@ -5,6 +5,7 @@ import { withTimeout } from "../async";
 import { romeDay, romeStamp, romeToday } from "../dates";
 import { reportRange } from "../dailySales";
 import { supabase } from "../supabaseClient";
+import SetterInstructions from "./SetterInstructions";
 import "./Setter.css";
 
 const columns = [
@@ -94,6 +95,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
     <header className="setter-heading">
       <div><h1>Setter</h1><p>{admin ? "Assegna i contatti e segui il lavoro di ogni setter." : "Lavora i tuoi lead e fissa le discovery per i venditori."}</p></div>
       <div className="setter-tools">
+        <SetterInstructions clientId={clientId} />
         {admin && <button className="btn primary" onClick={() => setAssignOpen(true)}>Assegna lead</button>}
         <button className="btn" onClick={() => void load()} disabled={loading}>Aggiorna</button>
       </div>
@@ -139,14 +141,14 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
         </section>;
       })}
     </div>}
-    {activeLead && <SetterLeadDialog key={activeLead.lead_id} lead={activeLead} admin={admin} onClose={() => setActiveLeadId(undefined)}
+    {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} onClose={() => setActiveLeadId(undefined)}
       onSaved={async () => { setActiveLeadId(undefined); await load(); }} />}
     {assignOpen && admin && <AssignmentDialog clientId={clientId} staff={staff} onClose={() => setAssignOpen(false)}
       onSaved={async () => { setAssignOpen(false); await load(); }} />}
   </div>;
 }
 
-function SetterLeadDialog({ lead, admin, onClose, onSaved }: { lead: SetterLead; admin: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
+function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientId: string; lead: SetterLead; admin: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
   const workAllowed = !admin && lead.state !== "booked";
   const [mode, setMode] = useState<"outcome" | "book">("outcome");
   const [outcome, setOutcome] = useState<Outcome | "">("");
@@ -186,7 +188,7 @@ function SetterLeadDialog({ lead, admin, onClose, onSaved }: { lead: SetterLead;
 
   return <div className="overlay">
     <section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
-      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><button className="btn small" onClick={onClose} disabled={busy}>Chiudi</button></header>
+      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy}>Chiudi</button></div></header>
       <form className="content" onSubmit={event => void submit(event)}>
         <div className="setter-tools">
           {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}

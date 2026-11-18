@@ -16,7 +16,7 @@ try {
     create role authenticated;
     create function auth.uid() returns uuid language sql as $$select current_setting('fixture.uid',true)::uuid$$;
     create table auth.users(id uuid primary key, email text);
-    create table public.clients(id uuid primary key);
+    create table public.clients(id uuid primary key, name text);
     create table public.profiles(id uuid primary key, role text check(role in ('admin','venditore')), client_id uuid, full_name text);
     create function public.is_admin() returns boolean language sql stable security definer as
       $$select coalesce((select role = 'admin' from public.profiles where id=auth.uid()), false)$$;
@@ -43,7 +43,7 @@ try {
     grant usage on schema auth to authenticated;
     grant select on public.leads,public.sales_revenue_events,public.sales_tasks to authenticated;
     grant select,update on public.profiles to authenticated;
-    insert into public.clients values('${client}'), ('${otherClient}');
+    insert into public.clients values('${client}','Estetica Premium'), ('${otherClient}','Altro cliente');
     insert into public.leads values
       ('${lead}','${client}','${pipeline}','${start}','A','111','a@example.test','Cold call','Prima',2990,0,null),
       ('${hidden}','${client}','${pipeline}','${start}','Segreto','222','b@example.test','Cold call','Prima',2990,1,null);
@@ -53,6 +53,9 @@ try {
   const migration = readFileSync("supabase/upgrade_setter_workspace.sql", "utf8");
   await db.exec(migration);
   await db.exec(migration);
+  const instructionsMigration = readFileSync("supabase/upgrade_setter_instructions.sql", "utf8");
+  await db.exec(instructionsMigration);
+  await db.exec(instructionsMigration);
   await db.exec(`insert into public.profiles values
     ('${leader}','admin',null,'Titolare'), ('${setter}','setter','${client}','Setter A'),
     ('${otherSetter}','setter','${client}','Setter B'), ('${seller}','venditore','${client}','Giovanni'),
@@ -63,11 +66,18 @@ try {
   const assign = (contactId, staff = setter) => db.query("select public.assign_setter_lead($1,$2,$3)", [contactId, staff, seller]);
   await actor(leader);
   await db.exec("set role authenticated");
+  const instructions = staffClient => scalar("select public.get_setter_instructions($1)", [staffClient]);
+  const adminInstructions = await instructions(client);
+  assert.match(adminInstructions, /INVIA MAX 50 MESS WHATSAPP A FREDDO AL GIORNO/);
+  assert.match(adminInstructions, /ma posiamo valutare tutto/);
+  await assert.rejects(() => instructions(otherClient), /non accessibili/);
   await assert.rejects(() => assign(lead, outsider), /stessa azienda/);
   await assign(lead);
   await assign(hidden, otherSetter);
   assert.equal((await workspace()).queue.length, 2);
   await actor(setter);
+  assert.equal(await instructions(client), adminInstructions);
+  await assert.rejects(() => instructions(otherClient), /non accessibili/);
   assert.equal(await scalar("select count(*)::int from public.leads"), 0, "raw lead table stays private");
   assert.equal(await scalar("select count(*)::int from public.sales_revenue_events"), 0, "cash stays private");
   await assert.rejects(() => db.query("update public.profiles set role='admin' where id=$1", [setter]), /Solo il titolare/);
@@ -91,6 +101,7 @@ try {
   assert.deepEqual(after.totals,{contacts:1,answered:1,booked:1,held:0});
   await actor(seller);
   await assert.rejects(() => workspace(), /non accessibile/);
+  await assert.rejects(() => instructions(client), /non accessibili/);
   assert.deepEqual((await db.query("select assigned_to,duration_minutes,description from public.sales_tasks")).rows,
     [{assigned_to:"Giovanni",duration_minutes:30,description:"Nota del setter"}]);
   await actor(leader);
@@ -99,6 +110,7 @@ try {
   await db.exec("reset role");
   assert.equal(await scalar("select count(*)::int from public.lead_activities"),2);
   assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_workspace(uuid,uuid,date,date)','execute')"),false);
+  assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_instructions(uuid)','execute')"),false);
   console.log("SQL OK: ruoli isolati, assegnazioni, tentativo idempotente, passaggio a Giovanni e KPI");
 } finally {
   await db.close();
