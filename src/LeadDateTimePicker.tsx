@@ -15,7 +15,9 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
-  const [date, time = ""] = value.split("T");
+  const [date, savedTime = ""] = value.split("T");
+  const [timeWithoutDate, setTimeWithoutDate] = useState("");
+  const time = date ? savedTime : timeWithoutDate;
   const today = romeToday();
   const [panel, setPanel] = useState<"date" | "time" | null>(null);
   const [selectedHour, setSelectedHour] = useState<string | null>(null);
@@ -46,6 +48,14 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
 
   function selectDate(nextDate: string) {
     onChange(`${nextDate}T${time}`);
+    setTimeWithoutDate("");
+    closePanel();
+  }
+
+  function selectMinute(nextMinute: string) {
+    const nextTime = `${selectedHour}:${nextMinute}`;
+    if (date) onChange(`${date}T${nextTime}`);
+    else setTimeWithoutDate(nextTime);
     closePanel();
   }
 
@@ -72,7 +82,7 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
       </div>
       <div className="field">
         <label htmlFor={`${pickerId}-time`}>Ora</label>
-        <button ref={timeButton} id={`${pickerId}-time`} type="button" disabled={disabled || !date}
+        <button ref={timeButton} id={`${pickerId}-time`} type="button" disabled={disabled}
           className="lead-date-trigger" aria-expanded={panel === "time"} aria-controls={`${pickerId}-clock`}
           aria-label={time ? `Ora, ${time}` : "Scegli l’ora"}
           onClick={() => {
@@ -124,16 +134,20 @@ export default function LeadDateTimePicker({ value, onChange, disabled }: {
       </div> : <>
         <div className={`lead-time-grid${showAllMinutes ? " all-minutes" : " quick-minutes"}`} aria-label="Minuti">
           {(showAllMinutes ? minutes : quarterHours).map(option => <button key={option} type="button"
-            disabled={disabled || !date} aria-label={`Minuti ${option}`}
+            disabled={disabled} aria-label={`Minuti ${option}`}
             aria-pressed={selectedHour === hour && option === minute}
-            onClick={() => { onChange(`${date}T${selectedHour}:${option}`); closePanel(); }}>{option}</button>)}
+            onClick={() => selectMinute(option)}>{option}</button>)}
         </div>
         {!showAllMinutes && <div className="lead-date-month-footer">
           <button type="button" disabled={disabled} onClick={() => { setShowAllMinutes(true); timeHeading.current?.focus({ preventScroll: true }); }}>Tutti i minuti</button>
         </div>}
       </>}
       {time && <div className="lead-date-month-footer">
-        <button type="button" disabled={disabled} onClick={() => { onChange(`${date}T`); closePanel(); }}>Cancella ora</button>
+        <button type="button" disabled={disabled} onClick={() => {
+          if (date) onChange(`${date}T`);
+          else setTimeWithoutDate("");
+          closePanel();
+        }}>Cancella ora</button>
       </div>}
     </div>
   </div>;
