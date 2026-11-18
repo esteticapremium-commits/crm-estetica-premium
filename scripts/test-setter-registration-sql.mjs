@@ -29,6 +29,9 @@ try {
   const sql = readFileSync("supabase/upgrade_setter_registration.sql", "utf8");
   await db.exec(sql);
   await db.exec(sql);
+  const browserMigration = readFileSync("supabase/upgrade_setter_self_activation.sql", "utf8");
+  await db.exec(browserMigration);
+  await db.exec(browserMigration);
   const actor = id => db.query("select set_config('fixture.uid',$1,false)", [id]);
   const portal = (action, id = null, clientId = ep) => read("select public.setter_registration_portal($1,$2,$3)",[clientId, action, id]);
   const submit = (link, name, email) => db.query("select public.submit_setter_registration($1,$2,$3)",[link,name,email]);
@@ -77,7 +80,45 @@ try {
   assert.deepEqual(await read("select raw_app_meta_data from auth.users where id=$1",[applicant]),{provider:"email"});
   assert.equal(await resolve(token),null);
   assert.equal(await read("select status from public.setter_registration_requests where id=$1",[request.id]),"activated");
-  console.log("SQL OK: richieste anonime isolate, approvazione admin, token privato a uso unico, creazione profilo Setter atomica");
+
+  const browserToken = "00000000-0000-4000-8000-000000000011";
+  const otherBrowser = "00000000-0000-4000-8000-000000000012";
+  const browserApplicant = "00000000-0000-4000-8000-000000000013";
+  const applyFromBrowser = (browser, email = "browser@example.test") =>
+    read("select public.request_setter_self_activation($1,'Candidato Browser',$2,$3)", [link.id,email,browser]);
+  const browserStatus = (browser, linkId = link.id) =>
+    read("select public.get_setter_self_activation($1,$2)",[linkId,browser]);
+  await db.exec("set role anon");
+  await actor("");
+  assert.equal(await applyFromBrowser(browserToken),"pending");
+  assert.equal(await applyFromBrowser(browserToken),"pending");
+  assert.equal(await applyFromBrowser(otherBrowser),"already_requested");
+  assert.equal(await browserStatus(otherBrowser),"missing");
+  await db.exec("set role service_role");
+  assert.equal(await resolve(browserToken),null,"someone waiting cannot activate");
+  await db.exec("set role authenticated");
+  await actor(admin);
+  const browserRequest = (await portal("read")).requests.find(row=>row.email==="browser@example.test");
+  assert.equal(browserRequest.same_browser,true);
+  assert.ok(!("device_hash" in browserRequest));
+  assert.equal((await portal("approve",browserRequest.id)).activation,null,"the admin has nothing to send");
+  await portal("revoke_link");
+  await db.exec("set role anon");
+  await actor("");
+  assert.equal(await browserStatus(browserToken),"approved","an approved applicant can finish even if the group link was revoked");
+  assert.equal(await browserStatus(browserToken,first.id),"missing");
+  assert.equal(await browserStatus(otherBrowser),"missing");
+  await assert.rejects(()=>applyFromBrowser(otherBrowser,"extra@example.test"),/non è più attivo/);
+  await db.exec("set role service_role");
+  assert.deepEqual(await resolve(browserToken),{id:browserRequest.id,email:browserRequest.email});
+  await db.exec("reset role");
+  const browserHash = await read("select encode(sha256(convert_to($1,'UTF8')),'hex')",[browserToken]);
+  const browserMeta = JSON.stringify({ep_setter_request:browserRequest.id,ep_setter_activation:browserHash});
+  await db.query("insert into auth.users values ($1,$2,$3,null,null)",[browserApplicant,browserRequest.email,browserMeta]);
+  assert.equal(await browserStatus(browserToken),"activated");
+  assert.equal(await resolve(browserToken),null);
+  assert.equal(await read("select role from public.profiles where id=$1",[browserApplicant]),"setter");
+  console.log("SQL OK: richieste isolate, approvazione, prova del browser e attivazione atomica a uso unico");
 } finally {
   await db.close();
 }

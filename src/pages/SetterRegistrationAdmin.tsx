@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
 
-type Registration = { id: string; full_name: string; email: string; status: "pending" | "approved"; created_at: string };
+type Registration = { id: string; full_name: string; email: string; status: "pending" | "approved"; created_at: string; same_browser: boolean };
 type Portal = { link: { id: string; expires_at: string } | null; requests: Registration[]; activation: string | null };
 type PortalAction = "read" | "new_link" | "revoke_link" | "approve" | "reject";
 
@@ -28,7 +28,13 @@ export default function SetterRegistrationAdmin({ clientId }: { clientId: string
       if (error || !data) throw new Error(error?.message || "Nessuna risposta dal CRM.");
       const result = data as Portal;
       setPortal({ ...result, activation:null });
-      if (action === "approve" && request && result.activation) setPrivateLink({ name:request.full_name, url:linkFor("setter-attiva",result.activation) });
+      if (action === "approve" && request) {
+        if (result.activation) setPrivateLink({ name:request.full_name, url:linkFor("setter-attiva",result.activation) });
+        else {
+          setPrivateLink(undefined);
+          setCopied("Richiesta approvata: la persona può scegliere la password dalla stessa pagina.");
+        }
+      }
       if (action === "reject") setPrivateLink(undefined);
       setDecision(undefined);
     } catch (reason) {
@@ -47,7 +53,7 @@ export default function SetterRegistrationAdmin({ clientId }: { clientId: string
   const groupLink = portal?.link && linkFor("setter-registrazione",portal.link.id);
   return <section className="panel" aria-label="Registrazione Setter" style={{ marginBlock: "18px" }}>
     <h3>Registrazione Setter</h3>
-    <p className="muted">Condividi nel gruppo il link di registrazione. Dopo aver verificato chi ha fatto richiesta, approvala e manda solo a quella persona il link di attivazione.</p>
+    <p className="muted">Condividi un solo link nel gruppo. Verifica nome ed email dichiarata e approva le persone che riconosci. La scelta della password si sblocca nella pagina in cui hanno inviato la richiesta.</p>
     {error && <p className="notice err" role="alert">{error}</p>}
     {groupLink && portal?.link && <div className="field">
       <label htmlFor="setter-group-link">Link per il gruppo · scade il {deadline(portal.link.expires_at)}</label>
@@ -66,12 +72,12 @@ export default function SetterRegistrationAdmin({ clientId }: { clientId: string
         <p className="muted">{request.status === "approved" ? "Approvata · in attesa di attivazione" : "In attesa di approvazione"}</p>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button className="btn primary" type="button" disabled={working} onClick={() => setDecision({action:"approve",request})}>
-            {request.status === "approved" ? "Rigenera link privato" : "Approva"}
+            {request.status === "approved" ? request.same_browser ? "Rinnova approvazione" : "Rigenera link privato" : "Approva"}
           </button>
           <button className="btn" type="button" disabled={working} onClick={() => setDecision({action:"reject",request})}>Rifiuta</button>
         </div>
         {decision?.request.id === request.id && <div className="notice">
-          <p>{decision.action === "approve" ? `Confermi che ${request.full_name} è la persona a cui vuoi abilitare la postazione Setter?` : `Rifiutare la richiesta di ${request.full_name}?`}</p>
+          <p>{decision.action === "approve" ? `Confermi l’accesso Setter per ${request.full_name}? L’email dichiarata è ${request.email}.` : `Rifiutare la richiesta di ${request.full_name}?`}</p>
           <button className="btn primary" type="button" disabled={working} onClick={() => void run(decision.action,request)}>Conferma</button>{" "}
           <button className="btn" type="button" disabled={working} onClick={() => setDecision(undefined)}>Annulla</button>
         </div>}
