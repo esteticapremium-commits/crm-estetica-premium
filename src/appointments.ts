@@ -6,7 +6,7 @@
 // sola versione di ogni operazione, così Google Calendar, sales_tasks e
 // lead_activities non possono più divergere.
 import { supabase } from "./supabaseClient";
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
+import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import { topLeadPosition } from "./leadPosition";
 import type { Lead, SalesTask } from "./types";
@@ -154,6 +154,15 @@ async function synchronizeBooking(task: SalesTask, description: string) {
   } catch {
     return "Prenotazione salvata nel CRM. Google Calendar da sincronizzare.";
   }
+  if (Date.parse(task.due_at) <= Date.now()) return;
+  const eventId = task.id.replace(/-/g, "");
+  if (await confirmOnPrimaryOwnerCalendar(eventId, task.due_at).catch(() => false)) return;
+  try {
+    if (await confirmOwnerCalendarAttendance(task.id)) return;
+  } catch {
+    // The appointment and its Google event are already saved.
+  }
+  return "Evento salvato su Google Calendar. Conferma di partecipazione del titolare da verificare.";
 }
 
 export async function retryAppointmentSync(task: SalesTask): Promise<AppointmentResult> {

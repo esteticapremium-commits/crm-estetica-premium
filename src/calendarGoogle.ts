@@ -3,6 +3,7 @@ import { supabase } from "./supabaseClient";
 const KEY = "ep-google-calendar-token";
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
 export const OWNER_CALENDAR_ID = "ettoreandrosoni@estetica-premium.it";
+const OWNER_CALENDAR_BLUE = "9";
 
 export type GoogleEvent = { id: string; iCalUID?: string; created?: string; originalStartTime?: { dateTime?: string; date?: string }; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 type Token = { accessToken: string; expiresAt: number };
@@ -96,13 +97,50 @@ export async function createGoogleCalendarEvent(input: { title: string; start: s
     return await googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({
       id: input.eventId, summary: input.title, description: input.description || "",
       start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" },
-      attendees: input.attendees?.map((email) => ({ email })), conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } },
+      attendees: input.attendees?.map((email) => email.toLowerCase() === OWNER_CALENDAR_ID ? { email, responseStatus: "accepted" } : { email }),
+      extendedProperties: input.eventId ? { shared: { epAppointmentId: input.eventId } } : undefined,
+      conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } },
     }) });
   } catch (error) {
     if (!input.eventId || (error as { status?: number })?.status !== 409) throw error;
     return googleFetch(`/calendars/primary/events/${encodeURIComponent(input.eventId)}`);
   }
 }
+export async function confirmOwnerCalendarAttendance(taskId: string) {
+  const { data, error } = await supabase.functions.invoke("google-calendar-oauth", {
+    body: { action: "confirm_owner_attendance", taskId },
+  });
+  if (error || !data?.confirmed) return false;
+  return true;
+}
+
+export async function confirmOnPrimaryOwnerCalendar(eventId: string, startsAt: string) {
+  const path = `/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  const event = await googleFetch(path);
+  const organizer = event.organizer;
+  if (!organizer?.self || organizer.email?.toLowerCase() !== OWNER_CALENDAR_ID ||
+    event.status === "cancelled" || event.extendedProperties?.shared?.epAppointmentId !== eventId ||
+    Date.parse(event.start?.dateTime) !== Date.parse(startsAt)) return false;
+
+  const owner = event.attendees?.find((attendee: { self?: boolean; email?: string }) =>
+    attendee.self && attendee.email?.toLowerCase() === OWNER_CALENDAR_ID);
+  if (owner?.responseStatus === "declined" || owner?.responseStatus === "tentative") return true;
+  const needsResponse = owner && owner.responseStatus !== "accepted";
+  if (!needsResponse && event.colorId === OWNER_CALENDAR_BLUE) return true;
+  if (!event.etag) return false;
+  await googleFetch(`${path}?sendUpdates=none`, {
+    method: "PATCH", headers: { "If-Match": event.etag },
+    body: JSON.stringify({
+      colorId: OWNER_CALENDAR_BLUE,
+      ...(needsResponse ? {
+        attendeesOmitted: true,
+        attendees: [{ email: OWNER_CALENDAR_ID, responseStatus: "accepted" }],
+      } : {}),
+    }),
+  });
+  return true;
+}
+
 export async function updateGoogleCalendarEvent(id: string, input: { title: string; start: string; end: string; description?: string }) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}?conferenceDataVersion=1`, {
     method: "PATCH",
