@@ -20,6 +20,7 @@ const outcomes = {
   not_interested: "Non interessato",
 } as const;
 type Outcome = keyof typeof outcomes;
+type SetterAction = Outcome | "book_from_call" | "book_only";
 type SetterLead = {
   lead_id: string; name: string | null; phone: string | null; email: string | null; source: string | null;
   setter_id: string; setter_name: string; seller_name: string; state: typeof columns[number][0];
@@ -150,8 +151,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
 
 function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientId: string; lead: SetterLead; admin: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
   const workAllowed = !admin && lead.state !== "booked";
-  const [mode, setMode] = useState<"outcome" | "book">("outcome");
-  const [outcome, setOutcome] = useState<Outcome | "">("");
+  const [action, setAction] = useState<SetterAction | "">("");
   const [time, setTime] = useState("");
   const [note, setNote] = useState("");
   const [showCallback, setShowCallback] = useState(false);
@@ -160,22 +160,29 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const pending = useRef(false);
   const request = useRef<string>();
   const canBook = workAllowed && lead.state !== "not_interested";
+  const isBooking = action === "book_from_call" || action === "book_only";
+  const needsCallbackTime = showCallback && (action === "answered" || action === "no_answer");
+
+  function choose(next: SetterAction) {
+    if (next === action) return;
+    setAction(next); setTime(""); setShowCallback(false); setError("");
+    request.current = undefined;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!workAllowed || pending.current || (mode === "book" && !canBook)) return;
-    if (mode === "book" && !time) return setError("Scegli data e ora della discovery.");
-    if (mode === "outcome" && !outcome) return setError("Scegli l’esito del contatto.");
-    if (mode === "outcome" && showCallback && outcome !== "not_interested" && !time) return setError("Scegli data e ora del richiamo.");
+    if (!workAllowed || !action || pending.current || (isBooking && !canBook)) return;
+    if (isBooking && !time) return setError("Scegli data e ora della Discovery.");
+    if (needsCallbackTime && !time) return setError("Scegli data e ora del richiamo.");
     if (time && (!Number.isFinite(Date.parse(time)) || Date.parse(time) <= Date.now())) return setError("Scegli data e ora future.");
     pending.current = true; setBusy(true); setError("");
     request.current ??= crypto.randomUUID();
     try {
       const args = {p_lead_id: lead.lead_id, p_request_id: request.current, p_note: note.trim() || null};
-      const scheduledAt = time ? new Date(time).toISOString() : null;
-      const { error } = mode === "book"
-        ? await withTimeout(supabase.rpc("book_setter_discovery", {...args, p_due_at: scheduledAt}))
-        : await withTimeout(supabase.rpc("record_setter_contact", {...args, p_outcome: outcome, p_callback_at: scheduledAt}));
+      const scheduledAt = (isBooking || needsCallbackTime) && time ? new Date(time).toISOString() : null;
+      const { error } = isBooking
+        ? await withTimeout(supabase.rpc("save_setter_discovery", {...args, p_due_at: scheduledAt, p_record_call: action === "book_from_call"}))
+        : await withTimeout(supabase.rpc("record_setter_contact", {...args, p_outcome: action, p_callback_at: scheduledAt}));
       if (error) throw error;
       await onSaved();
     } catch (reason) {
@@ -197,18 +204,22 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
         {lead.note && <p>{lead.note}</p>}
         {lead.discovery_at && <p>Discovery · {romeStamp(lead.discovery_at)}</p>}
         {workAllowed && <>
-          <div className="setter-tools">
-            <button className={mode === "outcome" ? "btn primary" : "btn"} type="button" disabled={busy} onClick={() => {setMode("outcome");setTime("");request.current=undefined;}}>Com’è andata?</button>
-            {canBook && <button className={mode === "book" ? "btn primary" : "btn"} type="button" disabled={busy} onClick={() => {setMode("book");setTime("");request.current=undefined;}}>Prenota discovery</button>}
+          <b>Com’è andata?</b>
+          <div className="setter-tools" role="group" aria-label="Esito setting">
+            {canBook && <button className={action === "book_from_call" ? "btn primary" : "btn"} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
+            {Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={action === key ? "btn primary" : "btn"} aria-pressed={action === key} disabled={busy} onClick={() => choose(key as Outcome)}>{label}</button>)}
           </div>
-          {mode === "outcome" ? <>
-            <div className="setter-tools" role="group" aria-label="Esito setting">{Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={outcome === key ? "btn primary" : "btn"} aria-pressed={outcome === key} disabled={busy} onClick={() => {setOutcome(key as Outcome);setTime("");}}>{label}</button>)}</div>
-            {outcome !== "not_interested" && <label><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
-            {showCallback && outcome !== "not_interested" && <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} />}
-          </> : <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} />}
-          <label>Nota (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>
+          {canBook && <div className="setter-tools"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota senza nuova chiamata</button></div>}
+          {isBooking ? <>
+            <small>{action === "book_from_call" ? "Salvi un tentativo con risposta e una prenotazione." : "Usalo se hai già registrato la chiamata o se hai fissato l’appuntamento via messaggio."}</small>
+            <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} />
+          </> : <>
+            {(action === "answered" || action === "no_answer") && <label><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
+            {needsCallbackTime && <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} />}
+          </>}
+          {action && <label>Nota (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
           {error && <p className="notice err" role="alert">{error}</p>}
-          <button className="btn primary" disabled={busy || (mode === "outcome" && !outcome)}>{busy ? "Salvataggio…" : mode === "book" ? "Conferma discovery" : "Salva esito"}</button>
+          <button className="btn primary" disabled={busy || !action || ((isBooking || needsCallbackTime) && !time)}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
         </>}
       </form>
     </section>

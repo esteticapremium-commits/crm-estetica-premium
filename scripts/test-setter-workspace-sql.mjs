@@ -21,27 +21,38 @@ try {
     create function public.is_admin() returns boolean language sql stable security definer as
       $$select coalesce((select role = 'admin' from public.profiles where id=auth.uid()), false)$$;
     create function public.my_client_id() returns uuid language sql stable security definer as $$select client_id from public.profiles where id=auth.uid()$$;
+    create function public.my_full_name() returns text language sql stable security definer set search_path=public as
+      $$select full_name from public.profiles where id=auth.uid()$$;
     create table public.leads(id uuid primary key, client_id uuid, pipeline_id uuid, stage_id uuid,
       name text, phone text, email text, source text, assigned_to text, value int, position int, next_action_date date);
     create table public.stages(id uuid, client_id uuid, pipeline_id uuid, name text, position int);
     create table public.sales_tasks(id uuid primary key, client_id uuid, lead_id uuid, title text, description text,
       due_at timestamptz, assigned_to text, created_by text, appointment_type text, appointment_status text,
-      duration_minutes int, audience text, commercial_tracked boolean, appointment_host text, created_at timestamptz default now());
+      duration_minutes int, audience text, commercial_tracked boolean, appointment_host text, created_at timestamptz default now(),
+      appointment_outcome text, outcome_minutes int, outcome_note text, proposal_made boolean,
+      completed_at timestamptz, completed_by text, updated_at timestamptz default now());
     create table public.lead_activities(client_id uuid, lead_id uuid, pipeline_id uuid, activity_type text, event_type text,
       channel text, call_type text, outcome text, occurred_at timestamptz, scheduled_at timestamptz, duration_minutes int,
       note text, created_by text, details jsonb, event_key text, unique(client_id,event_key));
     create table public.sales_revenue_events(client_id uuid, amount int);
+    create table public.sales_outreach_events(id uuid primary key, client_id uuid, lead_id uuid,
+      event_type text, quantity int, occurred_at timestamptz);
     alter table public.leads enable row level security;
     alter table public.sales_tasks enable row level security;
     alter table public.sales_revenue_events enable row level security;
     alter table public.profiles enable row level security;
     create policy tenant_leads on public.leads for select to authenticated using (is_admin() or client_id=my_client_id());
     create policy tenant_tasks on public.sales_tasks for select to authenticated using (is_admin() or client_id=my_client_id());
+    create policy tenant_tasks_write on public.sales_tasks for all to authenticated
+      using (is_admin() or (client_id=my_client_id() and assigned_to=my_full_name()));
     create policy tenant_revenue on public.sales_revenue_events for select to authenticated using (is_admin() or client_id=my_client_id());
     create policy profiles_select on public.profiles for select to authenticated using (id=auth.uid() or is_admin());
     create policy profiles_update on public.profiles for update to authenticated using (id=auth.uid() or is_admin()) with check (id=auth.uid() or is_admin());
     grant usage on schema auth to authenticated;
     grant select on public.leads,public.sales_revenue_events,public.sales_tasks to authenticated;
+    grant insert, update on public.sales_tasks to authenticated;
+    grant select, insert, update on public.lead_activities to authenticated;
+    grant select on public.sales_outreach_events to authenticated;
     grant select,update on public.profiles to authenticated;
     insert into public.clients values('${client}','Estetica Premium'), ('${otherClient}','Altro cliente');
     insert into public.leads values
@@ -56,6 +67,10 @@ try {
   const instructionsMigration = readFileSync("supabase/upgrade_setter_instructions.sql", "utf8");
   await db.exec(instructionsMigration);
   await db.exec(instructionsMigration);
+  await db.exec(readFileSync("supabase/upgrade_setting_appointments.sql", "utf8"));
+  const flowMigration = readFileSync("supabase/upgrade_setter_discovery_flow.sql", "utf8");
+  await db.exec(flowMigration);
+  await db.exec(flowMigration);
   await db.exec(`insert into public.profiles values
     ('${leader}','admin',null,'Titolare'), ('${setter}','setter','${client}','Setter A'),
     ('${otherSetter}','setter','${client}','Setter B'), ('${seller}','venditore','${client}','Giovanni'),
@@ -92,7 +107,9 @@ try {
   await mark(lead);
   await mark(lead);
   const due = new Date(Date.now() + 2 * 3600_000).toISOString();
-  const book = () => scalar("select public.book_setter_discovery($1,$2,$3,null)", [lead,request,due]);
+  const saveBooking = (leadId, bookingId, dueAt, recordCall) => scalar(
+    "select public.save_setter_discovery($1,$2,$3,null,$4)",[leadId,bookingId,dueAt,recordCall]);
+  const book = () => saveBooking(lead,request,due,false);
   assert.equal(await book(), request);
   assert.equal(await book(), request);
   const day = new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Rome",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
@@ -109,9 +126,49 @@ try {
   assert.equal(await scalar("select stage_id from public.leads where id=$1",[lead]),discovery);
   await db.exec("reset role");
   assert.equal(await scalar("select count(*)::int from public.lead_activities"),2);
+  assert.equal(await scalar("select title from public.sales_tasks where id=$1",[request]),"A — Discovery");
+
+  await actor(otherSetter);
+  await db.exec("set role authenticated");
+  const combinedId = id(24);
+  const past = new Date(Date.now() - 3600_000).toISOString();
+  await assert.rejects(() => saveBooking(lead,id(25),due,true), /Lead non accessibile/);
+  await assert.rejects(() => saveBooking(hidden,combinedId,past,true), /future/);
+  assert.deepEqual((await workspace(null,day,day)).totals,{contacts:0,answered:0,booked:0,held:0});
+  assert.equal(await saveBooking(hidden,combinedId,due,true),combinedId);
+  assert.equal(await saveBooking(hidden,combinedId,due,true),combinedId);
+  assert.deepEqual((await workspace(null,day,day)).totals,{contacts:1,answered:1,booked:1,held:0});
+  await db.exec("reset role");
+  await db.query("update public.sales_tasks set due_at=$2 where id=$1",[request,past]);
+
+  await actor(seller);
+  await db.exec("set role authenticated");
+  const version = taskId => scalar("select updated_at from public.sales_tasks where id=$1",[taskId]);
+  const record = async (taskId,value) => scalar("select to_jsonb(save_sales_appointment_outcome($1,$2,$3,null,null,null))",
+    [taskId,await version(taskId),value]);
+  assert.equal((await record(request,"no_answer")).appointment_status,"no_show");
+  const replacement = id(26);
+  const bookAgain = (bookingId,origin) => scalar(
+    "select to_jsonb(book_sales_appointment($1,$2,$3,'discovery','lead','Discovery successiva',$4,30,null,null,$5,null,null))",
+    [bookingId,client,lead,past,`appointment:${origin}:outcome`]);
+  assert.equal((await bookAgain(replacement,request)).id,replacement);
+  assert.equal((await bookAgain(replacement,request)).id,replacement);
+  assert.equal(await scalar("select setter_id from public.sales_tasks where id=$1",[replacement]),setter);
+  assert.equal(await scalar("select details ? 'setter_id' from public.lead_activities where event_key=$1",[`appointment:${replacement}:booked`]),false);
+  assert.equal((await record(replacement,"no_answer")).appointment_status,"no_show");
+  const third = id(27);
+  assert.equal((await bookAgain(third,replacement)).id,third);
+  assert.equal((await record(third,"qualified")).appointment_status,"held");
+  await actor(setter);
+  const previousDay = new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Rome",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(past));
+  const tracked = await workspace(null,previousDay,day);
+  assert.deepEqual(tracked.totals,{contacts:1,answered:1,booked:1,held:1});
+  assert.equal(tracked.queue[0].discovery_status,"held");
+  await db.exec("reset role");
   assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_workspace(uuid,uuid,date,date)','execute')"),false);
   assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_instructions(uuid)','execute')"),false);
-  console.log("SQL OK: ruoli isolati, assegnazioni, tentativo idempotente, passaggio a Giovanni e KPI");
+  assert.equal(await scalar("select has_function_privilege('anon','public.save_setter_discovery(uuid,uuid,timestamptz,text,boolean)','execute')"),false);
+  console.log("SQL OK: chiamata e prenotazione atomiche, retry, rebooking, KPI setter e ruoli isolati");
 } finally {
   await db.close();
 }
