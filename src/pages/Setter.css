@@ -10,6 +10,7 @@
 .setter-metric-grid strong { display: block; margin-top: 4px; font-size: 24px; }
 .setter-filters { margin: 18px 0 12px; }
 .setter-filters input { min-width: 0; width: min(240px, 100%); }
+.setter-mobile-stages { display: none; }
 .setter-board { display: grid; grid-template-columns: repeat(4, minmax(195px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 12px; }
 .setter-column { padding: 12px; min-width: 0; }
 .setter-column h3 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 12px; font-size: 14px; }
@@ -37,9 +38,52 @@
 .setter-instruction-text h3 { color: var(--ep-brand, #51162b); margin: 24px 0 10px; font-size: 14px; line-height: 1.45; }
 .setter-instruction-text h3:first-child { margin-top: 0; }
 .setter-instruction-text p { margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap; }
-@media (max-width: 640px) {
-  .setter-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .setter-tools .segmented { max-width: 100%; flex-wrap: wrap; }
-  .setter-board { grid-template-columns: repeat(4, minmax(230px, 72vw)); scroll-snap-type: x proximity; }
-  .setter-column { scroll-snap-align: start; }
+@media (max-width: 760px) {
+  .setter-page { min-width: 0; }
+  .setter-heading { align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+  .setter-heading p { font-size: 13px; }
+  .platform-shell .setter-page :is(.setter-heading, .setter-card, .setter-mobile-stages, .setter-dialog, .setter-instructions) .btn,
+  .setter-page .setter-filters .segmented button { min-height: 44px; }
+  .platform-shell.theme-premium .setter-page .setter-metrics { padding: 10px; }
+  .setter-page .setter-metrics h2,
+  .setter-page .setter-column > p { min-width: 0; }
+  .setter-metrics .setter-tools > label { display: flex; align-items: center; min-width: 0; gap: 4px; }
+  .setter-metrics select { min-height: 44px; font-size: 16px; min-width: 0; }
+  .setter-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+  .setter-metric-grid article { padding: 8px; overflow-wrap: anywhere; }
+  .setter-metric-grid article span { font-size: 12px; line-height: 1.25; }
+  .setter-metric-grid strong { margin-top: 3px; font-size: 21px; line-height: 1.2; }
+  .setter-filters { margin-block: 12px 8px; gap: 6px; }
+  .setter-filters input { width: 100%; min-height: 44px; font-size: 16px; padding-inline: 10px; border: 1px solid var(--ep-border); border-radius: 8px; background: var(--ep-surface); }
+  .setter-page .setter-filters .segmented,
+  .setter-mobile-stages { display: grid; width: 100%; }
+  .setter-page .setter-filters .segmented { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .setter-page .setter-filters .segmented button { padding: 4px; line-height: 1.15; }
+  .setter-mobile-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+  .setter-mobile-stages .btn { justify-content: space-between; text-align: left; white-space: normal; gap: 6px; padding: 6px 8px; }
+  .setter-page .setter-mobile-stages .btn[aria-pressed="true"] {
+    color: var(--ep-brand, #5b102a); background: var(--ep-brand-soft, #f5e9ec); border-color: currentColor;
+  }
+  .setter-mobile-stages b { font-variant-numeric: tabular-nums; }
+  .setter-board { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+  .setter-column { overflow: visible; padding: 10px; }
+  .setter-column[data-mobile-active="false"] { display: none; }
+  .setter-column h3 { display: none; }
+  .setter-card { align-items: center; }
+  .setter-card-main { min-height: 44px; }
+
+  .theme-premium.platform-shell .modal.setter-dialog:not(.lead-drawer) {
+    max-height: calc(100dvh - 20px);
+    overscroll-behavior: contain;
+  }
+  .theme-premium.platform-shell .modal.setter-lead-dialog:not(.lead-drawer) > header { flex-wrap: wrap; justify-content: space-between; }
+  .setter-lead-dialog h2, .setter-contact-tools, .setter-lead-dialog .content > p { overflow-wrap: anywhere; }
+  .setter-outcome-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .setter-dialog .btn { white-space: normal; }
+  .setter-dialog label textarea, .setter-dialog label input:not([type=checkbox]), .setter-dialog label select { font-size: 16px; }
+  .setter-instructions > header, .setter-instruction-text { padding-inline: 14px; }
+}
+
+@media (max-width: 360px) {
+  .setter-page .setter-filters .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

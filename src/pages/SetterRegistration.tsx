@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { supabase } from "../supabaseClient";
 import { withTimeout } from "../async";
+import "./SetterRegistration.css";
 
 type RegistrationState = "missing" | "pending" | "approved" | "rejected" | "expired" | "activated";
 const uuidPattern = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
@@ -10,6 +11,7 @@ export default function SetterRegistration({ token, activation }: { token: strin
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const storageKey = `ep-setter-application:${token}`;
@@ -101,8 +103,8 @@ export default function SetterRegistration({ token, activation }: { token: strin
     }
   }
 
-  return <main className="login-wrap">
-    <form className="login-box" onSubmit={submit}>
+  return <main className="login-wrap setter-register-page">
+    <form className="login-box setter-register-box" onSubmit={submit}>
       <div className="login-monogram" aria-hidden="true">EP</div>
       <h1>{choosingPassword ? "Scegli la tua password" : "Registrazione Setter"}</h1>
       {state === "activated" && <p role="status">Accesso attivato. Entra con l’email della richiesta e la password che hai scelto.</p>}
@@ -118,16 +120,19 @@ export default function SetterRegistration({ token, activation }: { token: strin
             : "Invia la richiesta e torna su questo link dallo stesso browser per scegliere la password dopo l’approvazione."}</p>
           {error && <div className="notice err" role="alert">{error}</div>}
           {choosingPassword ? <>
-            <div className="field"><label htmlFor="setter-new-password">Password</label><input id="setter-new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={72} value={password} onChange={e => setPassword(e.target.value)} disabled={busy} /></div>
-            <div className="field"><label htmlFor="setter-repeat-password">Conferma password</label><input id="setter-repeat-password" type="password" autoComplete="new-password" required minLength={12} maxLength={72} value={confirmation} onChange={e => setConfirmation(e.target.value)} disabled={busy} /></div>
-            <p><small>Usa almeno 12 caratteri.</small></p>
+            <div className="field"><label htmlFor="setter-new-password">Password</label><input id="setter-new-password" type={passwordVisible ? "text" : "password"} autoComplete="new-password" autoCapitalize="none" spellCheck={false} aria-describedby="setter-password-hint" required minLength={12} maxLength={72} value={password} onChange={e => setPassword(e.target.value)} disabled={busy} /></div>
+            <div className="field"><label htmlFor="setter-repeat-password">Conferma password</label><input id="setter-repeat-password" type={passwordVisible ? "text" : "password"} autoComplete="new-password" autoCapitalize="none" spellCheck={false} required minLength={12} maxLength={72} value={confirmation} onChange={e => setConfirmation(e.target.value)} disabled={busy} /></div>
+            <div className="setter-password-options">
+              <small id="setter-password-hint">Usa almeno 12 caratteri.</small>
+              <label><input type="checkbox" checked={passwordVisible} onChange={e => setPasswordVisible(e.target.checked)} disabled={busy} /> Mostra password</label>
+            </div>
           </> : <>
             <div className="field"><label htmlFor="setter-register-name">Nome e cognome</label><input id="setter-register-name" autoComplete="name" required minLength={2} maxLength={100} value={name} onChange={e => setName(e.target.value)} disabled={busy} /></div>
-            <div className="field"><label htmlFor="setter-register-email">Email</label><input id="setter-register-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={e => setEmail(e.target.value)} disabled={busy} /></div>
+            <div className="field"><label htmlFor="setter-register-email">Email</label><input id="setter-register-email" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={254} value={email} onChange={e => setEmail(e.target.value)} disabled={busy} /></div>
           </>}
-          <button className="btn primary" type="submit" disabled={busy} style={{ width:"100%" }}>{busy ? "Un attimo…" : choosingPassword ? "Attiva accesso" : "Invia richiesta"}</button>
+          <button className="btn primary" type="submit" disabled={busy}>{busy ? "Un attimo…" : choosingPassword ? "Attiva accesso" : "Invia richiesta"}</button>
         </>}
-      <a className="btn" href="/" style={{ marginTop:12 }}>Vai al login</a>
+      <a className="btn setter-register-login" href="/">Vai al login</a>
     </form>
   </main>;
 }

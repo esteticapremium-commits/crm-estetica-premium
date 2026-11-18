@@ -42,6 +42,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffError, setStaffError] = useState("");
   const [filter, setFilter] = useState<"all" | "new" | "today" | "overdue">("all");
+  const [mobileColumn, setMobileColumn] = useState<SetterLead["state"]>("new");
   const [search, setSearch] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string>();
   const [assignOpen, setAssignOpen] = useState(false);
@@ -91,6 +92,13 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       return filter === "today" ? romeDay(lead.callback_at) === today : Date.parse(lead.callback_at) < Date.now();
     });
   }, [workspace, search, filter, today]);
+  const grouped = columns.map(([id, title]) => ({ id, title, leads: shown.filter(lead => lead.state === id) }));
+
+  const searching = Boolean(search.trim());
+  const firstMatchingColumn = searching && !grouped.some(column => column.id === mobileColumn && column.leads.length)
+    ? grouped.find(column => column.leads.length)?.id
+    : undefined;
+  const visibleColumn = firstMatchingColumn ?? mobileColumn;
 
   return <div className="page setter-page">
     <header className="setter-heading">
@@ -118,14 +126,24 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       <label className="sr-only" htmlFor="setter-lead-search">Cerca in postazione</label>
       <input id="setter-lead-search" type="search" placeholder="Nome, telefono o email" value={search} onChange={event => setSearch(event.target.value)} />
       <div className="segmented" aria-label="Filtra la coda">
-        {([["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
+        {([["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
+          setFilter(id);
+          if (id !== "all") setMobileColumn(id === "new" ? "new" : "follow_up");
+        }}>{label}</button>)}
       </div>
     </div>
     {loading && <p role="status">Caricamento postazione…</p>}
-    {!loading && workspace && <div className="setter-board">
-      {columns.map(([id, title]) => {
-        const leads = shown.filter(lead => lead.state === id);
-        return <section className="panel setter-column" key={id} aria-label={title}>
+    {!loading && workspace && <>
+      <div className="setter-mobile-stages" role="group" aria-label="Colonne della postazione">
+        {grouped.map(({id,title,leads}) => <button key={id} className="btn" type="button"
+          aria-label={`${title}, ${leads.length} lead`} aria-pressed={visibleColumn === id} disabled={searching && !leads.length && visibleColumn !== id}
+          aria-controls={`setter-column-${id}`} onClick={() => setMobileColumn(id)}>
+          <span>{title}</span><b>{leads.length}</b>
+        </button>)}
+      </div>
+      <div className="setter-board">
+      {grouped.map(({id,title,leads}) => {
+        return <section className="panel setter-column" key={id} id={`setter-column-${id}`} aria-label={title} data-mobile-active={id === visibleColumn}>
           <h3>{title} <span>{leads.length}</span></h3>
           {leads.length === 0 && <p className="muted">Nessun lead in questa colonna.</p>}
           {leads.map(lead => <article key={lead.lead_id} className="setter-card">
@@ -141,7 +159,8 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
           </article>)}
         </section>;
       })}
-    </div>}
+      </div>
+    </>}
     {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} onClose={() => setActiveLeadId(undefined)}
       onSaved={async () => { setActiveLeadId(undefined); await load(); }} />}
     {assignOpen && admin && <AssignmentDialog clientId={clientId} staff={staff} onClose={() => setAssignOpen(false)}
@@ -194,10 +213,10 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   }
 
   return <div className="overlay">
-    <section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
+    <section className="modal setter-dialog setter-lead-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
       <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy}>Chiudi</button></div></header>
       <form className="content" onSubmit={event => void submit(event)}>
-        <div className="setter-tools">
+        <div className="setter-tools setter-contact-tools">
           {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
           {lead.email && <span>{lead.email}</span>}
         </div>
@@ -205,7 +224,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
         {lead.discovery_at && <p>Discovery · {romeStamp(lead.discovery_at)}</p>}
         {workAllowed && <>
           <b>Com’è andata?</b>
-          <div className="setter-tools" role="group" aria-label="Esito setting">
+          <div className="setter-tools setter-outcome-tools" role="group" aria-label="Esito setting">
             {canBook && <button className={action === "book_from_call" ? "btn primary" : "btn"} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
             {Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={action === key ? "btn primary" : "btn"} aria-pressed={action === key} disabled={busy} onClick={() => choose(key as Outcome)}>{label}</button>)}
           </div>
