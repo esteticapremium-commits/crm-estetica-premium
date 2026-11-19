@@ -189,3 +189,20 @@
 @media (max-width: 360px) {
   .platform-shell .setter-page .setter-filters .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.setter-calendar-status {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.setter-calendar-status > p { margin: 4px 0; }
+
+.setter-work-queue { display: grid; gap: 12px; max-width: 840px; }
+.setter-work-queue .setter-card:last-child { margin-bottom: 0; }
+.setter-dialog[aria-label="Esito salvato"] .content > button,
+.setter-dialog[aria-label="Discovery prenotata"] .content > button { justify-self: start; }
+.setter-dialog .content > .btn span { margin-inline-start: 6px; font-weight: 500; }
+@media (max-width: 760px) {
+  .platform-shell .setter-page .setter-filters[data-setter="true"] .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

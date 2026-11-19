@@ -1,3 +1,4 @@
+import SalesSetterHandoff from "./SalesSetterHandoff";
 import { awaitingOutcome } from "../appointmentWork";
 import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields";
 import LeadTimeline from "../LeadTimeline";
@@ -1116,6 +1117,8 @@ export default function LeadModal({
             <label>Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </div> </>}
+
+          {lead && <SalesSetterHandoff key={lead.id} clientId={lead.client_id} leadId={lead.id} />}
 
           {!isNew && (
             <div className="lead-appointment-overview" aria-label="Appuntamenti del lead">

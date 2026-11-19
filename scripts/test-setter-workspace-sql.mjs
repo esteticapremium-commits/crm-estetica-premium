@@ -14,7 +14,8 @@ try {
     create schema auth;
     create role anon;
     create role authenticated;
-    create function auth.uid() returns uuid language sql as $$select current_setting('fixture.uid',true)::uuid$$;
+    create role service_role;
+    create function auth.uid() returns uuid language sql as $$select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),current_setting('fixture.uid',true))::uuid$$;
     create table auth.users(id uuid primary key, email text);
     create table public.clients(id uuid primary key, name text);
     create table public.pipelines(id uuid primary key, client_id uuid not null, position integer not null default 0, created_at timestamptz default now());
@@ -31,7 +32,7 @@ try {
       due_at timestamptz, assigned_to text, created_by text, appointment_type text, appointment_status text,
       duration_minutes int, audience text, commercial_tracked boolean, appointment_host text, created_at timestamptz default now(),
       appointment_outcome text, outcome_minutes int, outcome_note text, proposal_made boolean,
-      completed_at timestamptz, completed_by text, updated_at timestamptz default now());
+      completed_at timestamptz, completed_by text, updated_at timestamptz default now(), google_event_id text);
     create table public.lead_activities(client_id uuid, lead_id uuid, pipeline_id uuid, activity_type text, event_type text,
       channel text, call_type text, outcome text, occurred_at timestamptz, scheduled_at timestamptz, duration_minutes int,
       note text, created_by text, details jsonb, event_key text, unique(client_id,event_key));
@@ -219,6 +220,61 @@ try {
   await db.exec("reset role");
   assert.equal(await scalar("select stage_id from public.leads where name='Centro privato'"),discovery);
   assert.equal(await scalar("select count(*)::int from public.lead_activities where event_key=$1",[`database-setter-contact:${id(33)}`]),1);
+  await db.query("insert into auth.users values ($1,'ettoreandrosoni@estetica-premium.it')", [leader]);
+  await db.query("insert into public.database_leads(id,client_id,name,phone,source,source_row,setter_id,seller_id,pipeline_id) values ($1,$3,'Centro Calendar','+390212340007','DM',7,$4,$6,$7),($2,$3,'Secondo Calendar','+390212340008','DM',8,$5,$6,$7)",
+    [id(41),id(42),client,setter,otherSetter,seller,pipeline]);
+  const calendarMigration = readFileSync("supabase/upgrade_setter_calendar_booking.sql", "utf8");
+  await db.exec(calendarMigration);
+  await db.exec(calendarMigration);
+  const reserve = (staff, contact, startAt, requestId = null, database = true) => scalar(
+    "select public.prepare_setter_calendar_booking($1,$2,$3,$4,$5)", [staff,contact,database,startAt,requestId]);
+  const finish = (reservation, recordCall = false) => scalar(
+    "select public.finish_setter_calendar_booking($1,$2,null,$3)", [reservation.request_id,reservation.lease_until,recordCall]);
+  await db.exec("set role authenticated");
+  await assert.rejects(() => reserve(setter,id(41),due,id(43)), /permission denied/);
+  assert.equal(await scalar("select has_function_privilege('authenticated','public.save_setter_discovery(uuid,uuid,timestamptz,text,boolean)','execute')"),false);
+  assert.equal(await scalar("select has_function_privilege('anon','public.prepare_setter_calendar_booking(uuid,uuid,boolean,timestamptz,uuid)','execute')"),false);
+  await db.exec("reset role; set role service_role");
+  await assert.rejects(() => reserve(setter,id(42),due,id(43)), /Lead non accessibile/);
+  await assert.rejects(() => reserve(outsider,id(42),due,id(43)), /Accesso riservato/);
+  assert.equal((await reserve(setter,id(41),due)).owner_id,leader);
+  const reservation = await reserve(setter,id(41),due,id(43));
+  const overlapping = new Date(Date.parse(due) + 15*60_000).toISOString();
+  assert.deepEqual(await reserve(otherSetter,id(42),overlapping,id(44)),{busy:true});
+  const adjacent = new Date(Date.parse(due) + 30*60_000).toISOString();
+  assert.equal((await reserve(otherSetter,id(42),adjacent)).owner_id,leader);
+  assert.deepEqual(await finish({...reservation,lease_until:new Date().toISOString()}).catch(error => error.code),"P0001");
+  assert.deepEqual(await finish(reservation,true),{booked:true});
+  assert.deepEqual(await reserve(setter,id(41),due,id(43)),{booked:true});
+  assert.deepEqual(await reserve(otherSetter,id(42),overlapping),{busy:true});
+  await db.exec("reset role");
+  assert.equal(await scalar("select google_event_id from public.sales_tasks where id=$1",[id(43)]),id(43).replaceAll("-",""));
+  assert.equal(await scalar("select count(*)::int from public.lead_activities where event_key=$1",[`appointment:${id(43)}:booked`]),1);
+  assert.equal(await scalar("select count(*)::int from public.lead_activities where lead_id=(select lead_id from public.sales_tasks where id=$1) and event_type='setting_call'",[id(43)]),1);
+  await db.exec(readFileSync("supabase/upgrade_setter_lead_notes.sql", "utf8"));
+  await db.exec(readFileSync("supabase/upgrade_sales_setter_handoff.sql", "utf8"));
+  const bookedLead = await scalar("select lead_id from public.sales_tasks where id=$1",[id(43)]);
+  await db.query("insert into public.setter_lead_notes(id,client_id,database_contact_id,author_id,author_name,body) values ($1,$2,$3,$4,'Setter A','Informazione per la discovery')",
+    [id(46),client,id(41),setter]);
+  await db.query("update public.sales_tasks set appointment_status='no_show' where id=$1",[id(43)]);
+  const handoff = (leadId, tenant = client) => scalar("select public.get_sales_setter_handoff($1,$2)",[tenant,leadId]);
+  await db.exec("set role authenticated");
+  await actor(setter);
+  assert.equal(await handoff(bookedLead),null);
+  await actor(outsider);
+  assert.equal(await handoff(bookedLead),null);
+  await actor(seller);
+  assert.equal((await handoff(bookedLead)).notes[0].body,"Informazione per la discovery");
+  assert.equal((await handoff(bookedLead)).discovery_status,"no_show");
+  assert.equal(await handoff(bookedLead,otherClient),null);
+  await actor(leader);
+  assert.equal((await handoff(bookedLead)).sales_owner,"Giovanni");
+  await db.exec("reset role");
+  await db.query("update public.leads set assigned_to='Altro venditore' where id=$1", [bookedLead]);
+  await db.exec("set role authenticated");
+  await actor(seller);
+  assert.equal(await handoff(bookedLead),null);
+  await db.exec("reset role");
   console.log("SQL OK: chiamata e prenotazione atomiche, retry, rebooking, KPI setter e ruoli isolati");
 } finally {
   await db.close();

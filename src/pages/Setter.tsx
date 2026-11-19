@@ -4,7 +4,7 @@ import LeadDateTimePicker from "../LeadDateTimePicker";
 import { withTimeout } from "../async";
 import { romeStamp, romeToday } from "../dates";
 import { reportRange } from "../dailySales";
-import { matchesSetterQueue, setterColumns as columns, summarizeSetterQueue, type SetterQueueFilter, type SetterStage } from "../setterQueue";
+import { matchesSetterQueue, setterWorkQueue, setterColumns as columns, summarizeSetterQueue, type SetterQueueFilter, type SetterStage } from "../setterQueue";
 import { supabase } from "../supabaseClient";
 import SetterInstructions from "./SetterInstructions";
 import SetterLeadNotes from "./SetterLeadNotes";
@@ -34,6 +34,32 @@ const labelFor = (person: Staff) => person.full_name || person.email || "Utente"
 const errorMessage = (reason: unknown) => typeof reason === "object" && reason && "message" in reason
   ? String(reason.message) : "Operazione non riuscita. Riprova.";
 
+const romeClock = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit",
+});
+
+function romeAppointmentTime(value: string) {
+  // For modern dates Rome uses UTC+2 in summer and UTC+1 in winter.
+  // Round-trip the wall time so the skipped hour in spring is rejected.
+  return ["+02:00", "+01:00"].map(offset => Date.parse(value + offset))
+    .find(instant => Number.isFinite(instant) && romeClock.format(instant).replace(" ", "T") === value) ?? NaN;
+}
+
+type SlotStatus = "checking" | "free" | "occupied" | "error";
+
+async function setterCalendarRequest(body: Record<string, unknown>) {
+  const { data, error } = await withTimeout(supabase.functions.invoke("setter-calendar-booking", { body }), 25_000);
+  if (error) {
+    const response = error.context as Response | undefined;
+    const details = await response?.json?.().catch(() => undefined);
+    throw Object.assign(new Error(details?.error || "Google Calendar non è raggiungibile. Riprova."), {
+      occupied: details?.available === false,
+    });
+  }
+  return data as { booked?: boolean; available?: boolean };
+}
+
 async function readSetterWorkspace(clientId: string, from: string, to: string, setterId: string | null = null) {
   const { data, error } = await withTimeout(supabase.rpc("get_complete_setter_workspace", {
     p_client_id: clientId, p_setter_id: setterId, p_from: from, p_to: to,
@@ -52,10 +78,11 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const metricsId = useId();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffError, setStaffError] = useState("");
-  const [filter, setFilter] = useState<SetterQueueFilter>("all");
+  const [filter, setFilter] = useState<SetterQueueFilter>(admin ? "all" : "priority");
   const [mobileColumn, setMobileColumn] = useState<SetterStage>("new");
   const [search, setSearch] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string>();
+  const [workSaved, setWorkSaved] = useState<{ id: string; name: string; booked: boolean }>();
   const [assignOpen, setAssignOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -90,11 +117,15 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
 
   useEffect(() => { void load(); return () => { version.current += 1; }; }, [load]);
   useEffect(() => {
-    if (!admin) return;
     const refresh = () => { if (document.visibilityState === "visible") void load(true); };
-    const timer = window.setInterval(refresh, 60_000);
+    const timer = window.setInterval(refresh, admin ? 60_000 : 15_000);
     window.addEventListener("focus", refresh);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [admin, load]);
   useEffect(() => {
     if (!admin || !owner || !lastUpdated) return;
@@ -149,10 +180,53 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   }
 
   const searching = Boolean(search.trim());
+  const showWorkQueue = filter === "priority" && !searching;
+  const priority = setterWorkQueue(workspace?.queue || [], today, now);
+  const priorityGroups = [
+    { title: "Richiami scaduti", leads: priority.overdue },
+    { title: "Richiami di oggi", leads: priority.todayCallbacks },
+    { title: "Nuovi lead", leads: priority.newLeads },
+  ];
+  const nextLead = workSaved ? priorityGroups.flatMap(group => group.leads).find(lead => lead.lead_id !== workSaved.id) : undefined;
+
+  function renderLeadCard(lead: SetterLead) {
+    return <article key={lead.lead_id} className="setter-card">
+      <button type="button" className="setter-card-main" onClick={() => setActiveLeadId(lead.lead_id)}>
+        <strong>{lead.name || "Lead senza nome"}</strong>
+        {lead.source && <small>{lead.source}</small>}
+        {admin && <small>In carico a {lead.state === "booked" ? lead.seller_name : lead.setter_name}</small>}
+        {lead.discovery_at && <small>Discovery · {romeStamp(lead.discovery_at)}</small>}
+        {lead.callback_at && <small className={Date.parse(lead.callback_at) < now ? "setter-overdue" : ""}>Richiamo · {romeStamp(lead.callback_at)}</small>}
+        {lead.last_outcome && <small>{outcomes[lead.last_outcome]}</small>}
+      </button>
+      {lead.phone && <a className="btn small" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
+    </article>;
+  }
+
   const firstMatchingColumn = searching && !grouped.some(column => column.id === mobileColumn && column.leads.length)
     ? grouped.find(column => column.leads.length)?.id
     : undefined;
   const visibleColumn = firstMatchingColumn ?? mobileColumn;
+
+  const metrics = (
+    <section className="panel setter-metrics" aria-label="KPI setter" data-mobile-expanded={metricsOpen}>
+      <button className="btn setter-metrics-toggle" type="button" aria-expanded={metricsOpen} aria-controls={metricsId}
+        onClick={() => setMetricsOpen(open => !open)}>
+        <b>KPI setter</b><span aria-hidden="true">{metricsOpen ? "−" : "+"}</span>
+      </button>
+      <div className="setter-metrics-body" id={metricsId}>
+        <div className="setter-tools">
+          <h2>KPI setter</h2>
+          <label>Periodo <select value={period} onChange={event => setPeriod(event.target.value as typeof period)}><option value="today">Oggi</option><option value="week">Settimana</option><option value="month">Mese</option></select></label>
+        </div>
+        <div className="setter-metric-grid">
+          {([["contacts", "Tentativi telefonici"], ["answered", "Risposte"], ["booked", "Discovery prenotate"], ["held", "Discovery svolte"]] as const).map(([id, label]) =>
+            <article key={id}><span>{label}</span><strong>{totals?.[id] ?? "—"}</strong></article>)}
+        </div>
+        {admin && owner && currentKpis?.error && <p className="notice warn" role="status">KPI del setter non disponibili. {currentKpis.error}</p>}
+      </div>
+    </section>
+  );
 
   return <div className="page setter-page">
     <header className="setter-heading">
@@ -172,35 +246,28 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
         {(owner || filter !== "all") && <button className="btn" type="button" onClick={() => openQueue("", "all")}>Tutti i setter</button>}
       </div>
     </>}
-    <section className="panel setter-metrics" aria-label="KPI setter" data-mobile-expanded={metricsOpen}>
-      <button className="btn setter-metrics-toggle" type="button" aria-expanded={metricsOpen} aria-controls={metricsId}
-        onClick={() => setMetricsOpen(open => !open)}>
-        <b>KPI setter</b><span aria-hidden="true">{metricsOpen ? "−" : "+"}</span>
-      </button>
-      <div className="setter-metrics-body" id={metricsId}>
-        <div className="setter-tools">
-          <h2>KPI setter</h2>
-          <label>Periodo <select value={period} onChange={event => setPeriod(event.target.value as typeof period)}><option value="today">Oggi</option><option value="week">Settimana</option><option value="month">Mese</option></select></label>
-        </div>
-        <div className="setter-metric-grid">
-          {([["contacts", "Tentativi telefonici"], ["answered", "Risposte"], ["booked", "Discovery prenotate"], ["held", "Discovery svolte"]] as const).map(([id, label]) =>
-            <article key={id}><span>{label}</span><strong>{totals?.[id] ?? "—"}</strong></article>)}
-        </div>
-        {admin && owner && currentKpis?.error && <p className="notice warn" role="status">KPI del setter non disponibili. {currentKpis.error}</p>}
-      </div>
-    </section>
-    <div className="setter-tools setter-filters">
+    {admin && metrics}
+    <div className="setter-tools setter-filters" data-setter={!admin}>
       <label className="sr-only" htmlFor="setter-lead-search">Cerca in postazione</label>
       <input id="setter-lead-search" type="search" placeholder="Nome, telefono o email" value={search} onChange={event => setSearch(event.target.value)} />
       <div className="segmented" aria-label="Filtra la coda">
-        {([["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
+        {(admin ? [["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const
+          : [["priority","Da fare adesso"],["all","Pipeline"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
           setFilter(id);
           if (id !== "all") setMobileColumn(id === "new" ? "new" : "follow_up");
         }}>{label}</button>)}
       </div>
     </div>
     {loading && !workspace && <p role="status">Caricamento postazione…</p>}
-    {workspace && <>
+    {workspace && (showWorkQueue ? <div className="setter-work-queue">
+      {priorityGroups.every(group => !group.leads.length) && <p className="muted">Nessun richiamo in scadenza e nessun nuovo lead.</p>}
+      {priorityGroups.filter(group => group.leads.length).map(group =>
+        <section className="panel setter-column" key={group.title} aria-label={group.title}>
+          <h3>{group.title} <span>{group.leads.length}</span></h3>
+          {group.leads.map(renderLeadCard)}
+        </section>
+      )}
+    </div> : <>
       <div className="setter-mobile-stages" role="group" aria-label="Colonne della postazione">
         {grouped.map(({id,title,leads}) => <button key={id} className="btn" type="button"
           aria-label={`${title}, ${leads.length} lead`} aria-pressed={visibleColumn === id} disabled={searching && !leads.length && visibleColumn !== id}
@@ -213,29 +280,40 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
         return <section className="panel setter-column" key={id} id={`setter-column-${id}`} aria-label={title} data-mobile-active={id === visibleColumn}>
           <h3>{title} <span>{leads.length}</span></h3>
           {leads.length === 0 && <p className="muted">Nessun lead in questa colonna.</p>}
-          {leads.map(lead => <article key={lead.lead_id} className="setter-card">
-            <button type="button" className="setter-card-main" onClick={() => setActiveLeadId(lead.lead_id)}>
-              <strong>{lead.name || "Lead senza nome"}</strong>
-              {lead.source && <small>{lead.source}</small>}
-              {admin && <small>{lead.setter_name} → {lead.seller_name}</small>}
-              {lead.discovery_at && <small>Discovery · {romeStamp(lead.discovery_at)}</small>}
-              {lead.callback_at && <small className={Date.parse(lead.callback_at) < now ? "setter-overdue" : ""}>Richiamo · {romeStamp(lead.callback_at)}</small>}
-              {lead.last_outcome && <small>{outcomes[lead.last_outcome]}</small>}
-            </button>
-            {lead.phone && <a className="btn small" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
-          </article>)}
+          {leads.map(renderLeadCard)}
         </section>;
       })}
       </div>
-    </>}
+    </>)}
+    {!admin && metrics}
     {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} onClose={() => setActiveLeadId(undefined)}
-      onSaved={async () => { setActiveLeadId(undefined); await load(); }} />}
+      onSaved={async booked => {
+        setActiveLeadId(undefined);
+        setWorkSaved({ id: activeLead.lead_id, name: activeLead.name || "Lead", booked });
+        await load();
+      }} />}
+    {workSaved && <div className="overlay setter-dialog-overlay">
+      <section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label={workSaved.booked ? "Discovery prenotata" : "Esito salvato"}>
+        <header><h2>{workSaved.booked ? "Discovery prenotata" : "Esito salvato"}</h2>
+          <button className="btn small" type="button" onClick={() => setWorkSaved(undefined)}>Chiudi</button></header>
+        <div className="content">
+          <strong>{workSaved.name}</strong>
+          {workSaved.booked && <p>Appuntamento su Google Calendar. Il lead è passato alle vendite.</p>}
+          {loading ? <p role="status">Aggiornamento della coda…</p>
+            : error ? <button className="btn" type="button" onClick={() => void load()}>Riprova aggiornamento</button>
+            : nextLead ? <button className="btn primary" type="button" onClick={() => {
+              setActiveLeadId(nextLead.lead_id); setWorkSaved(undefined);
+            }}>Prossimo lead <span>{nextLead.name || "Lead"}</span></button>
+            : <p>Nessun altro lead nella coda di oggi.</p>}
+        </div>
+      </section>
+    </div>}
     {assignOpen && admin && <AssignmentDialog clientId={clientId} staff={staff} onClose={() => setAssignOpen(false)}
       onSaved={async () => { setAssignOpen(false); await load(); }} />}
   </div>;
 }
 
-function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientId: string; lead: SetterLead; admin: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
+function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientId: string; lead: SetterLead; admin: boolean; onClose: () => void; onSaved: (booked: boolean) => Promise<void> }) {
   const workAllowed = !admin && lead.state !== "booked";
   const [action, setAction] = useState<SetterAction | "">("");
   const [time, setTime] = useState("");
@@ -244,6 +322,8 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
+  const [slot, setSlot] = useState<{ time: string; status: SlotStatus; message?: string }>();
+  const [check, setCheck] = useState(0);
   const formId = useId();
   const schedule = useRef<HTMLDivElement>(null);
   const pending = useRef(false);
@@ -252,7 +332,25 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const isBooking = action === "book_from_call" || action === "book_only";
   const needsCallbackTime = showCallback && (action === "answered" || action === "no_answer");
   const timeRequired = isBooking || needsCallbackTime;
-  const readyToSave = action && (!timeRequired || Number.isFinite(Date.parse(time)));
+  const slotStatus = slot?.time === time ? slot.status : "checking";
+  const timeMs = isBooking ? romeAppointmentTime(time) : Date.parse(time);
+  const validFutureTime = timeMs > Date.now();
+  const readyToSave = action && (!timeRequired || validFutureTime) && (!isBooking || slotStatus === "free");
+
+  useEffect(() => {
+    if (!isBooking || !validFutureTime) return;
+    let active = true;
+    setSlot({ time, status: "checking" });
+    setterCalendarRequest({
+      action: "availability", contactId: lead.lead_id, databaseContact: Boolean(lead.database_contact),
+      start: new Date(timeMs).toISOString(),
+    }).then(result => {
+      if (active) setSlot({ time, status: result.available === true ? "free" : result.available === false ? "occupied" : "error" });
+    }).catch(reason => {
+      if (active) setSlot({ time, status: "error", message: errorMessage(reason) });
+    });
+    return () => { active = false; };
+  }, [isBooking, validFutureTime, timeMs, time, lead.lead_id, lead.database_contact, check]);
 
   useEffect(() => {
     if (timeRequired && window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)").matches) {
@@ -262,30 +360,38 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   function choose(next: SetterAction) {
     if (next === action) return;
-    setAction(next); setTime(""); setShowCallback(false); setError("");
+    setAction(next); setTime(""); setSlot(undefined); setShowCallback(false); setError("");
     request.current = undefined;
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!workAllowed || !action || savingNote || pending.current || (isBooking && !canBook)) return;
+    if (!workAllowed || !action || savingNote || pending.current || (isBooking && (!canBook || slotStatus !== "free"))) return;
     if (isBooking && !time) return setError("Scegli data e ora della Discovery.");
     if (needsCallbackTime && !time) return setError("Scegli data e ora del richiamo.");
-    if (time && (!Number.isFinite(Date.parse(time)) || Date.parse(time) <= Date.now())) return setError("Scegli data e ora future.");
+    if (time && !validFutureTime) return setError("Scegli data e ora future.");
     pending.current = true; setBusy(true); setError("");
     request.current ??= crypto.randomUUID();
     try {
       const identity = lead.database_contact ? {p_contact_id: lead.lead_id} : {p_lead_id: lead.lead_id};
       const args = {...identity, p_request_id: request.current, p_note: note.trim() || null};
-      const scheduledAt = (isBooking || needsCallbackTime) && time ? new Date(time).toISOString() : null;
-      const { error } = isBooking
-        ? await withTimeout(supabase.rpc(lead.database_contact ? "book_database_setter_discovery" : "save_setter_discovery",
-          {...args, p_due_at: scheduledAt, p_record_call: action === "book_from_call"}))
-        : await withTimeout(supabase.rpc(lead.database_contact ? "record_database_setter_contact" : "record_setter_contact",
+      const scheduledAt = (isBooking || needsCallbackTime) && time ? new Date(timeMs).toISOString() : null;
+      if (isBooking) {
+        const result = await setterCalendarRequest({
+          action: "book", contactId: lead.lead_id, databaseContact: Boolean(lead.database_contact),
+          requestId: request.current, start: scheduledAt, note: note.trim(), recordCall: action === "book_from_call",
+        });
+        if (!result.booked) throw new Error("Prenotazione da verificare. Riprova sullo stesso orario.");
+      } else {
+        const { error } = await withTimeout(supabase.rpc(lead.database_contact ? "record_database_setter_contact" : "record_setter_contact",
           {...args, p_outcome: action, p_callback_at: scheduledAt}));
-      if (error) throw error;
-      await onSaved();
+        if (error) throw error;
+      }
+      await onSaved(isBooking);
     } catch (reason) {
+      if (isBooking && typeof reason === "object" && reason && "occupied" in reason && reason.occupied) {
+        setSlot({ time, status: "occupied" });
+      }
       setError(errorMessage(reason));
     } finally {
       pending.current = false;
@@ -295,7 +401,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   return <div className="overlay setter-dialog-overlay">
     <section className="modal setter-dialog setter-lead-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
-      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy || savingNote}>Chiudi</button></div></header>
+      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>{lead.state === "booked" ? `In carico a ${lead.seller_name}` : `In carico a ${lead.setter_name} · Setter`}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy || savingNote}>Chiudi</button></div></header>
       <form className="content" id={formId} onSubmit={event => void submit(event)}>
         {(lead.phone || lead.email) && <div className="setter-tools setter-contact-tools">
           {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
@@ -311,12 +417,27 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
             {canBook && <button className={`btn setter-discovery-action${action === "book_from_call" ? " primary" : ""}`} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
             {Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={action === key ? "btn primary" : "btn"} aria-pressed={action === key} disabled={busy} onClick={() => choose(key as Outcome)}>{label}</button>)}
           </div>
-          {canBook && <div className="setter-tools setter-book-only"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota senza nuova chiamata</button></div>}
+          {canBook && <div className="setter-tools setter-book-only"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota Discovery</button></div>}
           {(action === "answered" || action === "no_answer") && <label className="setter-callback-option"><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
           {timeRequired && <div className="setter-schedule" ref={schedule}>
             {isBooking ? <>
               <small>{action === "book_from_call" ? "Salvi un tentativo con risposta e una prenotazione." : "Usalo se hai già registrato la chiamata o se hai fissato l’appuntamento via messaggio."}</small>
-              <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} revealPanel />
+              <AppointmentTime type="discovery" value={time} disabled={busy} onChange={value => {
+                setTime(value); setSlot(undefined); setError(""); request.current = undefined;
+              }} revealPanel />
+              <div className="setter-calendar-status">
+                <p role="status" className={slotStatus === "free" && validFutureTime ? "setter-note-status" : "muted"}>
+                  {!validFutureTime ? "Scegli data e ora (fuso di Roma) per verificare la disponibilità di Ettore."
+                    : slotStatus === "checking" ? "Verifica disponibilità su Google Calendar…"
+                    : slotStatus === "free" ? "Orario libero nel calendario di Ettore."
+                    : slotStatus === "occupied" ? "Orario occupato. Scegli un altro orario."
+                    : slot?.message || "Disponibilità non verificata. Riprova per continuare."}
+                </p>
+                {validFutureTime && (slotStatus === "error" || slotStatus === "occupied") &&
+                  <button type="button" className="btn small" disabled={busy} onClick={() => {
+                    setSlot({ time, status: "checking" }); setError(""); setCheck(value => value + 1);
+                  }}>Verifica di nuovo</button>}
+              </div>
             </> : <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} revealPanel />}
           </div>}
           {action && <label>Nota dell’esito (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
