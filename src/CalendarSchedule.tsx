@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import { romeDay, romeToday } from "./dates";
 import { layoutIntervals, romeMinutes } from "./calendarLayout";
 
@@ -27,8 +27,14 @@ function EventButton({ event, compact = false }: { event: DisplayEvent; compact?
   </button>;
 }
 
-export default function CalendarSchedule({ days, events, onCreate }: { days: Date[]; events: DisplayEvent[]; onCreate: (date: Date) => void }) {
-  const [view, setView] = useState<"week" | "agenda">(() => window.matchMedia("(max-width: 760px)").matches ? "agenda" : "week");
+export type CalendarView = "week" | "agenda";
+export default function CalendarSchedule({ days, events, onCreate, view, onViewChange }: {
+  days: Date[];
+  events: DisplayEvent[];
+  onCreate: (date: Date) => void;
+  view: CalendarView;
+  onViewChange: (view: CalendarView) => void;
+}) {
   const forDay = (day: string) => events.filter(event => {
     const start = event.allDay ? event.at.slice(0, 10) : romeDay(event.at);
     // Google all-day end dates are exclusive, as are timed midnight endings.
@@ -58,13 +64,6 @@ export default function CalendarSchedule({ days, events, onCreate }: { days: Dat
   } as CSSProperties;
 
   return <>
-    <div className="schedule-controls">
-      <div className="view-switch">
-        <button type="button" aria-pressed={view === "week"} onClick={() => setView("week")}>Settimana</button>
-        <button type="button" aria-pressed={view === "agenda"} onClick={() => setView("agenda")}>Agenda</button>
-      </div>
-      <small>Orari Europe/Rome · clicca un evento per aprirlo</small>
-    </div>
     {view === "agenda" ? <div className="schedule-agenda">
       {week.map(({ day, date, dailyEvents }) => <section key={day}>
         <header>
@@ -82,7 +81,7 @@ export default function CalendarSchedule({ days, events, onCreate }: { days: Dat
             <span>{date.toLocaleDateString("it-IT", { weekday: "short" })}</span>
             <b>{date.getDate()}</b>
             <button type="button" onClick={() => onCreate(date)} aria-label={`Aggiungi il ${date.toLocaleDateString("it-IT")}`}>+</button>
-            {lanes > 2 && <button type="button" className="schedule-dense-link" onClick={() => setView("agenda")}>Vedi {dailyEvents.length} eventi in agenda</button>}
+            {lanes > 2 && <button type="button" className="schedule-dense-link" onClick={() => onViewChange("agenda")}>Vedi {dailyEvents.length} eventi in agenda</button>}
             {dailyEvents.filter(event => event.allDay).map(event => <div key={event.id}><EventButton event={event} /></div>)}
           </header>)}
         </div>

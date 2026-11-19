@@ -4,7 +4,7 @@ import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields
 import { loadGoogleSales } from "../googleSalesData";
 import GoogleSaleModal from "../GoogleSaleModal";
 import { googleSaleKey, saleOutcomes, type GoogleSale } from "../googleSales";
-import CalendarSchedule, { type DisplayEvent } from "../CalendarSchedule";
+import CalendarSchedule, { type CalendarView, type DisplayEvent } from "../CalendarSchedule";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
@@ -18,6 +18,9 @@ const localDateTime = (date: Date) => { const pad = (n: number) => String(n).pad
 const eventEnd = (task: SalesTask) => new Date(new Date(task.due_at).getTime() + (task.duration_minutes || 60) * 60 * 1000);
 type Selected = { kind: "crm"; task: SalesTask; lead: Lead | null } | { kind: "google"; event: GoogleEvent };
 export default function Calendar({ client, meName, admin = false, headerTools }: { client: Client; meName: string; admin?: boolean; headerTools?: ReactNode }) {
+  const [view, setView] = useState<CalendarView>(() =>
+    window.matchMedia("(max-width: 760px)").matches ? "agenda" : "week");
+  const menu = useRef<HTMLDetailsElement>(null);
   const [googleSales, setGoogleSales] = useState<GoogleSale[]>([]);
   const [saleRecord, setSaleRecord] = useState<GoogleSale | null>(null);
   const [saleOpen, setSaleOpen] = useState(false);
@@ -207,13 +210,31 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     ...google.filter(event => !linkedGoogleIds.has(event.id) && !visibleTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})}))
   ].filter(event => event.at && event.endAt);
   return <div className="page calendar-page">
-    <div className="calendar-intro"><div><div className="calendar-kicker">Agenda commerciale</div><h1>Calendario</h1><p>Appuntamenti CRM condivisi; Google personale privato. Gli appuntamenti sovrapposti restano tutti visibili.</p></div><div className="calendar-top-actions">{headerTools}<button className="btn primary" type="button" onClick={() => openCreate()}>+ Nuovo appuntamento</button><div className="calendar-navigation"><button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button><button type="button" onClick={() => { setSelected(null); setWeekStart(monday(new Date())); }}>Oggi</button><button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button></div>{googleCalendarConfigured() ? <button className={`btn ${googleCalendarConnected() ? "" : "primary"}`} disabled={busy} onClick={() => void connect()}>{googleCalendarConnected() ? "Google collegato" : "Collega Google Calendar"}</button> : <span className="calendar-notice">Google Calendar da configurare</span>}</div></div>
-    {error && <div className="notice err">{error}</div>}
-    {saleError && <div className="notice err">{saleError}</div>}
-    <div className="calendar-toolbar"><b>{rangeLabel}</b><span><i className="crm-dot" /> CRM condiviso <i className="google-dot" /> Il mio Google Calendar</span></div>
-    <div className="calendar-refresh-status"><button className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Aggiornamento…" : "Aggiorna"}</button>{loading && <span role="status">Caricamento appuntamenti…</span>}</div>
-    <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} />
-    {!saleError && <section className="panel google-sales-pending"><h2>Vendite Google registrate · questa settimana</h2><p>Esiti consultabili anche quando Google non è collegato.</p>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</section>}
+    <header className="calendar-compact-bar">
+      <div><h1>Calendario</h1><span aria-live="polite">{rangeLabel}</span></div>
+      <div className="calendar-navigation" role="group" aria-label="Navigazione calendario">
+        <button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button>
+        <button type="button" onClick={() => { setSelected(null); setWeekStart(monday(new Date())); }}>Oggi</button>
+        <button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button>
+      </div>
+      <details ref={menu} className="calendar-options">
+        <summary className="btn" aria-label="Opzioni calendario">Opzioni</summary>
+        <div className="calendar-options-content">
+          <label>Vista<select value={view} onChange={event => { setView(event.target.value === "agenda" ? "agenda" : "week"); if (menu.current) menu.current.open = false; }}>
+            <option value="week">Settimana</option><option value="agenda">Agenda</option>
+          </select></label>
+          {headerTools}
+          <button className="btn" type="button" onClick={() => { if (menu.current) menu.current.open = false; openCreate(); }}>+ Nuovo appuntamento</button>
+          <button className="btn" type="button" disabled={loading} onClick={() => { if (menu.current) menu.current.open = false; void load(); }}>Aggiorna</button>
+          {googleCalendarConfigured() ? <button className="btn" type="button" disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; void connect(); }}>{googleCalendarConnected() ? "Google collegato" : "Collega Google Calendar"}</button> : <small>Google Calendar da configurare</small>}
+        </div>
+      </details>
+    </header>
+    {error && <div className="notice err" role="alert">{error}</div>}
+    {saleError && <div className="notice err" role="alert">{saleError}</div>}
+    {loading && <span className="calendar-loading" role="status">Caricamento appuntamenti…</span>}
+    <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} view={view} onViewChange={setView} />
+    {!saleError && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
     {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); if (warning) setError(warning); }} />}
     {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName)) ? () => void syncSelected() : undefined} />}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>

@@ -2,7 +2,7 @@ import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import { useAuth } from "./useAuth";
 import { useTeamPresence } from "./useTeamPresence";
-import type { Client, Lead, Pipeline } from "./types";
+import type { Client, Lead, Pipeline, Stage } from "./types";
 import { withTimeout } from "./async";
 function lazyPage<T extends ComponentType<any>>(loader: () => Promise<{ default: T }>) {
   return lazy(() => Promise.race([
@@ -14,6 +14,7 @@ function lazyPage<T extends ComponentType<any>>(loader: () => Promise<{ default:
 const Automazioni = lazyPage(() => import("./pages/Automazioni"));
 const Login = lazyPage(() => import("./pages/Login"));
 const SetterRegistration = lazyPage(() => import("./pages/SetterRegistration"));
+const LeadModal = lazyPage(() => import("./pages/LeadModal"));
 const Board = lazyPage(() => import("./pages/Board"));
 const Admin = lazyPage(() => import("./pages/Admin"));
 const Vendite = lazyPage(() => import("./pages/Vendite"));
@@ -96,10 +97,15 @@ export default function App() {
   const navigationKey = auth.userId && auth.profile ? `ep-navigation:${auth.userId}:${auth.profile.role}` : null;
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string | null>(null);
+  const hideCauzione = auth.email?.trim().toLowerCase() === "ettoreandrosoni@estetica-premium.it";
+  const archivedPipelineId = "c5038ac8-5431-47a2-920b-9271dd06593e";
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [pipelineId, setPipelineId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [qResults, setQResults] = useState<Lead[]>([]);
+  const [archivedLead, setArchivedLead] = useState<{ lead: Lead; stages: Stage[] } | null>(null);
+  const [archiveError, setArchiveError] = useState("");
+  const archiveOpenRequest = useRef(0);
   const [focusLeadId, setFocusLeadId] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -183,6 +189,22 @@ export default function App() {
   function selectLead(l: Lead) {
     setQ("");
     setQResults([]);
+    setArchiveError("");
+    setArchivedLead(null);
+    const request = ++archiveOpenRequest.current;
+    if (hideCauzione && l.pipeline_id === archivedPipelineId) {
+      void withTimeout(Promise.all([
+        supabase.from("leads").select("*").eq("id", l.id).eq("client_id", l.client_id).single(),
+        supabase.from("stages").select("*").eq("pipeline_id", l.pipeline_id).order("position"),
+      ])).then(([lead, stages]) => {
+        if (request !== archiveOpenRequest.current) return;
+        if (lead.error || stages.error || !lead.data) throw new Error("Scheda storica non disponibile.");
+        setArchivedLead({ lead: lead.data as Lead, stages: (stages.data || []) as Stage[] });
+      }).catch(() => {
+        if (request === archiveOpenRequest.current) setArchiveError("Non riesco ad aprire la scheda storica. Riprova.");
+      });
+      return;
+    }
     setTab("board");
     setClientId(l.client_id);
     setPipelineId(l.pipeline_id);
@@ -295,12 +317,14 @@ export default function App() {
 
   const currentClient = clients.find((c) => c.id === clientId) ?? null;
   const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
-  const boardPipeline = currentPipeline;
+  const boardPipelines = hideCauzione ? pipelines.filter(p => p.id !== archivedPipelineId) : pipelines;
+  const boardPipeline = boardPipelines.find(p => p.id === pipelineId) ?? boardPipelines[0] ?? null;
+  const displayedPipelines = tab === "board" ? boardPipelines : pipelines;
   const headerTools = !isSetter && !["editorial", "contracts", "personal", "team", "setter", "databaseLeads"].includes(tab) ? (
     <div className="section-global-tools">
-      {pipelines.length > 1 && ["board", "sales", "tasks"].includes(tab) && (
-        <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
-          {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      {displayedPipelines.length > 1 && ["board", "sales", "tasks"].includes(tab) && (
+        <select className="select" value={(tab === "board" ? boardPipeline?.id : pipelineId) ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
+          {displayedPipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       )}
       <div className="search-wrap"><div className="search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca lead…" /></div>
@@ -372,9 +396,22 @@ export default function App() {
       )}
 
       {tab === "tasks" && currentClient && (
-        <Tasks client={currentClient} pipeline={currentPipeline} meName={meName} admin={isAdmin} headerTools={headerTools} onOpenLead={(lead) => { setClientId(lead.client_id); setPipelineId(lead.pipeline_id); setFocusLeadId(lead.id); setTab("board"); }} />
+        <Tasks client={currentClient} pipeline={currentPipeline} meName={meName} admin={isAdmin} headerTools={headerTools} onOpenLead={selectLead} />
       )}
 
+      {archiveError && <div className="notice err" role="alert">{archiveError}</div>}
+      {hideCauzione && archivedLead && <LeadModal
+        key={archivedLead.lead.id}
+        lead={archivedLead.lead}
+        stages={archivedLead.stages}
+        clientId={archivedLead.lead.client_id}
+        meName={meName}
+        admin={isAdmin}
+        canDelete={isAdmin}
+        canReassign={isAdmin}
+        onClose={() => setArchivedLead(null)}
+        onSaved={() => setArchivedLead(null)}
+      />}
       {tab === "calendar" && currentClient && (
         <Calendar client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
       )}

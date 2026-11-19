@@ -115,3 +115,35 @@
 .calendar-appointment-dialog .calendar-early-outcome { padding: 8px 0; }
 .calendar-appointment-dialog .calendar-early-outcome > summary { cursor: pointer; font-weight: 600; }
 
+.calendar-compact-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 10px;
+}
+.calendar-compact-bar > div:first-child { flex: 1; min-width: 120px; }
+.calendar-compact-bar h1 { margin: 0; font-size: clamp(20px, 3vw, 28px); }
+.calendar-compact-bar > div:first-child > span { color: var(--ep-muted); font-size: 13px; }
+.calendar-options { position: relative; }
+.calendar-options > summary { cursor: pointer; list-style: none; }
+.calendar-options > summary::-webkit-details-marker { display: none; }
+.calendar-options-content {
+  position: absolute;
+  z-index: 25;
+  right: 0;
+  top: calc(100% + 6px);
+  display: grid;
+  gap: 8px;
+  width: min(280px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: 12px;
+  background: var(--ep-surface, white);
+  box-shadow: var(--ep-shadow-lg);
+}
+.calendar-options-content label { display: grid; gap: 4px; }
+.calendar-options-content .section-global-tools,
+.calendar-options-content .search-wrap { width: 100%; min-width: 0; }
+.calendar-loading { display: block; margin-bottom: 8px; font-size: 12px; }
+.google-sales-pending > summary { cursor: pointer; }

@@ -1,6 +1,6 @@
 import { normalizedLeadSource } from "../salesKpi";
 import { nextSteps, matchesWork, type WorkFilter } from "../leadWork";
-import { createContext, useContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -20,6 +20,13 @@ import { romeDay, romeToday } from "../dates";
 import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
 
 const NextStepContext = createContext(new Map<string, SalesTask>());
+
+const WORK_FILTERS = [
+  ["all", "Tutti"],
+  ["today", "Da richiamare oggi"],
+  ["overdue", "Richiami scaduti"],
+  ["missing", "Senza prossimo passo"],
+] as const satisfies readonly (readonly [WorkFilter, string])[];
 
 type ActivityStamp = { lead_id: string; created_at: string; occurred_at?: string | null };
 
@@ -73,7 +80,7 @@ export default function Board({
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [pendingTasks, setPendingTasks] = useState<SalesTask[]>([]);
   const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
-  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const viewDialog = useRef<HTMLDialogElement>(null);
   const [presetView, setPresetView] = useState("all");
   const [pendingContracts, setPendingContracts] = useState<{lead_id:string|null;expires_at:string|null}[]>([]);
   const [contractsWarning, setContractsWarning] = useState("");
@@ -93,6 +100,13 @@ export default function Board({
   }, [viewKey]);
   function persistViews(next: SavedView[]) {
     try { localStorage.setItem(viewKey, JSON.stringify(next)); setSavedViews(next); setViewMessage("Viste personali salvate su questo browser."); } catch { setViewMessage("Impossibile salvare le viste: lo spazio del browser non è disponibile."); }
+  }
+  function resetFilters() {
+    setSearch("");
+    setSourceFilter("");
+    setOwnerFilter("");
+    setWorkFilter("all");
+    setPresetView("all");
   }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +229,11 @@ export default function Board({
     return m;
   }, [stages]);
 
+  const today = romeToday();
+  const workCounts = useMemo(() => WORK_FILTERS.map(([id]) => leads.filter(l =>
+    matchesWork(l, pendingTasks, id, today, ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))
+  ).length), [leads, pendingTasks, today, leadStageNames]);
+
   const leadsByStage = useMemo(() => {
     const map: Record<string, Lead[]> = {};
     for (const s of stages) map[s.id] = [];
@@ -295,6 +314,8 @@ export default function Board({
 
   const isPremium = client.name.startsWith("Estetica");
   const settingStage = stages.find((stage) => stage.name === "SETTING") ?? stages[0];
+  const activeFilters = Number(workFilter !== "all") + Number(presetView !== "all")
+    + Number(Boolean(search)) + Number(Boolean(sourceFilter)) + Number(Boolean(ownerFilter));
   return (
     <NextStepContext.Provider value={steps}>
       <DndContext
@@ -306,23 +327,59 @@ export default function Board({
           <div className="pipeline-view-toolbar pipeline-unified-toolbar" aria-label="Strumenti pipeline">
             <span className="board-lead-total" role="status">{totalLeads.toLocaleString("it-IT")} lead totali</span>
             {headerTools}
+            <button className="btn pipeline-view-toggle" type="button" aria-haspopup="dialog" onClick={() => viewDialog.current?.showModal()}>
+              Viste e filtri{activeFilters > 0 && <span className="pipeline-filter-count" aria-label={`${activeFilters} filtri attivi`}>{activeFilters}</span>}
+            </button>
             {canEdit && <button className="btn primary" type="button" onClick={() => setCreatingInStage(settingStage)}>+ Nuovo lead</button>}
-          <div className="pipeline-work-filters" aria-label="Filtra il lavoro sui lead">{([["all", "Tutti"], ["today", "Da richiamare oggi"], ["overdue", "Richiami scaduti"], ["missing", "Senza prossimo passo"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={workFilter === id} onClick={() => setWorkFilter(id)}>{label} <b>{leads.filter(l => matchesWork(l, pendingTasks, id, romeToday(), ["CLOSED", "LOST"].includes(leadStageNames[l.stage_id]))).length}</b></button>)}</div>
-
-            <button className="btn mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="pipeline-secondary-tools" onClick={() => setMobileToolsOpen(v => !v)}>Viste e filtri{search || sourceFilter || ownerFilter || presetView !== "all" ? " · attivi" : ""}</button>
-            <div id="pipeline-secondary-tools" className={`pipeline-secondary-tools${mobileToolsOpen ? " is-open" : ""}`}>
-            <select aria-label="Vista operativa" value={presetView} onChange={e => setPresetView(e.target.value)}><option value="all">Tutti i lead</option><option value="new_ads">Nuovi da Ads · Setting</option><option value="closing_week">Closing da oggi a domenica</option><option value="contracts">Contratti da seguire</option></select>
-            <details className="pipeline-extra-filters"><summary>Filtri{search || sourceFilter || ownerFilter ? " · attivi" : ""}</summary><div className="pipeline-filter-fields">            <input aria-label="Cerca nella pipeline" placeholder="Cerca nome, telefono o email…" value={search} onChange={e => setSearch(e.target.value)} />
-            <select aria-label="Provenienza" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="">Tutte le provenienze</option>{[...new Set(leads.map(l => l.source).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
-            <select aria-label="Assegnatario" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}><option value="">Tutti gli assegnatari</option>{[...new Set(leads.map(l => l.assigned_to).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}</select>
-</div></details>
-            <div className="view-switch" aria-label="Visualizzazione"><button aria-pressed={layout === "kanban"} onClick={() => setLayout("kanban")}>Kanban</button><button aria-pressed={layout === "table"} onClick={() => setLayout("table")}>Tabella</button></div>
-            <button className="btn primary" disabled={!workableLeads.length} onClick={() => { setQueue(workableLeads.map(l => l.id)); setEditing(workableLeads[0]); }}>Lavora la lista · {workableLeads.length}</button>
-            <details className="saved-views"><summary>Viste personali</summary><div className="saved-views-content"><small>Filtri salvati per te, su questo browser.</small>{savedViews.map(v => <div key={v.name}><button className="btn" onClick={() => { setWorkFilter(v.work); setPresetView(v.preset || "all"); setSearch(v.search); setSourceFilter(v.source); setOwnerFilter(v.owner); setLayout(v.layout); }}>{v.name}</button><button className="btn" aria-label={`Elimina vista ${v.name}`} onClick={() => persistViews(savedViews.filter(item => item.name !== v.name))}>×</button></div>)}<form onSubmit={e => { e.preventDefault(); if (!viewName.trim()) return; persistViews([...savedViews.filter(v => v.name !== viewName.trim()), {name:viewName.trim(),preset:presetView,work:workFilter,search,source:sourceFilter,owner:ownerFilter,layout}]); setViewName(""); }}><input aria-label="Nome vista" placeholder="Nome della vista" maxLength={60} value={viewName} onChange={e => setViewName(e.target.value)} required/><button className="btn" type="submit">Salva vista</button></form><small role="status">{viewMessage}</small></div></details>
-            </div>
           </div>
+          <dialog ref={viewDialog} className="pipeline-view-dialog" aria-labelledby="pipeline-view-title">
+            <header>
+              <h2 id="pipeline-view-title">Viste e filtri</h2>
+              <button className="btn" type="button" onClick={() => viewDialog.current?.close()}>Chiudi</button>
+            </header>
+            <div className="pipeline-view-content">
+              <div className="pipeline-view-fields">
+                <label>Lavoro sui lead<select value={workFilter} onChange={e => setWorkFilter(e.target.value as WorkFilter)}>
+                  {WORK_FILTERS.map(([id, label], index) => <option value={id} key={id}>{label} ({workCounts[index]})</option>)}
+                </select></label>
+                <label>Vista operativa<select value={presetView} onChange={e => setPresetView(e.target.value)}>
+                  <option value="all">Tutti i lead</option><option value="new_ads">Nuovi da Ads · Setting</option><option value="closing_week">Closing da oggi a domenica</option><option value="contracts">Contratti da seguire</option>
+                </select></label>
+                <label className="pipeline-view-wide">Cerca nella pipeline<input placeholder="Nome, telefono o email…" value={search} onChange={e => setSearch(e.target.value)} /></label>
+                <label>Provenienza<select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
+                  <option value="">Tutte le provenienze</option>{[...new Set(leads.map(l => l.source).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}
+                </select></label>
+                <label>Assegnatario<select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}>
+                  <option value="">Tutti gli assegnatari</option>{[...new Set(leads.map(l => l.assigned_to).filter(Boolean))].sort().map(s => <option key={s!}>{s}</option>)}
+                </select></label>
+                <label>Visualizzazione<select value={layout} onChange={e => setLayout(e.target.value === "table" ? "table" : "kanban")}>
+                  <option value="kanban">Kanban</option><option value="table">Tabella</option>
+                </select></label>
+              </div>
+              <details className="pipeline-saved-views">
+                <summary>Viste personali</summary>
+                <small>Filtri salvati per te, su questo browser.</small>
+                {savedViews.map(v => <div key={v.name}>
+                  <button className="btn" type="button" onClick={() => { setWorkFilter(v.work); setPresetView(v.preset || "all"); setSearch(v.search); setSourceFilter(v.source); setOwnerFilter(v.owner); setLayout(v.layout); }}>{v.name}</button>
+                  <button className="btn" type="button" aria-label={`Elimina vista ${v.name}`} onClick={() => persistViews(savedViews.filter(item => item.name !== v.name))}>×</button>
+                </div>)}
+                <form onSubmit={e => { e.preventDefault(); if (!viewName.trim()) return; persistViews([...savedViews.filter(v => v.name !== viewName.trim()), {name:viewName.trim(),preset:presetView,work:workFilter,search,source:sourceFilter,owner:ownerFilter,layout}]); setViewName(""); }}>
+                  <input aria-label="Nome vista" placeholder="Nome della vista" maxLength={60} value={viewName} onChange={e => setViewName(e.target.value)} required />
+                  <button className="btn" type="submit">Salva vista</button>
+                </form>
+                <small role="status">{viewMessage}</small>
+              </details>
+            </div>
+            <footer>
+              {activeFilters > 0 && <button className="btn" type="button" onClick={resetFilters}>Azzera filtri</button>}
+              <button className="btn" type="button" disabled={!workableLeads.length} onClick={() => { viewDialog.current?.close(); setQueue(workableLeads.map(l => l.id)); setEditing(workableLeads[0]); }}>
+                Lavora la lista · {workableLeads.length}
+              </button>
+              <button className="btn primary" type="button" onClick={() => viewDialog.current?.close()}>Mostra lead · {visibleLeads.length}</button>
+            </footer>
+          </dialog>
           {presetView === "contracts" && contractsWarning && <div className="notice err">{contractsWarning}</div>}
-          {!visibleLeads.length && <div className="pipeline-empty">Nessun lead corrisponde ai filtri. <button className="btn" onClick={() => { setSearch(""); setSourceFilter(""); setOwnerFilter(""); setWorkFilter("all"); setPresetView("all"); }}>Mostra tutti</button></div>}
+          {!visibleLeads.length && <div className="pipeline-empty">Nessun lead corrisponde ai filtri. <button className="btn" onClick={resetFilters}>Mostra tutti</button></div>}
           {layout === "table" ? <div className="pipeline-table-wrap"><table className="pipeline-table"><thead><tr><th>Lead</th><th>Fase</th><th>Provenienza</th><th>Assegnato a</th><th>Prossimo passo</th><th>Valore</th></tr></thead><tbody>{visibleLeads.map(l => { const step = steps.get(l.id); return <tr key={l.id}><td><button onClick={() => openLead(l)}>{l.name || "Senza nome"}</button>{l.phone && <a href={`tel:${l.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}</td><td>{leadStageNames[l.stage_id]}</td><td>{l.source || "—"}</td><td>{l.assigned_to || "—"}</td><td>{step ? new Date(step.due_at).toLocaleString("it-IT", {timeZone:"Europe/Rome",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : l.next_action_date || "Non previsto"}</td><td>{Number(l.value || 0).toLocaleString("it-IT", {style:"currency",currency:"EUR"})}</td></tr>; })}</tbody></table></div> : <div className="board">
             {stages.map((s) => (
               <Column
