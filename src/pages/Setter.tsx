@@ -7,6 +7,7 @@ import { reportRange } from "../dailySales";
 import { matchesSetterQueue, setterColumns as columns, summarizeSetterQueue, type SetterQueueFilter, type SetterStage } from "../setterQueue";
 import { supabase } from "../supabaseClient";
 import SetterInstructions from "./SetterInstructions";
+import SetterLeadNotes from "./SetterLeadNotes";
 import SetterTeamOverview from "./SetterTeamOverview";
 import "./Setter.css";
 
@@ -242,6 +243,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const [showCallback, setShowCallback] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
   const formId = useId();
   const schedule = useRef<HTMLDivElement>(null);
   const pending = useRef(false);
@@ -266,7 +268,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!workAllowed || !action || pending.current || (isBooking && !canBook)) return;
+    if (!workAllowed || !action || savingNote || pending.current || (isBooking && !canBook)) return;
     if (isBooking && !time) return setError("Scegli data e ora della Discovery.");
     if (needsCallbackTime && !time) return setError("Scegli data e ora del richiamo.");
     if (time && (!Number.isFinite(Date.parse(time)) || Date.parse(time) <= Date.now())) return setError("Scegli data e ora future.");
@@ -293,14 +295,16 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   return <div className="overlay setter-dialog-overlay">
     <section className="modal setter-dialog setter-lead-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
-      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy}>Chiudi</button></div></header>
+      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>Discovery per {lead.seller_name}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy || savingNote}>Chiudi</button></div></header>
       <form className="content" id={formId} onSubmit={event => void submit(event)}>
         {(lead.phone || lead.email) && <div className="setter-tools setter-contact-tools">
           {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
           {lead.email && <span>{lead.email}</span>}
         </div>}
-        {lead.note && <p>{lead.note}</p>}
+        {lead.note && <p className="setter-last-outcome-note"><strong>Nota dell’ultimo esito</strong><br />{lead.note}</p>}
         {lead.discovery_at && <p>Discovery · {romeStamp(lead.discovery_at)}</p>}
+        <SetterLeadNotes clientId={clientId} contactId={lead.lead_id} databaseContact={Boolean(lead.database_contact)}
+          editable={!admin} disabled={busy} onSavingChange={setSavingNote} />
         {workAllowed && <>
           <b>Com’è andata?</b>
           <div className="setter-tools setter-outcome-tools" role="group" aria-label="Esito setting">
@@ -315,12 +319,12 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
               <AppointmentTime type="discovery" value={time} disabled={busy} onChange={setTime} revealPanel />
             </> : <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} revealPanel />}
           </div>}
-          {action && <label>Nota (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
+          {action && <label>Nota dell’esito (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
         </>}
       </form>
       {workAllowed && <footer className="setter-dialog-footer">
         {error && <p className="notice err" role="alert">{error}</p>}
-        <button className="btn primary" type="submit" form={formId} disabled={busy || !readyToSave}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
+        <button className="btn primary" type="submit" form={formId} disabled={busy || savingNote || !readyToSave}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
       </footer>}
     </section>
   </div>;

@@ -55,6 +55,22 @@
 .setter-dialog { max-width: min(520px, 94vw); }
 .setter-dialog .content { display: grid; gap: 12px; }
 .setter-dialog label textarea, .setter-dialog label input:not([type=checkbox]), .setter-dialog label select { display: block; width: 100%; margin-top: 4px; }
+.setter-notes {
+  display: grid; gap: 8px; padding: 12px; min-width: 0;
+  border: 1px solid var(--ep-border); border-radius: 10px; background: var(--ep-surface-muted);
+}
+.setter-notes h3 { margin: 0; font-size: 14px; }
+.setter-notes .setter-note-input { color: var(--ep-muted); font-size: 12px; }
+.setter-notes .setter-note-input textarea { resize: vertical; padding: 8px; min-height: 56px; border: 1px solid var(--ep-border); border-radius: 8px; background: var(--ep-surface); color: var(--ep-ink); }
+.setter-notes > .btn { justify-self: start; }
+.setter-notes p { margin: 0; overflow-wrap: anywhere; }
+.setter-note-status { color: var(--ep-success, #237347); font-size: 13px; }
+.setter-note-retry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.setter-note-history summary { color: var(--ep-brand); font-weight: 650; cursor: pointer; }
+.setter-note-history ol { display: grid; gap: 8px; list-style: none; padding: 0; margin: 8px 0 0; }
+.setter-note-history li { display: grid; gap: 4px; padding: 8px; background: var(--ep-surface); border: 1px solid var(--ep-border); border-radius: 8px; }
+.setter-note-history li div { display: flex; flex-wrap: wrap; gap: 3px 8px; color: var(--ep-muted); font-size: 12px; }
+.setter-note-history li p, .setter-last-outcome-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .theme-premium.platform-shell .modal.setter-dialog > .setter-dialog-footer { display: grid; justify-content: stretch; gap: 8px; }
 .setter-dialog-footer .notice { margin: 0; }
 .setter-dialog-footer .btn { justify-self: end; }
@@ -167,6 +183,7 @@
     min-height: 44px; min-width: 0; font-size: 16px; border: 1px solid var(--ep-border); border-radius: 8px; padding: 8px;
     color: var(--ep-ink); background: var(--ep-surface);
   }
+  .setter-note-history summary { padding-block: 12px; }
 }
 
 @media (max-width: 360px) {
