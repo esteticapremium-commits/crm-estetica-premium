@@ -135,6 +135,7 @@ async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Da
  */
 async function synchronizeBooking(task: SalesTask, description: string) {
   if (task.google_event_id) return;
+  let ownerOrganizes = false;
   try {
     if (!await ensureGoogleCalendarConnection()) throw new Error("Google scollegato");
     const start = new Date(task.due_at);
@@ -144,6 +145,7 @@ async function synchronizeBooking(task: SalesTask, description: string) {
       description, attendees: [OWNER_CALENDAR_ID],
     });
     if (!event.id) throw new Error("Identità evento mancante");
+    ownerOrganizes = event.organizer?.self === true && event.organizer.email?.toLowerCase() === OWNER_CALENDAR_ID;
     if ((event.start?.dateTime && Date.parse(event.start.dateTime) !== start.getTime()) ||
       (event.end?.dateTime && Date.parse(event.end.dateTime) !== Date.parse(end))) {
       await updateGoogleCalendarEvent(event.id, { title: task.title, start: start.toISOString(), end });
@@ -157,6 +159,8 @@ async function synchronizeBooking(task: SalesTask, description: string) {
   if (Date.parse(task.due_at) <= Date.now()) return;
   const eventId = task.id.replace(/-/g, "");
   if (await confirmOnPrimaryOwnerCalendar(eventId, task.due_at).catch(() => false)) return;
+  // For an organizer, the optional Google Calendar color is independent of RSVP.
+  if (ownerOrganizes) return;
   try {
     if (await confirmOwnerCalendarAttendance(task.id)) return;
   } catch {
