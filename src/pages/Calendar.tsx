@@ -233,7 +233,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
         </div>
         <label>Contatto<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Nome del centro o della persona" /></label>
         <AppointmentTime type={appointmentType} value={startsAt} disabled={busy} onChange={setStartsAt} />
-        <details key={appointmentType} open={appointmentType === "setting" || undefined}><summary>{appointmentType === "setting" ? "Lead da contattare" : "Opzioni e collegamento alla pipeline"}</summary>
+        <details key={appointmentType} open><summary>{appointmentType === "setting" ? "Lead da contattare" : "Collega il lead · sincronizza la pipeline"}</summary>
           <label>Cerca lead<input type="search" value={leadQuery} onChange={event => setLeadQuery(event.target.value)} /></label>
           <label>Lead collegato{appointmentType !== "setting" && <small> (facoltativo)</small>}<select value={leadId} onChange={event => { setLeadId(event.target.value); setAppointmentHost(""); }}>
             <option value="">Nessun lead</option>

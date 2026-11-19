@@ -166,7 +166,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
     <section className="calendar-modal google-sale-modal" role="dialog" aria-modal="true" aria-label="Appuntamento di vendita Google" onClick={e => e.stopPropagation()}>
       <header className="calendar-detail-head"><span className="calendar-detail-label">Google Calendar · Vendita</span><button disabled={busy} aria-label="Chiudi vendita" onClick={onClose}>×</button></header>
       <h2>{sale ? 'Esito appuntamento' : 'Appuntamento di vendita'}</h2>
-      <p>Salva questa call nei risultati commerciali. Il lead in pipeline è facoltativo; l’evento Google resta invariato.</p>
+      <p>Collega un lead per sincronizzare la Discovery o la Closing con la sua fase in pipeline.</p>
       <p className="muted">Solo i dati inseriti qui vengono condivisi nel CRM con chi è autorizzato. Le note private di Google non vengono copiate.</p>
       {error && <div className="notice err" role="alert">{error}</div>}
       <form onSubmit={e => { e.preventDefault(); void save(); }}>
@@ -225,13 +225,13 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
             {Number(cash) > 0 && <label>Data effettiva dell’incasso<input type="datetime-local" required disabled={!admin} value={cashAt} onChange={e => setCashAt(e.target.value)} /></label>}
             <small>Registra qui un pagamento, con la sua data effettiva, solo se non è già presente nel CRM. Questo campo corregge lo stesso pagamento: per rate in date diverse usa il registro incassi collegato al lead.</small>
           </>}
-          <details><summary>Data, nota e collegamento alla pipeline</summary>
-          <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>
           <div className="google-sale-lead-picker">
             <label>Lead collegato · facoltativo<input type="search" placeholder="Cerca per nome, telefono o email" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} /></label>
-            <div className="google-sale-selected-lead">{leadId ? <><span><b>{selectedLead?.name || 'Lead collegato'}</b>{selectedLead?.phone && <small>{selectedLead.phone}</small>}</span><button type="button" className="btn small" onClick={() => setLeadId('')}>Rimuovi collegamento</button></> : <small>Nessun lead collegato. Puoi salvare anche senza.</small>}</div>
+            <div className="google-sale-selected-lead">{leadId ? <><span><b>{selectedLead?.name || 'Lead collegato'}</b>{selectedLead?.phone && <small>{selectedLead.phone}</small>}</span><button type="button" className="btn small" onClick={() => setLeadId('')}>Rimuovi collegamento</button></> : <small>Senza un lead collegato, salvi la call solo nel registro vendite.</small>}</div>
             {query && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
           </div>
+          <details><summary>Data, ora e nota</summary>
+          <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>
           <label>Nota {outcome === 'lost' ? '/ motivo' : '/ prossimo passo'}<textarea rows={3} maxLength={5000} value={note} onChange={e => setNote(e.target.value)} /></label>
                   </details>
         </fieldset>

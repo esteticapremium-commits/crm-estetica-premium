@@ -8,7 +8,6 @@
 import { supabase } from "./supabaseClient";
 import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
-import { topLeadPosition } from "./leadPosition";
 import type { Lead, SalesTask } from "./types";
 
 export type AppointmentType = NonNullable<SalesTask["appointment_type"]>;
@@ -94,39 +93,11 @@ export interface AppointmentResult {
   advancedStageId?: string;
 }
 
-const stagesBeforeDiscovery = new Set(["SETTING", "RECALL", "NO ANSWER", "NO ANSWER 1-3", "NO ANSWER 4-5"]);
-
-async function updateLeadAfterBooking(lead: Lead, clientId: string, startsAt: Date, targetType?: AppointmentType) {
-  const nextAction = { next_action_date: romeDayOf(startsAt) };
-  if (targetType && targetType !== "setting") {
-    const { data: current, error: leadError } = await supabase.from("leads")
-      .select("pipeline_id,stage_id").eq("id", lead.id).eq("client_id", clientId).single();
-    if (leadError) throw leadError;
-    if (current.pipeline_id) {
-      const { data: stages, error: stageError } = await supabase.from("stages")
-        .select("id,name").eq("client_id", clientId).eq("pipeline_id", current.pipeline_id);
-      if (stageError) throw stageError;
-      const currentStage = stages.find(stage => stage.id === current.stage_id)?.name.trim().toUpperCase();
-      const targetName = targetType === "discovery" ? "DISCOVERY" : "CLOSING";
-      const canAdvance = currentStage && (targetType === "discovery" ? stagesBeforeDiscovery.has(currentStage) : currentStage === "DISCOVERY");
-      if (canAdvance) {
-        const target = stages.find(stage => stage.name.trim().toUpperCase() === targetName);
-        if (!target) throw new Error(`La colonna ${targetName} non è presente in questa pipeline.`);
-        const position = await topLeadPosition(supabase, clientId, current.pipeline_id, target.id);
-        // Preserve a simultaneous change by another user. The stage trigger records the move.
-        const { data: moved, error } = await supabase.from("leads")
-          .update({ ...nextAction, stage_id: target.id, position })
-          .eq("id", lead.id).eq("client_id", clientId)
-          .eq("pipeline_id", current.pipeline_id).eq("stage_id", current.stage_id)
-          .select("id").maybeSingle();
-        if (error) throw error;
-        if (!moved) throw new Error("La fase del lead è cambiata durante il salvataggio. Controlla la scheda.");
-        return target.id;
-      }
-    }
-  }
-  const { error } = await supabase.from("leads").update(nextAction).eq("id", lead.id).eq("client_id", clientId);
+async function readLeadStageAfterBooking(lead: Lead, clientId: string) {
+  const { data, error } = await supabase.from("leads")
+    .select("stage_id").eq("id", lead.id).eq("client_id", clientId).single();
   if (error) throw error;
+  return data?.stage_id !== lead.stage_id ? data?.stage_id : undefined;
 }
 
 /**
@@ -192,7 +163,13 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
   let pipelineWarning: string | undefined;
   if (lead) {
     try {
-      advancedStageId = await updateLeadAfterBooking(lead, clientId, startsAt, audience === "lead" ? type : undefined);
+      if (audience === "lead" && type !== "setting") {
+        advancedStageId = await readLeadStageAfterBooking(lead, clientId);
+      } else {
+        const { error } = await supabase.from("leads").update({ next_action_date: romeDayOf(startsAt) })
+          .eq("id", lead.id).eq("client_id", clientId);
+        if (error) throw error;
+      }
     } catch {
       pipelineWarning = "Appuntamento salvato. Verifica la fase e il prossimo passo nella scheda lead.";
     }

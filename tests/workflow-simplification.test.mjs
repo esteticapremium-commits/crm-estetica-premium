@@ -83,29 +83,24 @@ test('prenotazione propone alla transazione la stessa identità e la durata corr
   }
 });
 
-test('la discovery fa avanzare solo le fasi iniziali e la closing parte dalla discovery', async () => {
-  for (const [type,phase,next] of [['discovery','SETTING','DISCOVERY'],['discovery','CLOSING',null],['demo','DISCOVERY','CLOSING']]) {
-    const changes=[];
+test('la scheda riflette la fase salvata dal database nella transazione di prenotazione', async () => {
+  for (const [type,phase,stored] of [['discovery','SETTING','DISCOVERY'],['discovery','CLOSING','CLOSING'],['demo','SETTING','CLOSING']]) {
     const db={
       async rpc(){return {data:{id:'booking',google_event_id:'linked'}};},
       from(table){
-        const query={select(){return query;},eq(){return query;},
-          async single(){return {data:{pipeline_id:'real-pipeline',stage_id:phase}};},
-          async maybeSingle(){return {data:{id:'lead'}};},
-          update(data){changes.push(data); return query;},
-          then(resolve){resolve({data:table==='stages' ? ['SETTING','DISCOVERY','CLOSING'].map(name=>({id:name,name})) : null});},
+        assert.equal(table,'leads');
+        const query={select(field){assert.equal(field,'stage_id'); return query;},eq(){return query;},
+          async single(){return {data:{stage_id:stored}};},
         };
         return query;
       },
     };
     const appointments=module('src/appointments.ts',{
       './supabaseClient':{supabase:db}, './calendarGoogle':{},
-      './leadPosition':{topLeadPosition:async(_client,_owner,pipeline)=>{assert.equal(pipeline,'real-pipeline');return -2;}},
     });
-    const result=await appointments.createAppointment({clientId:'company',lead:{id:'lead'},type,audience:'lead',
+    const result=await appointments.createAppointment({clientId:'company',lead:{id:'lead',stage_id:phase},type,audience:'lead',
       subject:'Centro',startsAt:new Date('2026-11-18T12:00:00Z'),note:'',requestId:'booking'});
-    assert.equal(result.advancedStageId,next || undefined);
-    assert.equal(changes[0].stage_id,next || undefined);
+    assert.equal(result.advancedStageId,stored === phase ? undefined : stored);
   }
 });
 
