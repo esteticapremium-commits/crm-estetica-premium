@@ -1,0 +1,40 @@
+.database-leads-header, .database-leads-summary, .database-leads-pagination {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.database-leads-header { margin-bottom: 16px; }
+.database-leads-header h1 { margin: 0; }
+.database-leads-header p { margin: 4px 0 0; color: var(--ep-muted); }
+.database-leads-list { min-width: 0; }
+.database-leads-filters, .database-leads-assign-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(150px, 1fr); gap: 12px; }
+.database-leads label { display: grid; gap: 5px; min-width: 0; font-size: 12px; font-weight: 650; }
+.database-leads :is(input[type=search], select) {
+  min-height: 44px; min-width: 0; width: 100%; padding: 8px 10px; font: inherit; font-size: 16px;
+  color: var(--ep-ink); border: 1px solid var(--ep-border); border-radius: 8px; background: var(--ep-surface);
+}
+.database-leads-assign { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--ep-surface-muted); }
+.database-leads-assign-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.database-leads-assign > button { justify-self: start; }
+.database-leads-summary { margin-block: 14px 8px; color: var(--ep-muted); }
+.database-lead-rows { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.database-lead-row {
+  display: grid; grid-template-columns: 26px minmax(0, 2fr) minmax(0, 1.6fr) minmax(0, 1fr); align-items: center;
+  gap: 10px; padding: 10px; border: 1px solid var(--ep-border); border-radius: 9px; overflow-wrap: anywhere;
+}
+.database-lead-row[data-selected=true] { background: var(--ep-brand-faint, #f7eeef); border-color: var(--ep-brand); }
+.database-lead-row input[type=checkbox] { width: 20px; height: 20px; margin: 0; accent-color: var(--ep-brand); }
+.database-lead-name { grid-column: 2; }
+.database-lead-row span, .database-lead-status small { display: block; color: var(--ep-muted); font-size: 12px; }
+.database-lead-row a { color: var(--ep-brand); font-variant-numeric: tabular-nums; text-decoration: underline; }
+.database-lead-status b { font-size: 12px; }
+.database-leads-pagination { justify-content: center; margin-top: 14px; }
+
+@media (max-width: 700px) {
+  .database-leads-filters, .database-leads-assign-fields { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .theme-premium.platform-shell .database-leads .database-leads-list { padding: 10px; }
+  .database-leads .database-leads-list > p { min-width: 0; }
+  .database-leads .btn { min-height: 44px; }
+  .database-leads-assign > button { width: 100%; }
+  .database-lead-row { grid-template-columns: 30px minmax(0, 1fr); gap: 5px 8px; }
+  .database-lead-row input[type=checkbox] { width: 23px; height: 23px; }
+  .database-lead-contact, .database-lead-status { grid-column: 2; }
+}

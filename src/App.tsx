@@ -24,6 +24,7 @@ const TeamContracts = lazyPage(() => import("./pages/TeamContracts"));
 const Contracts = lazyPage(() => import("./pages/Contracts"));
 const Tasks = lazyPage(() => import("./pages/Tasks"));
 const Setter = lazyPage(() => import("./pages/Setter"));
+const DatabaseLeads = lazyPage(() => import("./pages/DatabaseLeads"));
 const Calendar = lazyPage(() => import("./pages/Calendar"));
 const PersonalTasks = lazyPage(() => import("./pages/PersonalTasks"));
 const Kpi = lazyPage(() => import("./pages/Kpi"));
@@ -31,9 +32,9 @@ const TeamActivity = lazyPage(() => import("./pages/TeamActivity"));
 
 const DailySalesReport = lazyPage(() => import("./pages/DailySalesReport"));
 
-type Tab = "setter" | "risveglio" | "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team" | "teamContracts" | "dailyReport";
+type Tab = "databaseLeads" | "setter" | "risveglio" | "board" | "sales" | "kpi" | "tasks" | "calendar" | "admin" | "control" | "editorial" | "contracts" | "personal" | "team" | "teamContracts" | "dailyReport";
 const sharedTabs: Tab[] = ["risveglio","board", "sales", "kpi", "tasks", "calendar", "control", "contracts"];
-const adminTabs: Tab[] = ["setter", "dailyReport", "admin", "editorial", "personal", "team", "teamContracts"];
+const adminTabs: Tab[] = ["databaseLeads", "setter", "dailyReport", "admin", "editorial", "personal", "team", "teamContracts"];
 function readNavigation(key: string) {
   try { return window.sessionStorage.getItem(key); } catch { return null; }
 }
@@ -295,7 +296,7 @@ export default function App() {
   const currentClient = clients.find((c) => c.id === clientId) ?? null;
   const currentPipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
   const boardPipeline = currentPipeline;
-  const headerTools = !isSetter && !["editorial", "contracts", "personal", "team", "setter"].includes(tab) ? (
+  const headerTools = !isSetter && !["editorial", "contracts", "personal", "team", "setter", "databaseLeads"].includes(tab) ? (
     <div className="section-global-tools">
       {pipelines.length > 1 && ["board", "sales", "tasks"].includes(tab) && (
         <select className="select" value={pipelineId ?? ""} onChange={(e) => setPipelineId(e.target.value)} title="Scegli la pipeline">
@@ -320,6 +321,7 @@ export default function App() {
           <span className="nav-label">CRM</span>
           <button title="Pipeline" className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}><NavIcon name="pipeline" /> Pipeline</button>
           {isAdmin && <button title="Setter" className={tab === "setter" ? "active" : ""} onClick={() => setTab("setter")}><NavIcon name="tasks" /> Setter</button>}
+          {isAdmin && <button title="Database Leads" className={tab === "databaseLeads" ? "active" : ""} onClick={() => setTab("databaseLeads")}><NavIcon name="company" /> Database Leads</button>}
           <button title="Calendario" className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><NavIcon name="calendar" /> Calendario</button>
           <button title="Vendite" className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}><NavIcon name="sales" /> Vendite</button>
           <button title="Automazioni" className={tab === "risveglio" ? "active" : ""} onClick={() => setTab("risveglio")}><NavIcon name="pipeline" /> Automazioni</button>
@@ -339,6 +341,7 @@ export default function App() {
         : <div className="center-msg">Chiedi al titolare di assegnarti un’azienda.</div>)}
       {!isSetter && !workspaceError && <>
       {tab === "setter" && isAdmin && currentClient && <Setter key={currentClient.id} clientId={currentClient.id} admin /> }
+      {tab === "databaseLeads" && isAdmin && currentClient && <DatabaseLeads key={currentClient.id} clientId={currentClient.id} pipelines={pipelines} preferredPipelineId={boardPipeline?.id} />}
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board

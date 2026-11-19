@@ -17,6 +17,7 @@ try {
     create function auth.uid() returns uuid language sql as $$select current_setting('fixture.uid',true)::uuid$$;
     create table auth.users(id uuid primary key, email text);
     create table public.clients(id uuid primary key, name text);
+    create table public.pipelines(id uuid primary key, client_id uuid not null);
     create table public.profiles(id uuid primary key, role text check(role in ('admin','venditore')), client_id uuid, full_name text);
     create function public.is_admin() returns boolean language sql stable security definer as
       $$select coalesce((select role = 'admin' from public.profiles where id=auth.uid()), false)$$;
@@ -55,6 +56,7 @@ try {
     grant select on public.sales_outreach_events to authenticated;
     grant select,update on public.profiles to authenticated;
     insert into public.clients values('${client}','Estetica Premium'), ('${otherClient}','Altro cliente');
+    insert into public.pipelines values('${pipeline}','${client}');
     insert into public.leads values
       ('${lead}','${client}','${pipeline}','${start}','A','111','a@example.test','Cold call','Prima',2990,0,null),
       ('${hidden}','${client}','${pipeline}','${start}','Segreto','222','b@example.test','Cold call','Prima',2990,1,null);
@@ -168,6 +170,47 @@ try {
   assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_workspace(uuid,uuid,date,date)','execute')"),false);
   assert.equal(await scalar("select has_function_privilege('anon','public.get_setter_instructions(uuid)','execute')"),false);
   assert.equal(await scalar("select has_function_privilege('anon','public.save_setter_discovery(uuid,uuid,timestamptz,text,boolean)','execute')"),false);
+  const databaseLeadsMigration = readFileSync("supabase/upgrade_database_leads.sql", "utf8");
+  await db.exec(databaseLeadsMigration);
+  await db.exec(databaseLeadsMigration);
+  const stock = id(31);
+  const prebooked = id(32);
+  await db.query(`insert into public.database_leads(id,client_id,name,phone,source,source_row,state)
+    values($1,$3,'Centro privato','+390212340000','Cold call',2,'new'),($2,$3,'Già prenotato','+390212340001','Cold call',3,'booked')`, [stock,prebooked,client]);
+  const assignStock = (ids, receiver = setter) => scalar("select public.assign_database_leads($1,$2,$3,$4,$5)", [client,ids,receiver,seller,pipeline]);
+  const completeWorkspace = () => scalar("select public.get_complete_setter_workspace($1,null,$2,$2)", [client,day]);
+  const stockContact = () => scalar("select public.record_database_setter_contact($1,$2,'no_answer',null,null)", [stock,id(33)]);
+  const stockBooking = () => scalar("select public.book_database_setter_discovery($1,$2,$3,null,false)", [stock,id(34),due]);
+  await actor(leader);
+  await db.exec("set role authenticated");
+  assert.equal(await scalar("select count(*)::int from public.database_leads"),2);
+  await assert.rejects(() => assignStock([stock,prebooked]), /disponibilità/);
+  assert.equal(await assignStock([stock]),1);
+  assert.equal(await assignStock([stock]),1);
+  await assert.rejects(() => assignStock([stock],otherSetter), /disponibilità/);
+  assert.equal(await scalar("select count(*)::int from public.leads where name='Centro privato'"),0);
+  await actor(seller);
+  assert.equal(await scalar("select count(*)::int from public.database_leads"),0);
+  await assert.rejects(completeWorkspace, /non accessibile/);
+  await actor(otherSetter);
+  assert.equal((await completeWorkspace()).queue.some(item => item.lead_id === stock),false);
+  await assert.rejects(stockContact, /non accessibile/);
+  await actor(setter);
+  const beforeStockCall = await completeWorkspace();
+  assert.equal(beforeStockCall.queue.find(item => item.lead_id === stock).phone,"+390212340000");
+  assert.equal(beforeStockCall.queue.find(item => item.lead_id === stock).source,undefined);
+  await stockContact();
+  await stockContact();
+  assert.equal((await completeWorkspace()).totals.contacts,beforeStockCall.totals.contacts+1);
+  assert.equal(await stockBooking(),id(34));
+  assert.equal(await stockBooking(),id(34));
+  const afterStockBooking = await completeWorkspace();
+  assert.equal(afterStockBooking.totals.booked,beforeStockCall.totals.booked+1);
+  assert.equal(afterStockBooking.totals.contacts,beforeStockCall.totals.contacts+1);
+  assert.equal(afterStockBooking.queue.some(item => item.lead_id === stock),false);
+  await db.exec("reset role");
+  assert.equal(await scalar("select stage_id from public.leads where name='Centro privato'"),discovery);
+  assert.equal(await scalar("select count(*)::int from public.lead_activities where event_key=$1",[`database-setter-contact:${id(33)}`]),1);
   console.log("SQL OK: chiamata e prenotazione atomiche, retry, rebooking, KPI setter e ruoli isolati");
 } finally {
   await db.close();

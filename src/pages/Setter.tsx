@@ -22,6 +22,7 @@ const outcomes = {
 type Outcome = keyof typeof outcomes;
 type SetterAction = Outcome | "book_from_call" | "book_only";
 type SetterLead = {
+  database_contact?: boolean;
   lead_id: string; name: string | null; phone: string | null; email: string | null; source: string | null;
   setter_id: string; setter_name: string; seller_name: string; state: typeof columns[number][0];
   last_outcome: Outcome | null; callback_at: string | null; note: string | null;
@@ -61,7 +62,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
     const request = ++version.current;
     setLoading(true); setError("");
     try {
-      const { data, error } = await withTimeout(supabase.rpc("get_setter_workspace", {
+      const { data, error } = await withTimeout(supabase.rpc("get_complete_setter_workspace", {
         p_client_id: clientId, p_setter_id: owner || null, p_from: from, p_to: to,
       }));
       if (error) throw error;
@@ -215,11 +216,14 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
     pending.current = true; setBusy(true); setError("");
     request.current ??= crypto.randomUUID();
     try {
-      const args = {p_lead_id: lead.lead_id, p_request_id: request.current, p_note: note.trim() || null};
+      const identity = lead.database_contact ? {p_contact_id: lead.lead_id} : {p_lead_id: lead.lead_id};
+      const args = {...identity, p_request_id: request.current, p_note: note.trim() || null};
       const scheduledAt = (isBooking || needsCallbackTime) && time ? new Date(time).toISOString() : null;
       const { error } = isBooking
-        ? await withTimeout(supabase.rpc("save_setter_discovery", {...args, p_due_at: scheduledAt, p_record_call: action === "book_from_call"}))
-        : await withTimeout(supabase.rpc("record_setter_contact", {...args, p_outcome: action, p_callback_at: scheduledAt}));
+        ? await withTimeout(supabase.rpc(lead.database_contact ? "book_database_setter_discovery" : "save_setter_discovery",
+          {...args, p_due_at: scheduledAt, p_record_call: action === "book_from_call"}))
+        : await withTimeout(supabase.rpc(lead.database_contact ? "record_database_setter_contact" : "record_setter_contact",
+          {...args, p_outcome: action, p_callback_at: scheduledAt}));
       if (error) throw error;
       await onSaved();
     } catch (reason) {
