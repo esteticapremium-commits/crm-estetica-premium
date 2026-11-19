@@ -2,6 +2,37 @@
 .setter-heading { justify-content: space-between; margin-bottom: 16px; }
 .setter-heading h1, .setter-metrics h2, .setter-dialog h2 { margin: 0; }
 .setter-heading p, .setter-dialog header p { margin: 4px 0 0; color: var(--ep-muted, var(--muted)); }
+.setter-team { margin-bottom: 26px; }
+.setter-team-heading, .setter-worker-head, .setter-queue-heading {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px;
+}
+.setter-team-heading { margin-bottom: 12px; }
+.setter-team-heading h2, .setter-queue-heading h2 { margin: 0; font-size: 19px; }
+.setter-team-heading p, .setter-worker-head p { margin: 3px 0 0; color: var(--ep-muted); font-size: 12px; }
+.setter-team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.theme-premium.platform-shell .setter-page .setter-worker-card { min-width: 0; padding: 14px; }
+.theme-premium.platform-shell .setter-page .setter-worker-card[data-selected="true"] {
+  border-color: var(--ep-brand); box-shadow: inset 0 3px 0 var(--ep-brand);
+}
+.setter-worker-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.theme-premium.platform-shell .setter-page .setter-worker-head .btn[aria-pressed="true"] {
+  color: var(--ep-brand); border-color: var(--ep-brand); background: var(--ep-brand-faint);
+}
+.setter-worker-stages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+.setter-worker-stages > div {
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  padding: 8px 10px; min-width: 0; border: 1px solid var(--ep-border); border-radius: 8px;
+}
+.setter-worker-stages dt { color: var(--ep-muted); font-size: 12px; line-height: 1.3; }
+.setter-worker-stages dd { margin: 0; color: var(--ep-ink); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.setter-worker-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; }
+.setter-worker-actions p { margin: 0; color: var(--ep-muted); font-size: 12px; }
+.setter-worker-actions strong { white-space: nowrap; color: var(--ep-ink); }
+.theme-premium.platform-shell .setter-page .btn.setter-team-overdue {
+  background: var(--ep-danger-soft, #fff3f1); color: var(--ep-danger, #a33931); border-color: var(--ep-danger, #a33931);
+}
+.setter-queue-heading { margin-bottom: 10px; }
+.setter-queue-heading h2 { scroll-margin-block-start: 12px; }
 .setter-metrics { padding: 16px; }
 .platform-shell .setter-page .setter-metrics-toggle { display: none; }
 .setter-metrics h2 { margin-right: auto; font-size: 17px; }
@@ -46,6 +77,11 @@
   .setter-page { min-width: 0; }
   .setter-heading { align-items: flex-start; gap: 8px; margin-bottom: 12px; }
   .setter-heading p { font-size: 13px; }
+  .setter-team { margin-bottom: 18px; }
+  .theme-premium.platform-shell .setter-page .setter-worker-card { padding: 10px; }
+  .setter-worker-stages { gap: 5px; }
+  .setter-worker-stages > div { padding: 7px; }
+  .theme-premium.platform-shell .setter-page :is(.setter-team, .setter-queue-heading) .btn { min-height: 44px; }
   .platform-shell .setter-page :is(.setter-heading, .setter-card, .setter-mobile-stages, .setter-dialog, .setter-instructions) .btn,
   .setter-page .setter-filters .segmented button { min-height: 44px; }
   .theme-premium.platform-shell .setter-page .setter-card .btn.small {
