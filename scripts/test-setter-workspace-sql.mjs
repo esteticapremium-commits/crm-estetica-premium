@@ -17,7 +17,7 @@ try {
     create function auth.uid() returns uuid language sql as $$select current_setting('fixture.uid',true)::uuid$$;
     create table auth.users(id uuid primary key, email text);
     create table public.clients(id uuid primary key, name text);
-    create table public.pipelines(id uuid primary key, client_id uuid not null);
+    create table public.pipelines(id uuid primary key, client_id uuid not null, position integer not null default 0, created_at timestamptz default now());
     create table public.profiles(id uuid primary key, role text check(role in ('admin','venditore')), client_id uuid, full_name text);
     create function public.is_admin() returns boolean language sql stable security definer as
       $$select coalesce((select role = 'admin' from public.profiles where id=auth.uid()), false)$$;
@@ -56,7 +56,7 @@ try {
     grant select on public.sales_outreach_events to authenticated;
     grant select,update on public.profiles to authenticated;
     insert into public.clients values('${client}','Estetica Premium'), ('${otherClient}','Altro cliente');
-    insert into public.pipelines values('${pipeline}','${client}');
+    insert into public.pipelines(id,client_id) values('${pipeline}','${client}');
     insert into public.leads values
       ('${lead}','${client}','${pipeline}','${start}','A','111','a@example.test','Cold call','Prima',2990,0,null),
       ('${hidden}','${client}','${pipeline}','${start}','Segreto','222','b@example.test','Cold call','Prima',2990,1,null);
@@ -173,11 +173,17 @@ try {
   const databaseLeadsMigration = readFileSync("supabase/upgrade_database_leads.sql", "utf8");
   await db.exec(databaseLeadsMigration);
   await db.exec(databaseLeadsMigration);
+  const autoPipelineMigration = readFileSync("supabase/upgrade_database_leads_auto_pipeline.sql", "utf8");
+  await db.exec(autoPipelineMigration);
+  await db.query("insert into public.pipelines(id,client_id,position) values ($1,$3,-1),($2,$3,1)", [id(28),id(29),client]);
+  await db.query("insert into public.stages(id,client_id,pipeline_id,name,position) values ($1,$3,$4,'SETTING',1),($2,$3,$4,'DISCOVERY',2)",
+    [id(35),id(36),client,id(29)]);
   const stock = id(31);
   const prebooked = id(32);
   await db.query(`insert into public.database_leads(id,client_id,name,phone,source,source_row,state)
     values($1,$3,'Centro privato','+390212340000','Cold call',2,'new'),($2,$3,'Già prenotato','+390212340001','Cold call',3,'booked')`, [stock,prebooked,client]);
   const assignStock = (ids, receiver = setter) => scalar("select public.assign_database_leads($1,$2,$3,$4,$5)", [client,ids,receiver,seller,pipeline]);
+  const autoAssign = () => scalar("select public.assign_database_leads_to_setter($1,$2,$3,$4)", [client,[stock],setter,seller]);
   const completeWorkspace = () => scalar("select public.get_complete_setter_workspace($1,null,$2,$2)", [client,day]);
   const stockContact = () => scalar("select public.record_database_setter_contact($1,$2,'no_answer',null,null)", [stock,id(33)]);
   const stockBooking = () => scalar("select public.book_database_setter_discovery($1,$2,$3,null,false)", [stock,id(34),due]);
@@ -185,13 +191,15 @@ try {
   await db.exec("set role authenticated");
   assert.equal(await scalar("select count(*)::int from public.database_leads"),2);
   await assert.rejects(() => assignStock([stock,prebooked]), /disponibilità/);
-  assert.equal(await assignStock([stock]),1);
-  assert.equal(await assignStock([stock]),1);
+  assert.equal(await autoAssign(),1);
+  assert.equal(await scalar("select pipeline_id from public.database_leads where id=$1",[stock]),pipeline);
+  assert.equal(await autoAssign(),1);
   await assert.rejects(() => assignStock([stock],otherSetter), /disponibilità/);
   assert.equal(await scalar("select count(*)::int from public.leads where name='Centro privato'"),0);
   await actor(seller);
   assert.equal(await scalar("select count(*)::int from public.database_leads"),0);
   await assert.rejects(completeWorkspace, /non accessibile/);
+  await assert.rejects(autoAssign, /Solo il titolare/);
   await actor(otherSetter);
   assert.equal((await completeWorkspace()).queue.some(item => item.lead_id === stock),false);
   await assert.rejects(stockContact, /non accessibile/);

@@ -1,7 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { withTimeout } from "../async";
 import { supabase } from "../supabaseClient";
-import type { Pipeline } from "../types";
 import "./DatabaseLeads.css";
 
 const pageSize = 20;
@@ -17,9 +16,7 @@ const available = (contact: Contact) => !contact.setter_id && !contact.handed_of
 const messageFor = (error: unknown) => typeof error === "object" && error && "message" in error
   ? String(error.message) : "Operazione non riuscita. Riprova.";
 
-export default function DatabaseLeads({ clientId, pipelines, preferredPipelineId }: {
-  clientId: string; pipelines: Pipeline[]; preferredPipelineId?: string;
-}) {
+export default function DatabaseLeads({ clientId }: { clientId: string }) {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffError, setStaffError] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -31,7 +28,6 @@ export default function DatabaseLeads({ clientId, pipelines, preferredPipelineId
   const [selected, setSelected] = useState<string[]>([]);
   const [setter, setSetter] = useState("");
   const [seller, setSeller] = useState("");
-  const [pipeline, setPipeline] = useState("");
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,7 +37,6 @@ export default function DatabaseLeads({ clientId, pipelines, preferredPipelineId
   const setters = staff.filter(person => person.role === "setter");
   const sellers = staff.filter(person => person.role === "venditore");
   const sellerId = seller || (sellers.length === 1 ? sellers[0].id : "");
-  const pipelineId = pipeline || preferredPipelineId || pipelines[0]?.id || "";
   const eligible = contacts.filter(available);
   const entirePageSelected = eligible.length > 0 && eligible.every(contact => selected.includes(contact.id));
 
@@ -95,13 +90,13 @@ export default function DatabaseLeads({ clientId, pipelines, preferredPipelineId
 
   async function assign(event: FormEvent) {
     event.preventDefault();
-    if (!selected.length || !setter || !sellerId || !pipelineId || saving || loading) return;
+    if (!selected.length || !setter || !sellerId || saving || loading) return;
     setSaving(true);
     setNotice("");
     setError("");
     try {
-      const { data, error } = await withTimeout(supabase.rpc("assign_database_leads", {
-        p_client_id: clientId, p_contact_ids: selected, p_setter_id: setter, p_seller_id: sellerId, p_pipeline_id: pipelineId,
+      const { data, error } = await withTimeout(supabase.rpc("assign_database_leads_to_setter", {
+        p_client_id: clientId, p_contact_ids: selected, p_setter_id: setter, p_seller_id: sellerId,
       }));
       if (error) throw error;
       setSelected([]);
@@ -142,14 +137,11 @@ export default function DatabaseLeads({ clientId, pipelines, preferredPipelineId
           <label>Setter<select required value={setter} disabled={saving} onChange={e => setSetter(e.target.value)}>
             <option value="">Scegli un setter</option>{setters.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}
           </select></label>
-          <label>Venditore per la discovery<select required value={sellerId} disabled={saving} onChange={e => setSeller(e.target.value)}>
+          {sellers.length !== 1 && <label>Venditore per la discovery<select required value={sellerId} disabled={saving} onChange={e => setSeller(e.target.value)}>
             <option value="">Scegli un venditore</option>{sellers.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}
-          </select></label>
-          <label>Pipeline della discovery<select required value={pipelineId} disabled={saving} onChange={e => setPipeline(e.target.value)}>
-            <option value="">Scegli la pipeline</option>{pipelines.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select></label>
+          </select></label>}
         </div>
-        <button className="btn primary" type="submit" disabled={saving || loading || !setter || !sellerId || !pipelineId}>{saving ? "Assegnazione…" : "Assegna i contatti"}</button>
+        <button className="btn primary" type="submit" disabled={saving || loading || !setter || !sellerId}>{saving ? "Assegnazione…" : "Assegna i contatti"}</button>
       </form>}
       <div className="database-leads-summary">
         <span>{loading ? "Caricamento…" : `${matching.toLocaleString("it-IT")} risultati`}</span>

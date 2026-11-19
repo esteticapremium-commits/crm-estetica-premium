@@ -341,7 +341,7 @@ export default function App() {
         : <div className="center-msg">Chiedi al titolare di assegnarti un’azienda.</div>)}
       {!isSetter && !workspaceError && <>
       {tab === "setter" && isAdmin && currentClient && <Setter key={currentClient.id} clientId={currentClient.id} admin /> }
-      {tab === "databaseLeads" && isAdmin && currentClient && <DatabaseLeads key={currentClient.id} clientId={currentClient.id} pipelines={pipelines} preferredPipelineId={boardPipeline?.id} />}
+      {tab === "databaseLeads" && isAdmin && currentClient && <DatabaseLeads key={currentClient.id} clientId={currentClient.id} />}
       {tab === "board" &&
         (currentClient && boardPipeline ? (
           <Board
