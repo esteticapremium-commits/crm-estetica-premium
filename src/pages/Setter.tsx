@@ -17,7 +17,7 @@ const outcomes = {
   not_interested: "Non interessato",
 } as const;
 type Outcome = keyof typeof outcomes;
-type SetterAction = Outcome | "book_from_call" | "book_only";
+type SetterAction = Outcome | "book";
 type SetterLead = {
   database_contact?: boolean;
   lead_id: string; name: string | null; phone: string | null; email: string | null; source: string | null;
@@ -82,12 +82,13 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const [mobileColumn, setMobileColumn] = useState<SetterStage>("new");
   const [search, setSearch] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string>();
-  const [workSaved, setWorkSaved] = useState<{ id: string; name: string; booked: boolean }>();
+  const [workFeedback, setWorkFeedback] = useState("");
   const [assignOpen, setAssignOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const version = useRef(0);
   const queueHeading = useRef<HTMLHeadingElement>(null);
+  const workedInSequence = useRef(new Set<string>());
 
   const today = romeToday();
   const dates = period === "today" ? { from: today, to: today } : reportRange(today, period);
@@ -181,17 +182,17 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
 
   const searching = Boolean(search.trim());
   const showWorkQueue = filter === "priority" && !searching;
-  const priority = setterWorkQueue(workspace?.queue || [], today, now);
-  const priorityGroups = [
-    { title: "Richiami scaduti", leads: priority.overdue },
-    { title: "Richiami di oggi", leads: priority.todayCallbacks },
-    { title: "Nuovi lead", leads: priority.newLeads },
-  ];
-  const nextLead = workSaved ? priorityGroups.flatMap(group => group.leads).find(lead => lead.lead_id !== workSaved.id) : undefined;
+  const priorityGroups = setterWorkQueue(workspace?.queue || [], today, now);
+
+  function openLead(id: string) {
+    workedInSequence.current.clear();
+    setWorkFeedback("");
+    setActiveLeadId(id);
+  }
 
   function renderLeadCard(lead: SetterLead) {
     return <article key={lead.lead_id} className="setter-card">
-      <button type="button" className="setter-card-main" onClick={() => setActiveLeadId(lead.lead_id)}>
+      <button type="button" className="setter-card-main" onClick={() => openLead(lead.lead_id)}>
         <strong>{lead.name || "Lead senza nome"}</strong>
         {lead.source && <small>{lead.source}</small>}
         {admin && <small>In carico a {lead.state === "booked" ? lead.seller_name : lead.setter_name}</small>}
@@ -199,7 +200,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
         {lead.callback_at && <small className={Date.parse(lead.callback_at) < now ? "setter-overdue" : ""}>Richiamo · {romeStamp(lead.callback_at)}</small>}
         {lead.last_outcome && <small>{outcomes[lead.last_outcome]}</small>}
       </button>
-      {lead.phone && <a className="btn small" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
+      {lead.phone && <a className={admin ? "btn small" : "btn small primary"} onClick={!admin ? () => openLead(lead.lead_id) : undefined} href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
     </article>;
   }
 
@@ -254,15 +255,17 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
         {(admin ? [["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const
           : [["priority","Da fare adesso"],["all","Pipeline"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
           setFilter(id);
-          if (id !== "all") setMobileColumn(id === "new" ? "new" : "follow_up");
+          if (id === "today" || id === "overdue") setMobileColumn("follow_up");
+          else setMobileColumn("new");
         }}>{label}</button>)}
       </div>
     </div>
+    {!activeLead && workFeedback && <p className="setter-work-feedback" role="status">{workFeedback}</p>}
     {loading && !workspace && <p role="status">Caricamento postazione…</p>}
     {workspace && (showWorkQueue ? <div className="setter-work-queue">
       {priorityGroups.every(group => !group.leads.length) && <p className="muted">Nessun richiamo in scadenza e nessun nuovo lead.</p>}
       {priorityGroups.filter(group => group.leads.length).map(group =>
-        <section className="panel setter-column" key={group.title} aria-label={group.title}>
+        <section className="panel setter-column" key={group.id} aria-label={group.title}>
           <h3>{group.title} <span>{group.leads.length}</span></h3>
           {group.leads.map(renderLeadCard)}
         </section>
@@ -286,38 +289,28 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       </div>
     </>)}
     {!admin && metrics}
-    {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} onClose={() => setActiveLeadId(undefined)}
-      onSaved={async booked => {
-        setActiveLeadId(undefined);
-        setWorkSaved({ id: activeLead.lead_id, name: activeLead.name || "Lead", booked });
-        await load();
+    {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} feedback={workFeedback}
+      onClose={() => { setActiveLeadId(undefined); setWorkFeedback(""); }}
+      onSaved={booked => {
+        workedInSequence.current.add(activeLead.lead_id);
+        const next = priorityGroups.flatMap(group => group.leads).find(lead => !workedInSequence.current.has(lead.lead_id));
+        setWorkFeedback(`${booked ? "Discovery prenotata" : "Esito salvato"} · ${activeLead.name || "Lead"}`);
+        setActiveLeadId(next?.lead_id);
+        void load(true);
       }} />}
-    {workSaved && <div className="overlay setter-dialog-overlay">
-      <section className="modal setter-dialog" role="dialog" aria-modal="true" aria-label={workSaved.booked ? "Discovery prenotata" : "Esito salvato"}>
-        <header><h2>{workSaved.booked ? "Discovery prenotata" : "Esito salvato"}</h2>
-          <button className="btn small" type="button" onClick={() => setWorkSaved(undefined)}>Chiudi</button></header>
-        <div className="content">
-          <strong>{workSaved.name}</strong>
-          {workSaved.booked && <p>Appuntamento su Google Calendar. Il lead è passato alle vendite.</p>}
-          {loading ? <p role="status">Aggiornamento della coda…</p>
-            : error ? <button className="btn" type="button" onClick={() => void load()}>Riprova aggiornamento</button>
-            : nextLead ? <button className="btn primary" type="button" onClick={() => {
-              setActiveLeadId(nextLead.lead_id); setWorkSaved(undefined);
-            }}>Prossimo lead <span>{nextLead.name || "Lead"}</span></button>
-            : <p>Nessun altro lead nella coda di oggi.</p>}
-        </div>
-      </section>
-    </div>}
     {assignOpen && admin && <AssignmentDialog clientId={clientId} staff={staff} onClose={() => setAssignOpen(false)}
       onSaved={async () => { setAssignOpen(false); await load(); }} />}
   </div>;
 }
 
-function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientId: string; lead: SetterLead; admin: boolean; onClose: () => void; onSaved: (booked: boolean) => Promise<void> }) {
+function SetterLeadDialog({ clientId, lead, admin, feedback, onClose, onSaved }: {
+  clientId: string; lead: SetterLead; admin: boolean; feedback: string; onClose: () => void; onSaved: (booked: boolean) => void;
+}) {
   const workAllowed = !admin && lead.state !== "booked";
   const [action, setAction] = useState<SetterAction | "">("");
   const [time, setTime] = useState("");
-  const [note, setNote] = useState("");
+  const [skipCall, setSkipCall] = useState(false);
+  const [unsavedNote, setUnsavedNote] = useState(false);
   const [showCallback, setShowCallback] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -329,7 +322,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
   const pending = useRef(false);
   const request = useRef<string>();
   const canBook = workAllowed && lead.state !== "not_interested";
-  const isBooking = action === "book_from_call" || action === "book_only";
+  const isBooking = action === "book";
   const needsCallbackTime = showCallback && (action === "answered" || action === "no_answer");
   const timeRequired = isBooking || needsCallbackTime;
   const slotStatus = slot?.time === time ? slot.status : "checking";
@@ -360,13 +353,13 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   function choose(next: SetterAction) {
     if (next === action) return;
-    setAction(next); setTime(""); setSlot(undefined); setShowCallback(false); setError("");
+    setAction(next); setTime(""); setSlot(undefined); setShowCallback(false); setSkipCall(false); setError("");
     request.current = undefined;
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!workAllowed || !action || savingNote || pending.current || (isBooking && (!canBook || slotStatus !== "free"))) return;
+    if (!workAllowed || !action || savingNote || unsavedNote || pending.current || (isBooking && (!canBook || slotStatus !== "free"))) return;
     if (isBooking && !time) return setError("Scegli data e ora della Discovery.");
     if (needsCallbackTime && !time) return setError("Scegli data e ora del richiamo.");
     if (time && !validFutureTime) return setError("Scegli data e ora future.");
@@ -374,12 +367,12 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
     request.current ??= crypto.randomUUID();
     try {
       const identity = lead.database_contact ? {p_contact_id: lead.lead_id} : {p_lead_id: lead.lead_id};
-      const args = {...identity, p_request_id: request.current, p_note: note.trim() || null};
+      const args = {...identity, p_request_id: request.current, p_note: null};
       const scheduledAt = (isBooking || needsCallbackTime) && time ? new Date(timeMs).toISOString() : null;
       if (isBooking) {
         const result = await setterCalendarRequest({
           action: "book", contactId: lead.lead_id, databaseContact: Boolean(lead.database_contact),
-          requestId: request.current, start: scheduledAt, note: note.trim(), recordCall: action === "book_from_call",
+          requestId: request.current, start: scheduledAt, note: "", recordCall: !skipCall,
         });
         if (!result.booked) throw new Error("Prenotazione da verificare. Riprova sullo stesso orario.");
       } else {
@@ -387,7 +380,7 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
           {...args, p_outcome: action, p_callback_at: scheduledAt}));
         if (error) throw error;
       }
-      await onSaved(isBooking);
+      onSaved(isBooking);
     } catch (reason) {
       if (isBooking && typeof reason === "object" && reason && "occupied" in reason && reason.occupied) {
         setSlot({ time, status: "occupied" });
@@ -401,27 +394,23 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
 
   return <div className="overlay setter-dialog-overlay">
     <section className="modal setter-dialog setter-lead-dialog" role="dialog" aria-modal="true" aria-label="Scheda setter">
-      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>{lead.state === "booked" ? `In carico a ${lead.seller_name}` : `In carico a ${lead.setter_name} · Setter`}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy || savingNote}>Chiudi</button></div></header>
+      <header><div><h2>{lead.name || "Lead senza nome"}</h2><p>{lead.state === "booked" ? `In carico a ${lead.seller_name}` : `In carico a ${lead.setter_name} · Setter`}</p></div><div className="setter-tools"><SetterInstructions clientId={clientId} small /><button className="btn small" onClick={onClose} disabled={busy || savingNote || unsavedNote}>Chiudi</button></div></header>
       <form className="content" id={formId} onSubmit={event => void submit(event)}>
+        {feedback && <p className="setter-work-feedback" role="status">{feedback}</p>}
         {(lead.phone || lead.email) && <div className="setter-tools setter-contact-tools">
-          {lead.phone && <a className="btn" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
+          {lead.phone && <a className="btn primary" href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama {lead.phone}</a>}
           {lead.email && <span>{lead.email}</span>}
         </div>}
-        {lead.note && <p className="setter-last-outcome-note"><strong>Nota dell’ultimo esito</strong><br />{lead.note}</p>}
         {lead.discovery_at && <p>Discovery · {romeStamp(lead.discovery_at)}</p>}
-        <SetterLeadNotes clientId={clientId} contactId={lead.lead_id} databaseContact={Boolean(lead.database_contact)}
-          editable={!admin} disabled={busy} onSavingChange={setSavingNote} />
         {workAllowed && <>
-          <b>Com’è andata?</b>
-          <div className="setter-tools setter-outcome-tools" role="group" aria-label="Esito setting">
-            {canBook && <button className={`btn setter-discovery-action${action === "book_from_call" ? " primary" : ""}`} type="button" aria-pressed={action === "book_from_call"} disabled={busy} onClick={() => choose("book_from_call")}>Ha risposto e prenota Discovery</button>}
+          {canBook && <button className={`btn setter-discovery-action${isBooking ? " primary" : ""}`} type="button"
+            aria-pressed={isBooking} disabled={busy} onClick={() => choose("book")}>Prenota Discovery</button>}
+          <div className="setter-tools setter-outcome-tools" role="group" aria-label="Esito chiamata">
             {Object.entries(outcomes).map(([key,label]) => <button key={key} type="button" className={action === key ? "btn primary" : "btn"} aria-pressed={action === key} disabled={busy} onClick={() => choose(key as Outcome)}>{label}</button>)}
           </div>
-          {canBook && <div className="setter-tools setter-book-only"><button className={action === "book_only" ? "btn small primary" : "btn small"} type="button" aria-pressed={action === "book_only"} disabled={busy} onClick={() => choose("book_only")}>Prenota Discovery</button></div>}
           {(action === "answered" || action === "no_answer") && <label className="setter-callback-option"><input type="checkbox" checked={showCallback} disabled={busy} onChange={e => {setShowCallback(e.target.checked);setTime("");}} /> Fissa un richiamo</label>}
           {timeRequired && <div className="setter-schedule" ref={schedule}>
             {isBooking ? <>
-              <small>{action === "book_from_call" ? "Salvi un tentativo con risposta e una prenotazione." : "Usalo se hai già registrato la chiamata o se hai fissato l’appuntamento via messaggio."}</small>
               <AppointmentTime type="discovery" value={time} disabled={busy} onChange={value => {
                 setTime(value); setSlot(undefined); setError(""); request.current = undefined;
               }} revealPanel />
@@ -438,14 +427,20 @@ function SetterLeadDialog({ clientId, lead, admin, onClose, onSaved }: { clientI
                     setSlot({ time, status: "checking" }); setError(""); setCheck(value => value + 1);
                   }}>Verifica di nuovo</button>}
               </div>
+              <label className="setter-callback-option"><input type="checkbox" checked={skipCall} disabled={busy}
+                onChange={event => setSkipCall(event.target.checked)} /> Chiamata già registrata o appuntamento via messaggio</label>
             </> : <LeadDateTimePicker value={time} disabled={busy} onChange={setTime} revealPanel />}
           </div>}
-          {action && <label>Nota dell’esito (facoltativa)<textarea maxLength={3000} rows={3} value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></label>}
         </>}
+        <SetterLeadNotes clientId={clientId} contactId={lead.lead_id} databaseContact={Boolean(lead.database_contact)}
+          editable={!admin} disabled={busy} onSavingChange={setSavingNote} onDraftChange={setUnsavedNote} previousNote={lead.note} />
       </form>
-      {workAllowed && <footer className="setter-dialog-footer">
+      {workAllowed && (action || unsavedNote) && <footer className="setter-dialog-footer">
         {error && <p className="notice err" role="alert">{error}</p>}
-        <button className="btn primary" type="submit" form={formId} disabled={busy || savingNote || !readyToSave}>{busy ? "Salvataggio…" : action === "book_from_call" ? "Salva risposta e prenota" : isBooking ? "Conferma Discovery" : "Salva esito"}</button>
+        {unsavedNote && <p className="muted">Salva la nota per continuare.</p>}
+        {action && <button className="btn primary" type="submit" form={formId} disabled={busy || savingNote || unsavedNote || !readyToSave}>
+          {busy ? "Salvataggio…" : isBooking ? "Conferma Discovery e continua" : "Salva e vai al prossimo"}
+        </button>}
       </footer>}
     </section>
   </div>;

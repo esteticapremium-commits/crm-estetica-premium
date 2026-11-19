@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { withTimeout } from "../async";
 import { romeStamp } from "../dates";
 import { supabase } from "../supabaseClient";
@@ -11,12 +11,14 @@ type NotesProps = {
   editable: boolean;
   disabled: boolean;
   onSavingChange: (saving: boolean) => void;
+  onDraftChange: (hasDraft: boolean) => void;
+  previousNote: string | null;
 };
 
 const messageFor = (error: unknown, fallback: string) =>
   typeof error === "object" && error && "message" in error ? String(error.message) : fallback;
 
-export default function SetterLeadNotes({ clientId, contactId, databaseContact, editable, disabled, onSavingChange }: NotesProps) {
+export default function SetterLeadNotes({ clientId, contactId, databaseContact, editable, disabled, onSavingChange, onDraftChange, previousNote }: NotesProps) {
   const [notes, setNotes] = useState<LeadNote[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -27,8 +29,6 @@ export default function SetterLeadNotes({ clientId, contactId, databaseContact, 
   const [revision, setRevision] = useState(0);
   const request = useRef<{ id: string; body: string }>();
   const pending = useRef(false);
-  const history = useRef<HTMLDetailsElement>(null);
-  const labelId = useId();
 
   useEffect(() => {
     let active = true;
@@ -63,6 +63,7 @@ export default function SetterLeadNotes({ clientId, contactId, databaseContact, 
       if (!note?.id) throw new Error("Salvataggio da verificare. La nota è ancora qui.");
       setNotes(previous => previous.some(item => item.id === note.id) ? previous : [note, ...previous]);
       setDraft("");
+      onDraftChange(false);
       request.current = undefined;
       setSaved(true);
     } catch (error) {
@@ -74,35 +75,33 @@ export default function SetterLeadNotes({ clientId, contactId, databaseContact, 
     }
   }
 
-  useEffect(() => {
-    if (saved && history.current) history.current.open = true;
-  }, [saved]);
-
-  return <section className="setter-notes" aria-labelledby={labelId}>
-    <h3 id={labelId}>Note del lead</h3>
-    {editable && <>
-      <label className="setter-note-input">Scrivi una nota
-        <textarea rows={2} maxLength={3000} value={draft} disabled={disabled || saving} placeholder="Dettagli da ricordare o prossimi passi…"
-          onChange={event => { setDraft(event.target.value); setSaved(false); }} />
-      </label>
-      <button type="button" className="btn" onClick={() => void save()} disabled={disabled || loading || saving || !draft.trim()}>
-        {saving ? "Salvataggio…" : "Salva nota"}
-      </button>
-    </>}
-    {saved && <p className="setter-note-status" role="status">Nota salvata.</p>}
-    {saveError && <p className="notice err" role="alert">{saveError}</p>}
-    {readError && <div className="setter-note-retry" role="status">
-      <span>{readError}</span><button className="btn small" type="button" disabled={saving || disabled} onClick={() => setRevision(value => value + 1)}>Ricarica storico</button>
-    </div>}
-    {!loading && !readError && !notes.length && !editable && <p className="muted">Ancora nessuna nota.</p>}
-    {notes.length > 0 && <details ref={history} className="setter-note-history">
-      <summary>Storico note ({notes.length})</summary>
-      <ol>
-        {notes.map(note => <li key={note.id}>
-          <div><strong>{note.author_name}</strong> <time dateTime={note.created_at}>{romeStamp(note.created_at)}</time></div>
-          <p>{note.body}</p>
-        </li>)}
-      </ol>
-    </details>}
-  </section>;
+  return <details className="setter-notes">
+    <summary>Note del lead{notes.length > 0 ? ` (${notes.length})` : ""}</summary>
+    <div className="setter-notes-body">
+      {previousNote && <p className="setter-last-outcome-note"><strong>Nota dell’ultimo esito</strong><br />{previousNote}</p>}
+      {editable && <>
+        <label className="setter-note-input">Scrivi una nota
+          <textarea rows={2} maxLength={3000} value={draft} disabled={disabled || saving} placeholder="Dettagli da ricordare o prossimi passi…"
+            onChange={event => {
+              setDraft(event.target.value); onDraftChange(Boolean(event.target.value.trim())); setSaved(false);
+            }} />
+        </label>
+        <button type="button" className="btn" onClick={() => void save()} disabled={disabled || loading || saving || !draft.trim()}>
+          {saving ? "Salvataggio…" : "Salva nota"}
+        </button>
+      </>}
+      {saved && <p className="setter-note-status" role="status">Nota salvata.</p>}
+      {saveError && <p className="notice err" role="alert">{saveError}</p>}
+      {readError && <div className="setter-note-retry" role="status">
+        <span>{readError}</span><button className="btn small" type="button" disabled={saving || disabled} onClick={() => setRevision(value => value + 1)}>Ricarica storico</button>
+      </div>}
+      {!loading && !readError && !notes.length && !previousNote && !editable && <p className="muted">Ancora nessuna nota.</p>}
+      {notes.length > 0 && <ol className="setter-note-history" aria-label="Storico note">
+          {notes.map(note => <li key={note.id}>
+            <div><strong>{note.author_name}</strong> <time dateTime={note.created_at}>{romeStamp(note.created_at)}</time></div>
+            <p>{note.body}</p>
+          </li>)}
+      </ol>}
+    </div>
+  </details>;
 }

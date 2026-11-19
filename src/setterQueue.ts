@@ -52,5 +52,9 @@ export function setterWorkQueue<T extends QueueEntry>(queue: T[], today: string,
     else if (matchesSetterQueue(lead, "today", today, now)) todayCallbacks.push(lead);
   }
   const byCallback = (a: T, b: T) => Date.parse(a.callback_at!) - Date.parse(b.callback_at!);
-  return { overdue: overdue.sort(byCallback), todayCallbacks: todayCallbacks.sort(byCallback), newLeads };
+  return [
+    { id: "new", title: "Nuovi lead", leads: newLeads },
+    { id: "today", title: "Richiami di oggi", leads: todayCallbacks.sort(byCallback) },
+    { id: "overdue", title: "Richiami scaduti", leads: overdue.sort(byCallback) },
+  ];
 }

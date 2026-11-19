@@ -56,18 +56,18 @@
 .setter-dialog .content { display: grid; gap: 12px; }
 .setter-dialog label textarea, .setter-dialog label input:not([type=checkbox]), .setter-dialog label select { display: block; width: 100%; margin-top: 4px; }
 .setter-notes {
-  display: grid; gap: 8px; padding: 12px; min-width: 0;
+  padding: 10px 12px; min-width: 0;
   border: 1px solid var(--ep-border); border-radius: 10px; background: var(--ep-surface-muted);
 }
-.setter-notes h3 { margin: 0; font-size: 14px; }
+.setter-notes > summary { color: var(--ep-brand); font-weight: 650; cursor: pointer; }
+.setter-notes-body { display: grid; gap: 8px; margin-top: 10px; }
+.setter-notes-body > .btn { justify-self: start; }
 .setter-notes .setter-note-input { color: var(--ep-muted); font-size: 12px; }
 .setter-notes .setter-note-input textarea { resize: vertical; padding: 8px; min-height: 56px; border: 1px solid var(--ep-border); border-radius: 8px; background: var(--ep-surface); color: var(--ep-ink); }
-.setter-notes > .btn { justify-self: start; }
 .setter-notes p { margin: 0; overflow-wrap: anywhere; }
 .setter-note-status { color: var(--ep-success, #237347); font-size: 13px; }
 .setter-note-retry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.setter-note-history summary { color: var(--ep-brand); font-weight: 650; cursor: pointer; }
-.setter-note-history ol { display: grid; gap: 8px; list-style: none; padding: 0; margin: 8px 0 0; }
+.setter-note-history { display: grid; gap: 8px; list-style: none; padding: 0; margin: 4px 0 0; }
 .setter-note-history li { display: grid; gap: 4px; padding: 8px; background: var(--ep-surface); border: 1px solid var(--ep-border); border-radius: 8px; }
 .setter-note-history li div { display: flex; flex-wrap: wrap; gap: 3px 8px; color: var(--ep-muted); font-size: 12px; }
 .setter-note-history li p, .setter-last-outcome-note { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -170,12 +170,9 @@
   .setter-contact-tools, .setter-lead-dialog .content > p { overflow-wrap: anywhere; }
   .setter-outcome-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .theme-premium.platform-shell .setter-outcome-tools .btn { min-width: 0; padding-inline: 5px; font-size: 12px; line-height: 1.2; }
-  .setter-outcome-tools .setter-discovery-action { grid-column: 1 / -1; }
-  .setter-book-only .btn { width: 100%; }
   .setter-callback-option { display: flex; align-items: center; gap: 8px; min-height: 44px; }
   .setter-callback-option input { width: 18px; height: 18px; accent-color: var(--ep-brand); }
   .setter-schedule { scroll-margin-block-start: 12px; }
-  .setter-schedule > small { color: var(--ep-muted); }
   .setter-schedule .lead-date-panel { max-width: none; scroll-margin-block: 8px; }
   .setter-schedule .lead-date-panel button { min-height: 44px; }
   .setter-schedule .lead-date-time-fields .field { margin-bottom: 6px; }
@@ -183,7 +180,7 @@
     min-height: 44px; min-width: 0; font-size: 16px; border: 1px solid var(--ep-border); border-radius: 8px; padding: 8px;
     color: var(--ep-ink); background: var(--ep-surface);
   }
-  .setter-note-history summary { padding-block: 12px; }
+  .setter-notes > summary { padding-block: 6px; }
 }
 
 @media (max-width: 360px) {
@@ -200,9 +197,10 @@
 
 .setter-work-queue { display: grid; gap: 12px; max-width: 840px; }
 .setter-work-queue .setter-card:last-child { margin-bottom: 0; }
-.setter-dialog[aria-label="Esito salvato"] .content > button,
-.setter-dialog[aria-label="Discovery prenotata"] .content > button { justify-self: start; }
-.setter-dialog .content > .btn span { margin-inline-start: 6px; font-weight: 500; }
+.setter-work-queue .setter-column h3 { display: flex; }
+.setter-work-feedback { margin: 0 0 8px; color: var(--ep-success, #237347); font-weight: 600; }
+.setter-dialog .content > .setter-discovery-action { width: 100%; }
+.setter-dialog-footer > p { margin: 0; }
 @media (max-width: 760px) {
   .platform-shell .setter-page .setter-filters[data-setter="true"] .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -47,7 +47,7 @@ test("la prossima discovery include solo appuntamenti futuri ancora attivi", () 
   assert.equal(summary.nextDiscovery, "2026-11-19T10:30:00Z");
 });
 
-test("Da fare adesso ordina gli scaduti, separa i richiami di oggi e tiene i nuovi in coda", () => {
+test("Da fare adesso mostra prima i nuovi, poi i richiami di oggi e gli scaduti", () => {
   const newLead = lead("new");
   const morning = lead("follow_up", { callback_at: "2026-11-19T08:50:00Z" });
   const yesterday = lead("follow_up", { callback_at: "2026-11-18T20:00:00Z" });
@@ -56,7 +56,6 @@ test("Da fare adesso ordina gli scaduti, separa i richiami di oggi e tiene i nuo
   const undated = lead("follow_up");
   const booked = lead("booked");
   const work = setterWorkQueue([newLead, morning, future, afternoon, yesterday, undated, booked], today, now);
-  assert.equal(JSON.stringify(work), JSON.stringify({
-    overdue: [yesterday, morning], todayCallbacks: [afternoon], newLeads: [newLead],
-  }));
+  assert.equal(JSON.stringify(work.map(group => group.id)), JSON.stringify(["new", "today", "overdue"]));
+  assert.equal(JSON.stringify(work.flatMap(group => group.leads)), JSON.stringify([newLead, afternoon, yesterday, morning]));
 });
