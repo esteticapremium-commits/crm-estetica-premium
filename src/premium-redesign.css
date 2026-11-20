@@ -412,6 +412,7 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 }
 
 .theme-premium.platform-shell .side-nav {
+  flex: 1 1 auto;
   min-height: 0;
   gap: 5px;
   padding-top: 7px;
@@ -421,6 +422,8 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
   scrollbar-color: #cdbfc3 transparent;
   scrollbar-width: thin;
 }
+.theme-premium.platform-shell .sidebar > .brand,
+.theme-premium.platform-shell .sidebar > .presence-disclosure { flex-shrink: 0; }
 .theme-premium.platform-shell .side-nav::-webkit-scrollbar { width: 5px; }
 .theme-premium.platform-shell .side-nav::-webkit-scrollbar-thumb { border-radius: 999px; background: #cdbfc3; }
 .theme-premium.platform-shell .nav-label {
