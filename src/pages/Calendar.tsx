@@ -6,6 +6,7 @@ import GoogleSaleModal from "../GoogleSaleModal";
 import { googleSaleKey, saleOutcomes, type GoogleSale } from "../googleSales";
 import CalendarSchedule, { type CalendarView, type DisplayEvent } from "../CalendarSchedule";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { withTimeout } from "../async";
 import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
 import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
@@ -15,12 +16,31 @@ import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, app
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
 const localDateTime = (date: Date) => { const pad = (n: number) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`; };
+const GIOVANNI_ID = "fea14cde-316f-4519-bad0-abb9d9208df7";
+type OwnerCalendarEvent = { title: string; at: string; endAt: string; allDay: boolean };
+
+async function loadOwnerCalendarTitles(from: Date, to: Date): Promise<OwnerCalendarEvent[]> {
+  const { data, error } = await withTimeout(supabase.functions.invoke("owner-discovery-calendar", {
+    body: { operation: "list_titles", from: from.toISOString(), to: to.toISOString() },
+  }));
+  if (error || !Array.isArray(data?.events)) throw new Error("Agenda di Ettore non disponibile.");
+  return data.events;
+}
+
+function calendarEventKey(title: string, at: string) {
+  return `${title.trim().toLowerCase()}|${at.length === 10 ? at : Date.parse(at)}`;
+}
+
 const eventEnd = (task: SalesTask) => new Date(new Date(task.due_at).getTime() + (task.duration_minutes || 60) * 60 * 1000);
 type Selected = { kind: "crm"; task: SalesTask; lead: Lead | null } | { kind: "google"; event: GoogleEvent };
-export default function Calendar({ client, meName, admin = false, headerTools }: { client: Client; meName: string; admin?: boolean; headerTools?: ReactNode }) {
+export default function Calendar({ client, meName, userId, admin = false, headerTools }: { client: Client; meName: string; userId?: string | null; admin?: boolean; headerTools?: ReactNode }) {
   const [view, setView] = useState<CalendarView>(() =>
     window.matchMedia("(max-width: 760px)").matches ? "agenda" : "week");
   const menu = useRef<HTMLDetailsElement>(null);
+  const showOwnerCalendar = !admin && userId === GIOVANNI_ID;
+  const [ownerEvents, setOwnerEvents] = useState<OwnerCalendarEvent[]>([]);
+  const [ownerCalendarError, setOwnerCalendarError] = useState(false);
+  const [ownerEvent, setOwnerEvent] = useState<OwnerCalendarEvent | null>(null);
   const [googleSales, setGoogleSales] = useState<GoogleSale[]>([]);
   const [saleRecord, setSaleRecord] = useState<GoogleSale | null>(null);
   const [saleOpen, setSaleOpen] = useState(false);
@@ -53,13 +73,19 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     setSaleError(saleResult.error ? "Registro vendite Google non disponibile. Riprova prima di classificare una call." : null);
     setGoogleSales((saleResult.data as GoogleSale[]) || []);
     setTasks((taskResult.data as SalesTask[]) || []); setLeads((leadResult.data as Lead[]) || []); setStages((stageResult.data as Stage[]) || []);
-    const connected = await ensureGoogleCalendarConnection();
-    const events = connected ? await listGoogleCalendarEvents(weekStart, weekEnd) : [];
-    if (version === loadVersion.current) setGoogle(events);
+    const [personal, shared] = await Promise.allSettled([
+      ensureGoogleCalendarConnection().then(connected => connected ? listGoogleCalendarEvents(weekStart, weekEnd) : []),
+      showOwnerCalendar ? loadOwnerCalendarTitles(weekStart, weekEnd) : Promise.resolve([]),
+    ]);
+    if (version !== loadVersion.current) return;
+    setOwnerEvents(shared.status === "fulfilled" ? shared.value : []);
+    setOwnerCalendarError(shared.status === "rejected");
+    if (personal.status === "rejected") throw personal.reason;
+    setGoogle(personal.value);
     } catch (reason) {
       if (version === loadVersion.current) { setGoogle([]); setError(`Calendario non aggiornato completamente: ${reason instanceof Error ? reason.message : "errore di connessione"}. Riprova con Aggiorna.`); }
     } finally { if (version === loadVersion.current) setLoading(false); }
-  }, [client.id, weekEnd, weekStart]);
+  }, [client.id, showOwnerCalendar, weekEnd, weekStart]);
   useEffect(() => { void load(); }, [load]);
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
   const stageNameOf = (lead: Lead | null) => (lead ? stages.find((stage) => stage.id === lead.stage_id)?.name ?? null : null);
@@ -68,7 +94,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
   const audience = appointmentType === "setting" ? "lead" : audienceOverride ?? defaultAudience(stageNameOf(leadId ? leadById.get(leadId) || null : null));
   const rangeLabel = `${weekStart.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${new Date(weekEnd.getTime() - 86400000).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`;
   async function connect() { setBusy(true); setError(null); try { await connectGoogleCalendar(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Collegamento non riuscito."); } setBusy(false); }
-  function shiftWeek(amount: number) { setSelected(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
+  function shiftWeek(amount: number) { setSelected(null); setOwnerEvent(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
   function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string; startsAt?: Date }) {
     const initial = new Date(prefill?.startsAt ?? date);
     if (!prefill?.startsAt) {
@@ -223,16 +249,27 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
 
   const visibleTasks = tasks.filter(task => task.appointment_status !== "cancelled" && (task.appointment_type || !task.completed_at));
   const linkedGoogleIds = new Set(tasks.map(task => task.google_event_id).filter(Boolean));
+  const knownEvents = new Set([
+    ...visibleTasks.map(task => calendarEventKey(task.title, task.due_at)),
+    ...google.map(event => calendarEventKey(event.summary || "", event.start?.dateTime || event.start?.date || "")),
+  ]);
+  const sharedCalendarEvents: DisplayEvent[] = showOwnerCalendar ? ownerEvents.flatMap((event, index) =>
+    knownEvents.has(calendarEventKey(event.title, event.at)) ? [] : [{
+      ...event, id: `owner-${event.at}-${index}`, subtitle: "Calendario di Ettore", kind: "owner",
+      onOpen: () => setOwnerEvent(event),
+    }]) : [];
+
   const displayEvents: DisplayEvent[] = [
     ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : "Richiamo"} · ${task.appointment_status === "held" ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
-    ...google.filter(event => !linkedGoogleIds.has(event.id) && !visibleTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})}))
+    ...google.filter(event => !linkedGoogleIds.has(event.id) && !visibleTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})})),
+    ...sharedCalendarEvents,
   ].filter(event => event.at && event.endAt);
   return <div className="page calendar-page">
     <header className="calendar-compact-bar">
       <div><h1>Calendario</h1><span aria-live="polite">{rangeLabel}</span></div>
       <div className="calendar-navigation" role="group" aria-label="Navigazione calendario">
         <button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button>
-        <button type="button" onClick={() => { setSelected(null); setWeekStart(monday(new Date())); }}>Oggi</button>
+        <button type="button" onClick={() => { setSelected(null); setOwnerEvent(null); setWeekStart(monday(new Date())); }}>Oggi</button>
         <button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button>
       </div>
       <details ref={menu} className="calendar-options">
@@ -250,11 +287,27 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     </header>
     {error && <div className="notice err" role="alert">{error}</div>}
     {saleError && <div className="notice err" role="alert">{saleError}</div>}
+    {showOwnerCalendar && ownerCalendarError && <div className="notice warn" role="status">Calendario di Ettore temporaneamente non disponibile.</div>}
     {loading && <span className="calendar-loading" role="status">Caricamento appuntamenti…</span>}
     <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} view={view} onViewChange={setView} />
     {!saleError && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
     {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); if (warning) setError(warning); }} />}
     {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookNextClosing={nextClosingStart && nextClosingStart.getTime() > Date.now() ? bookNextClosing : undefined} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName) || (admin && usesOwnerDiscoveryCalendar(selected.task))) ? () => void syncSelected() : undefined} />}
+    {showOwnerCalendar && ownerEvent && <div className="calendar-modal-overlay" role="presentation" onClick={() => setOwnerEvent(null)}>
+      <section className="calendar-modal calendar-event-modal calendar-appointment-dialog" role="dialog" aria-modal="true"
+        aria-label="Evento del calendario di Ettore" onClick={event => event.stopPropagation()}>
+        <header className="calendar-appointment-header">
+          <div><h2>{ownerEvent.title}</h2><span className="calendar-detail-label google-label">Calendario di Ettore</span></div>
+          <button type="button" className="btn calendar-close" aria-label="Chiudi dettagli" onClick={() => setOwnerEvent(null)}>×</button>
+        </header>
+        <dl className="calendar-appointment-facts">
+          {ownerEvent.allDay ? <div className="calendar-fact-full"><dt>Quando</dt><dd>Tutto il giorno</dd></div> : <>
+            <div><dt>Inizio</dt><dd>{formatDateTime(ownerEvent.at)}</dd></div>
+            <div><dt>Fine</dt><dd>{formatDateTime(ownerEvent.endAt)}</dd></div>
+          </>}
+        </dl>
+      </section>
+    </div>}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
       <section className="calendar-modal calendar-create calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
         <header className="calendar-appointment-header">

@@ -147,3 +147,8 @@
 .calendar-options-content .search-wrap { width: 100%; min-width: 0; }
 .calendar-loading { display: block; margin-bottom: 8px; font-size: 12px; }
 .google-sales-pending > summary { cursor: pointer; }
+
+.theme-premium .schedule-event.owner {
+  background: var(--ep-surface-muted);
+  border-left-color: var(--ep-brand);
+}

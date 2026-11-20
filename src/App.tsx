@@ -413,7 +413,7 @@ export default function App() {
         onSaved={() => setArchivedLead(null)}
       />}
       {tab === "calendar" && currentClient && (
-        <Calendar client={currentClient} meName={meName} admin={isAdmin} headerTools={headerTools} />
+        <Calendar client={currentClient} meName={meName} userId={auth.userId} admin={isAdmin} headerTools={headerTools} />
       )}
 
       {tab === "control" && currentClient && (

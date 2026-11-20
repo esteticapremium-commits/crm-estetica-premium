@@ -13,7 +13,7 @@ const taskId = "026cb018-8386-4623-b98a-3064828cd1ff";
 const legacyId = taskId.replaceAll("-", "");
 const managedId = "epd" + legacyId;
 
-function setup() {
+function setup(calendarPages = []) {
   const task = {
     id: taskId, created_by: "Giovanni D'agosta", client_id: clientId, appointment_type: "discovery",
     commercial_tracked: true, updated_at: "2026-01-01T12:00:00Z", title: "Lead di prova — Discovery",
@@ -71,6 +71,11 @@ function setup() {
     const id = url.pathname.split("/").at(-1);
     const body = options.body && JSON.parse(options.body);
     requests.push({ method: options.method, id, body });
+    if (id === "events" && options.method === "GET") {
+      assert.equal(url.searchParams.get("fields"), "nextPageToken,items(summary,visibility,status,transparency,start(date,dateTime),end(date,dateTime))");
+      const page = url.searchParams.has("pageToken") ? 1 : 0;
+      return Response.json(calendarPages[page] ?? { items: [] });
+    }
     if (options.method === "POST") {
       const event = { ...body, etag: "v1", organizer: { email: "ettoreandrosoni@estetica-premium.it" } };
       google.set(event.id, event);
@@ -93,8 +98,8 @@ function setup() {
     exports: {}, require: () => ({ createClient }), fetch, Request, Response, URLSearchParams, AbortSignal,
     Deno: { env: { get: name => ({ SUPABASE_URL: "https://crm.example.test", SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service" })[name] }, serve: callback => { handler = callback; } },
   });
-  const invoke = async (operation = "sync", expectedUpdatedAt) => handler(new Request("https://crm.example.test/sync", {
-    method: "POST", headers: { Authorization: "Bearer fixture-session" }, body: JSON.stringify({ taskId, operation, expectedUpdatedAt }),
+  const invoke = async (operation = "sync", expectedUpdatedAt, params = {}) => handler(new Request("https://crm.example.test/sync", {
+    method: "POST", headers: { Authorization: "Bearer fixture-session" }, body: JSON.stringify({ taskId, operation, expectedUpdatedAt, ...params }),
   }));
   return { task, google, requests, invoke, setUser: id => { activeUserId = id; } };
 }
@@ -142,4 +147,40 @@ test("un invito già arrivato viene collegato senza duplicarlo", async () => {
   assert.equal((await invoke()).status, 200);
   assert.equal(task.google_event_id, legacyId);
   assert.equal(requests.filter(request => request.method === "POST").length, 0);
+});
+
+test("la settimana condivisa restituisce solo titoli e orari e oscura gli eventi privati", async () => {
+  const at = "2026-11-20T15:00:00+01:00";
+  const endAt = "2026-11-20T15:30:00+01:00";
+  const t = { start: { dateTime: at }, end: { dateTime: endAt } };
+  const { invoke, requests } = setup([
+    { nextPageToken: "page-2", items: [
+      { ...t, summary: "Riunione", description: "Nota privata", attendees: [{ email: "test@example.test" }], hangoutLink: "https://meet.example.test/riservato" },
+      { ...t, summary: "Titolo privato", visibility: "private" },
+      { ...t, summary: "Titolo privato libero", visibility: "private", transparency: "transparent" },
+      { ...t, summary: "Appuntamento annullato", status: "cancelled" },
+    ] },
+    { items: [{ summary: "Fuori ufficio", start: { date: "2026-11-21" }, end: { date: "2026-11-22" } }] },
+  ]);
+  const result = await invoke("list_titles", undefined, { from: "2026-11-16T00:00:00+01:00", to: "2026-11-23T00:00:00+01:00" });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { events: [
+    { title: "Riunione", at, endAt, allDay: false },
+    { title: "Occupato", at, endAt, allDay: false },
+    { title: "Fuori ufficio", at: "2026-11-21", endAt: "2026-11-22", allDay: true },
+  ] });
+  assert.equal(requests.length, 2);
+});
+
+test("la vista dei titoli è limitata a Giovanni e a una settimana per richiesta", async () => {
+  const { invoke, setUser, requests } = setup();
+  const from = "2026-11-16T00:00:00+01:00";
+  const to = "2026-11-23T00:00:00+01:00";
+  setUser("altro-setter");
+  assert.equal((await invoke("list_titles", undefined, { from, to })).status, 403);
+  setUser(ownerId);
+  assert.equal((await invoke("list_titles", undefined, { from, to })).status, 403);
+  setUser(sellerId);
+  assert.equal((await invoke("list_titles", undefined, { from, to: "2026-12-16" })).status, 400);
+  assert.equal(requests.length, 0);
 });

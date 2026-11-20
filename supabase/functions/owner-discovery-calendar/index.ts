@@ -48,6 +48,57 @@ async function refreshCalendarToken(refreshToken: string) {
   return typeof access_token === "string" ? access_token : null;
 }
 
+type CalendarListEvent = {
+  summary?: string;
+  visibility?: string;
+  status?: string;
+  transparency?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+};
+
+function calendarViewRange(from: unknown, to: unknown) {
+  if (typeof from !== "string" || typeof to !== "string") return null;
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 8 * 86_400_000) return null;
+  return { from: new Date(start).toISOString(), to: new Date(end).toISOString() };
+}
+
+function googleCalendarRequest(token: string, path: string, method = "GET", body?: unknown, etag?: string) {
+  return fetch(`${CALENDAR_PATH}${path}`, {
+    method, signal: AbortSignal.timeout(6000),
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(etag ? { "If-Match": etag } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function calendarTitles(token: string, range: { from: string; to: string }) {
+  const query = new URLSearchParams({
+    timeMin: range.from, timeMax: range.to, timeZone: TIME_ZONE, singleEvents: "true", showDeleted: "false",
+    orderBy: "startTime", maxResults: "250",
+    fields: "nextPageToken,items(summary,visibility,status,transparency,start(date,dateTime),end(date,dateTime))",
+  });
+  const titles = [];
+  for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
+    const response = await googleCalendarRequest(token, `?${query}`);
+    if (!response.ok) throw new Error("Agenda del titolare non disponibile.");
+    const page = await response.json() as { items?: CalendarListEvent[]; nextPageToken?: string };
+    for (const event of page.items ?? []) {
+      const allDay = Boolean(event.start?.date && event.end?.date);
+      const at = allDay ? event.start?.date : event.start?.dateTime;
+      const endAt = allDay ? event.end?.date : event.end?.dateTime;
+      if (!at || !endAt || !(Date.parse(endAt) > Date.parse(at)) || event.status === "cancelled") continue;
+      const isPrivate = event.visibility === "private" || event.visibility === "confidential";
+      if (isPrivate && event.transparency === "transparent") continue;
+      titles.push({ title: isPrivate ? "Occupato" : event.summary?.trim() || "Senza titolo", at, endAt, allDay });
+    }
+    if (!page.nextPageToken) return titles;
+    query.set("pageToken", page.nextPageToken);
+  }
+  throw new Error("Agenda troppo estesa per questa settimana.");
+}
+
 Deno.serve(async request => {
   if (request.method === "OPTIONS") return reply({});
   if (request.method !== "POST") return reply({ error: "Metodo non consentito." }, 405);
@@ -63,20 +114,35 @@ Deno.serve(async request => {
     const { data: { user }, error: authError } = await authClient.auth.getUser(jwt);
     if (authError || !user) return reply({ error: "Sessione CRM non valida." }, 401);
     if (user.id !== OWNER_ID && user.id !== SELLER_ID) return reply({ error: "Accesso non autorizzato." }, 403);
-    const { taskId, operation, expectedUpdatedAt } = await request.json().catch(() => ({}));
-    if (!UUID.test(taskId ?? "") || (operation !== "sync" && operation !== "delete")) {
+    const { taskId, operation, expectedUpdatedAt, from, to } = await request.json().catch(() => ({}));
+    const listTitles = operation === "list_titles";
+    if (listTitles && user.id !== SELLER_ID) return reply({ error: "Accesso non autorizzato." }, 403);
+    const range = listTitles ? calendarViewRange(from, to) : null;
+    if (listTitles ? !range : !UUID.test(taskId ?? "") || (operation !== "sync" && operation !== "delete")) {
       return reply({ error: "Richiesta non valida." }, 400);
     }
 
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     const [taskResult, roles] = await Promise.all([
-      authClient.from("sales_tasks").select("id,created_by,updated_at,title,due_at,appointment_status,completed_at,google_event_id")
+      listTitles ? null : authClient.from("sales_tasks").select("id,created_by,updated_at,title,due_at,appointment_status,completed_at,google_event_id")
         .eq("id", taskId).eq("client_id", CLIENT_ID).eq("appointment_type", "discovery").eq("commercial_tracked", true).maybeSingle(),
       admin.from("profiles").select("id,role,client_id,full_name").in("id", [OWNER_ID, SELLER_ID]),
     ]);
     const seller = roles.data?.find(person => person.id === SELLER_ID && person.role === "venditore" && person.client_id === CLIENT_ID);
     const owner = roles.data?.find(person => person.id === OWNER_ID && person.role === "admin");
-    const task = taskResult.data;
+    const ownerToken = async () => {
+      const { data: connection } = await admin.from("google_calendar_connections").select("refresh_token")
+        .eq("user_id", OWNER_ID).maybeSingle();
+      return connection?.refresh_token ? refreshCalendarToken(connection.refresh_token) : null;
+    };
+    if (range) {
+      if (!owner || !seller) return reply({ error: "Accesso non autorizzato." }, 403);
+      const token = await ownerToken();
+      if (!token) return reply({ error: "Il collegamento Google Calendar di Ettore va rinnovato." }, 503);
+      return reply({ events: await calendarTitles(token, range) });
+    }
+
+    const task = taskResult?.data;
     if (!owner || !seller?.full_name || !task || normalizeName(task.created_by) !== normalizeName(seller.full_name)) {
       return reply({ error: "Discovery non accessibile." }, 404);
     }
@@ -92,18 +158,10 @@ Deno.serve(async request => {
     if (task.google_event_id && task.google_event_id !== managedId) {
       return reply({ error: "La Discovery è collegata a un altro calendario." }, 409);
     }
-    const { data: connection } = await admin.from("google_calendar_connections").select("refresh_token")
-      .eq("user_id", OWNER_ID).maybeSingle();
-    const token = connection?.refresh_token && await refreshCalendarToken(connection.refresh_token);
+    const token = await ownerToken();
     if (!token) return reply({ error: "Il collegamento Google Calendar di Ettore va rinnovato." }, 503);
-
-    function google(path: string, method = "GET", body?: unknown, etag?: string) {
-      return fetch(`${CALENDAR_PATH}${path}`, {
-        method, signal: AbortSignal.timeout(6000),
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(etag ? { "If-Match": etag } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    }
+    const google = (path: string, method?: string, body?: unknown, etag?: string) =>
+      googleCalendarRequest(token, path, method, body, etag);
     async function getEvent(id: string): Promise<GoogleEvent | null> {
       const response = await google(`/${id}`);
       if (response.status === 404 || response.status === 410) return null;

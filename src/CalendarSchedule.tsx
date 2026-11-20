@@ -8,7 +8,7 @@ export type DisplayEvent = {
   endAt: string;
   title: string;
   subtitle: string;
-  kind: "crm" | "google";
+  kind: "crm" | "google" | "owner";
   allDay?: boolean;
   onOpen: () => void;
 };
