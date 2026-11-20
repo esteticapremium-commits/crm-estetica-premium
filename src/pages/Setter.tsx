@@ -78,7 +78,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const metricsId = useId();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffError, setStaffError] = useState("");
-  const [filter, setFilter] = useState<SetterQueueFilter>(admin ? "all" : "priority");
+  const [filter, setFilter] = useState<SetterQueueFilter>("all");
   const [mobileColumn, setMobileColumn] = useState<SetterStage>("new");
   const [search, setSearch] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string>();
@@ -191,7 +191,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   }
 
   function renderLeadCard(lead: SetterLead) {
-    return <article key={lead.lead_id} className="setter-card">
+    return <article key={lead.lead_id} className="setter-card" data-stage={lead.state}>
       <button type="button" className="setter-card-main" onClick={() => openLead(lead.lead_id)}>
         <strong>{lead.name || "Lead senza nome"}</strong>
         {lead.source && <small>{lead.source}</small>}
@@ -218,6 +218,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       <div className="setter-metrics-body" id={metricsId}>
         <div className="setter-tools">
           <h2>KPI setter</h2>
+          {!admin && <button className="btn" type="button" disabled={loading} onClick={() => void load()}>Aggiorna</button>}
           <label>Periodo <select value={period} onChange={event => setPeriod(event.target.value as typeof period)}><option value="today">Oggi</option><option value="week">Settimana</option><option value="month">Mese</option></select></label>
         </div>
         <div className="setter-metric-grid">
@@ -229,13 +230,13 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
     </section>
   );
 
-  return <div className="page setter-page">
+  return <div className={`page setter-page${admin ? "" : " setter-operator"}`}>
     <header className="setter-heading">
-      <div><h1>Setter</h1><p>{admin ? "Controlla le code del team e i prossimi appuntamenti." : "Lavora i tuoi lead e fissa le discovery per i venditori."}</p></div>
+      <div><h1>{admin ? "Setter" : "Pipeline setter"}</h1>{admin && <p>Controlla le code del team e i prossimi appuntamenti.</p>}</div>
       <div className="setter-tools">
         <SetterInstructions clientId={clientId} />
         {admin && <button className="btn primary" onClick={() => setAssignOpen(true)}>Assegna lead</button>}
-        <button className="btn" onClick={() => void load()} disabled={loading}>Aggiorna</button>
+        {admin && <button className="btn" onClick={() => void load()} disabled={loading}>Aggiorna</button>}
       </div>
     </header>
     {error && <p className="notice err" role="alert">{error}</p>}
@@ -248,18 +249,26 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       </div>
     </>}
     {admin && metrics}
-    <div className="setter-tools setter-filters" data-setter={!admin}>
+    {admin ? <div className="setter-tools setter-filters">
       <label className="sr-only" htmlFor="setter-lead-search">Cerca in postazione</label>
       <input id="setter-lead-search" type="search" placeholder="Nome, telefono o email" value={search} onChange={event => setSearch(event.target.value)} />
       <div className="segmented" aria-label="Filtra la coda">
-        {(admin ? [["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const
-          : [["priority","Da fare adesso"],["all","Pipeline"]] as const).map(([id,label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
-          setFilter(id);
-          if (id === "today" || id === "overdue") setMobileColumn("follow_up");
-          else setMobileColumn("new");
-        }}>{label}</button>)}
+        {([["all","Tutti"],["new","Nuovi"],["today","Richiami di oggi"],["overdue","Scaduti"]] as const).map(([id,label]) =>
+          <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => {
+            setFilter(id);
+            setMobileColumn(id === "today" || id === "overdue" ? "follow_up" : "new");
+          }}>{label}</button>)}
       </div>
-    </div>
+    </div> : <div className="setter-pipeline-toolbar" aria-label="Strumenti pipeline setter">
+      <span className="setter-lead-total" role="status">{workspace ? `${workspace.queue.length} lead assegnati` : "Lead assegnati"}</span>
+      <input type="search" aria-label="Cerca lead" placeholder="Cerca lead…" value={search} onChange={event => setSearch(event.target.value)} />
+      <label>Vista<select value={filter} onChange={event => {
+        setFilter(event.target.value === "priority" ? "priority" : "all");
+        setMobileColumn("new");
+      }}>
+        <option value="all">Pipeline</option><option value="priority">Da fare adesso</option>
+      </select></label>
+    </div>}
     {!activeLead && workFeedback && <p className="setter-work-feedback" role="status">{workFeedback}</p>}
     {loading && !workspace && <p role="status">Caricamento postazione…</p>}
     {workspace && (showWorkQueue ? <div className="setter-work-queue">
@@ -280,10 +289,10 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       </div>
       <div className="setter-board">
       {grouped.map(({id,title,leads}) => {
-        return <section className="panel setter-column" key={id} id={`setter-column-${id}`} aria-label={title} data-mobile-active={id === visibleColumn}>
-          <h3>{title} <span>{leads.length}</span></h3>
-          {leads.length === 0 && <p className="muted">Nessun lead in questa colonna.</p>}
-          {leads.map(renderLeadCard)}
+        const cards = leads.length ? leads.map(renderLeadCard) : <p className="muted">Nessun lead in questa colonna.</p>;
+        return <section className="panel setter-column" key={id} id={`setter-column-${id}`} aria-label={title} data-stage={id} data-mobile-active={id === visibleColumn}>
+          <h3>{!admin && <i aria-hidden="true" />}{title} <span>{leads.length}</span></h3>
+          {admin ? cards : <div className="setter-column-cards">{cards}</div>}
         </section>;
       })}
       </div>
