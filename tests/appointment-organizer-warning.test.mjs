@@ -15,7 +15,7 @@ const script = ts.transpileModule(readFileSync("src/appointments.ts", "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS },
 }).outputText;
 
-function setup({ organizer, linkError, guestConfirmed = false, personalConnected = true }) {
+function setup({ organizer, linkError, guestConfirmed = false, personalConnected = true, userId = "fea14cde-316f-4519-bad0-abb9d9208df7" }) {
   const exports = {};
   let guestChecks = 0;
   let personalRefreshes = 0;
@@ -37,10 +37,11 @@ function setup({ organizer, linkError, guestConfirmed = false, personalConnected
   };
   const imports = {
     "./calendarGoogle": calendar,
-    "./supabaseClient": { supabase: { from: () => updates } },
+    "./supabaseClient": { supabase: { auth: { getSession: async () => ({ data: { session: { user: { id: userId } } } }) }, from: () => updates } },
   };
   vm.runInNewContext(script, { exports, require: name => imports[name] ?? {} });
   return {
+    isGiovanniSetting: exports.isGiovanniSetting,
     retry: (appointment = task) => exports.retryAppointmentSync(appointment),
     guestChecks: () => guestChecks, personalRefreshes: () => personalRefreshes,
     cachedConnectionChecks: () => cachedConnectionChecks, created,
@@ -90,4 +91,24 @@ test("un setting di Giovanni in attesa di collegamento Google non passa a un cal
   assert.match(result.error, /Collega il tuo Google Calendar/);
   assert.equal(fixture.cachedConnectionChecks(), 0);
   assert.equal(fixture.created.length, 0);
+});
+
+
+test("il setting segue chi conduce anche se lo prenota Ettore", async () => {
+  const giovanni = "Giovanni D’agosta";
+  const appointment = { ...task, appointment_host: giovanni, assigned_to: giovanni, created_by: "Titolare" };
+  const ownerFixture = setup({ userId: "owner" });
+  assert.equal(ownerFixture.isGiovanniSetting(appointment), true);
+  assert.match((await ownerFixture.retry(appointment)).error, /Giovanni può sincronizzarlo/);
+  assert.equal(ownerFixture.personalRefreshes(), 0);
+  assert.equal(ownerFixture.cachedConnectionChecks(), 0);
+  assert.equal(ownerFixture.created.length, 0);
+
+  const sellerFixture = setup({ organizer: { email: "seller@example.test", self: true } });
+  assert.equal((await sellerFixture.retry(appointment)).ok, true);
+  assert.equal(sellerFixture.created.length, 1);
+  assert.equal(sellerFixture.created[0].attendees, undefined);
+  assert.equal(sellerFixture.isGiovanniSetting({ ...appointment, appointment_host: "Titolare" }), false);
+  assert.equal(sellerFixture.isGiovanniSetting({ ...appointment, appointment_type: "discovery" }), false);
+  assert.equal(sellerFixture.isGiovanniSetting({ ...appointment, appointment_type: "demo" }), false);
 });

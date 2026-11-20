@@ -11,6 +11,8 @@ import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGo
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import type { Lead, SalesTask } from "./types";
 
+export const GIOVANNI_ID = "fea14cde-316f-4519-bad0-abb9d9208df7";
+
 export type AppointmentType = NonNullable<SalesTask["appointment_type"]>;
 export const APPOINTMENT_DURATION: Record<AppointmentType, number> = { setting: 15, discovery: 30, demo: 60 };
 
@@ -101,12 +103,17 @@ async function readLeadStageAfterBooking(lead: Lead, clientId: string) {
   return data?.stage_id !== lead.stage_id ? data?.stage_id : undefined;
 }
 
-function createdByGiovanni(task: Pick<SalesTask, "created_by">) {
-  return task.created_by?.trim().toLowerCase().replace(/’/g, "'") === "giovanni d'agosta";
+function isGiovanni(name?: string | null) {
+  return name?.trim().toLowerCase().replace(/’/g, "'") === "giovanni d'agosta";
+}
+
+export function isGiovanniSetting(task: Pick<SalesTask, "appointment_type" | "appointment_host" | "assigned_to" | "created_by">) {
+  return task.appointment_type === "setting" &&
+    isGiovanni(task.appointment_host?.trim() || task.assigned_to?.trim() || task.created_by);
 }
 
 export function usesOwnerDiscoveryCalendar(task: Pick<SalesTask, "appointment_type" | "created_by">) {
-  return task.appointment_type === "discovery" && createdByGiovanni(task);
+  return task.appointment_type === "discovery" && isGiovanni(task.created_by);
 }
 
 export function isOwnerManagedDiscovery(task: Pick<SalesTask, "id" | "google_event_id" | "appointment_type">) {
@@ -137,9 +144,15 @@ async function synchronizeBooking(task: SalesTask, description: string) {
     return;
   }
   if (task.google_event_id) return;
-  const personalSetting = task.appointment_type === "setting" && createdByGiovanni(task);
+  const personalSetting = isGiovanniSetting(task);
   let ownerOrganizes = false;
   try {
+    if (personalSetting) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.user.id !== GIOVANNI_ID) {
+        return "Setting salvato nel CRM. Giovanni può sincronizzarlo dal suo Calendario.";
+      }
+    }
     // Renew against the current CRM user so a cached token from another login
     // can never choose the calendar for Giovanni's setting.
     const connected = await (personalSetting ? refreshGoogleCalendarConnection() : ensureGoogleCalendarConnection());
