@@ -247,13 +247,9 @@
   .setter-pipeline-toolbar label { margin-left: auto; }
 }
 
-.setter-drag-handle {
-  flex: 0 0 26px; align-self: center; min-height: 36px; padding: 0;
-  background: transparent; border: 1px solid transparent; border-radius: 6px;
-  color: var(--ep-muted); cursor: grab; touch-action: none; font-size: 20px;
-}
-.setter-drag-handle:hover, .setter-drag-handle:focus-visible { border-color: var(--ep-border); color: var(--ep-brand); }
-.setter-drag-handle[data-dragging="true"] { cursor: grabbing; }
+.setter-card[data-draggable="true"],
+.setter-card[data-draggable="true"] .setter-card-main { cursor: grab; }
+.setter-card[data-dragging="true"] { opacity: .55; }
 .setter-drag-preview { width: max-content; max-width: 230px; background: var(--ep-surface); box-shadow: var(--ep-shadow-lg); }
 .theme-premium.platform-shell .setter-operator [data-drop-target="true"] {
   outline: 2px solid var(--ep-brand); outline-offset: -2px;

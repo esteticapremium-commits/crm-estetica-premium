@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useDraggable, useDroppable,
+import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useDraggable, useDroppable,
   useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppointmentTime } from "../AppointmentFields";
@@ -88,7 +88,11 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const [moving, setMoving] = useState(false);
   const [bookFromDrop, setBookFromDrop] = useState(false);
   const movingRef = useRef(false);
-  const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor));
+  const dragSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(KeyboardSensor),
+  );
   const [workFeedback, setWorkFeedback] = useState("");
   const [assignOpen, setAssignOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -245,18 +249,8 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   }
 
   function renderLeadCard(lead: SetterLead, draggable = false) {
-    return <article key={lead.lead_id} className="setter-card" data-stage={lead.state}>
-      {draggable && lead.state !== "booked" && <SetterDragHandle id={lead.lead_id} label={lead.name || "lead"} disabled={moving} />}
-      <button type="button" className="setter-card-main" onClick={() => openLead(lead.lead_id)}>
-        <strong>{lead.name || "Lead senza nome"}</strong>
-        {lead.source && <small>{lead.source}</small>}
-        {admin && <small>In carico a {lead.state === "booked" ? lead.seller_name : lead.setter_name}</small>}
-        {lead.discovery_at && <small>Discovery · {romeStamp(lead.discovery_at)}</small>}
-        {lead.callback_at && <small className={Date.parse(lead.callback_at) < now ? "setter-overdue" : ""}>Richiamo · {romeStamp(lead.callback_at)}</small>}
-        {lead.last_outcome && <small>{outcomes[lead.last_outcome]}</small>}
-      </button>
-      {lead.phone && <a className={admin ? "btn small" : "btn small primary"} onClick={!admin ? () => openLead(lead.lead_id) : undefined} href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
-    </article>;
+    return <SetterCard key={lead.lead_id} lead={lead} admin={admin} now={now}
+      draggable={draggable && lead.state !== "booked" && !moving} onOpen={() => openLead(lead.lead_id)} />;
   }
 
   const firstMatchingColumn = searching && !grouped.some(column => column.id === mobileColumn && column.leads.length)
@@ -366,11 +360,31 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   </div>;
 }
 
-function SetterDragHandle({ id, label, disabled }: { id: string; label: string; disabled: boolean }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id, disabled });
-  return <button ref={setNodeRef} type="button" className="setter-drag-handle"
-    {...attributes} {...listeners} aria-label={`Sposta ${label}`} title="Trascina per spostare"
-    data-dragging={isDragging} disabled={disabled}>⠿</button>;
+function SetterCard({ lead, admin, now, draggable, onOpen }: {
+  lead: SetterLead; admin: boolean; now: number; draggable: boolean; onOpen: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
+    id: lead.lead_id, disabled: !draggable,
+  });
+  return <article ref={setNodeRef} className="setter-card" data-stage={lead.state}
+    data-draggable={draggable} data-dragging={isDragging} {...(draggable ? listeners : undefined)}>
+    <button ref={setActivatorNodeRef} type="button" className="setter-card-main"
+      {...(draggable ? attributes : undefined)} onClick={onOpen}>
+      <strong>{lead.name || "Lead senza nome"}</strong>
+      {!admin && lead.phone && <small>{lead.phone}</small>}
+      {admin && lead.source && <small>{lead.source}</small>}
+      {admin && <small>In carico a {lead.state === "booked" ? lead.seller_name : lead.setter_name}</small>}
+      {lead.discovery_at && <small>Discovery · {romeStamp(lead.discovery_at)}</small>}
+      {lead.callback_at && <small className={Date.parse(lead.callback_at) < now ? "setter-overdue" : ""}>Richiamo · {romeStamp(lead.callback_at)}</small>}
+      {lead.last_outcome && <small>{outcomes[lead.last_outcome]}</small>}
+    </button>
+    {lead.phone && <a className={admin ? "btn small" : "btn small primary"}
+      onMouseDown={event => event.stopPropagation()}
+      onTouchStart={event => event.stopPropagation()}
+      onKeyDown={event => event.stopPropagation()}
+      onClick={admin ? undefined : onOpen}
+      href={`tel:${lead.phone.replace(/[^\d+*#,;]/g, "")}`}>Chiama</a>}
+  </article>;
 }
 
 function SetterDropColumn({ stage, title, active, admin, count, disabled, children }: {
