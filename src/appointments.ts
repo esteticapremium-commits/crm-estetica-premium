@@ -6,6 +6,7 @@
 // sola versione di ogni operazione, così Google Calendar, sales_tasks e
 // lead_activities non possono più divergere.
 import { supabase } from "./supabaseClient";
+import { withTimeout } from "./async";
 import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import type { Lead, SalesTask } from "./types";
@@ -100,11 +101,38 @@ async function readLeadStageAfterBooking(lead: Lead, clientId: string) {
   return data?.stage_id !== lead.stage_id ? data?.stage_id : undefined;
 }
 
+export function usesOwnerDiscoveryCalendar(task: Pick<SalesTask, "appointment_type" | "created_by">) {
+  return task.appointment_type === "discovery" &&
+    task.created_by?.trim().toLowerCase().replace(/’/g, "'") === "giovanni d'agosta";
+}
+
+export function isOwnerManagedDiscovery(task: Pick<SalesTask, "id" | "google_event_id" | "appointment_type">) {
+  return task.appointment_type === "discovery" && task.google_event_id === `epd${task.id.replace(/-/g, "")}`;
+}
+
+async function manageOwnerDiscoveryCalendar(task: SalesTask, operation: "sync" | "delete") {
+  const { data, error } = await withTimeout(supabase.functions.invoke("owner-discovery-calendar", {
+    body: { operation, taskId: task.id, expectedUpdatedAt: operation === "delete" ? task.updated_at : undefined },
+  }), 35_000);
+  if (!error && data?.synced === true) return;
+  const response = error?.context as Response | undefined;
+  const details = await response?.json?.().catch(() => undefined);
+  throw new Error(details?.error || "Google Calendar di Ettore da sincronizzare. Riprova dal Calendario.");
+}
+
 /**
  * Il CRM salva task e KPI nella stessa transazione. Google usa l'ID della
  * task, così il recupero di una sincronizzazione incerta non duplica l'evento.
  */
 async function synchronizeBooking(task: SalesTask, description: string) {
+  if (isOwnerManagedDiscovery(task) || (!task.google_event_id && usesOwnerDiscoveryCalendar(task))) {
+    try {
+      await manageOwnerDiscoveryCalendar(task, "sync");
+    } catch (reason) {
+      return `Prenotazione salvata nel CRM. ${reason instanceof Error ? reason.message : "Google Calendar di Ettore da sincronizzare."}`;
+    }
+    return;
+  }
   if (task.google_event_id) return;
   let ownerOrganizes = false;
   try {
@@ -195,7 +223,13 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
   if (updated.error) return { ok: false, error: "Modifica non salvata: " + updated.error.message };
   // Google si aggiorna dopo il CRM: se fallisce, prenotazione e storico restano coerenti.
   let googleWarning: string | undefined;
-  if (task.google_event_id) {
+  if (isOwnerManagedDiscovery(task) || (!task.google_event_id && usesOwnerDiscoveryCalendar(task))) {
+    try {
+      await manageOwnerDiscoveryCalendar(task, "sync");
+    } catch (reason) {
+      googleWarning = `Appuntamento spostato nel CRM. ${reason instanceof Error ? reason.message : "Google Calendar di Ettore da sincronizzare."}`;
+    }
+  } else if (task.google_event_id) {
     try {
       const note = changes.note.trim();
       await updateGoogleCalendarEvent(task.google_event_id, {
@@ -217,6 +251,14 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
  * le demo fissate restavano contate anche dopo l'annullamento.
  */
 export async function deleteAppointment(task: SalesTask): Promise<AppointmentResult> {
+  const managed = isOwnerManagedDiscovery(task);
+  if (managed) {
+    try {
+      await manageOwnerDiscoveryCalendar(task, "delete");
+    } catch (reason) {
+      return { ok: false, error: reason instanceof Error ? reason.message : "Google Calendar di Ettore non ha eliminato l’appuntamento." };
+    }
+  }
   const deleted = await supabase.from("sales_tasks").delete().eq("id", task.id);
   if (deleted.error) return { ok: false, error: "Attività non eliminata: " + deleted.error.message };
 
@@ -224,7 +266,7 @@ export async function deleteAppointment(task: SalesTask): Promise<AppointmentRes
   // l'appuntamento viene eliminato non devono restare KPI o storico orfani.
   await supabase.from("lead_activities").delete()
     .eq("client_id", task.client_id).contains("details", { task_id: task.id });
-  await rollbackGoogle(task.google_event_id || null);
+  if (!managed) await rollbackGoogle(task.google_event_id || null);
 
   if (task.lead_id) {
     const { data: nextTask } = await supabase.from("sales_tasks").select("due_at")
