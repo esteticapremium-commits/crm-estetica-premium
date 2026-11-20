@@ -18,7 +18,7 @@ function saveToken(accessToken: string, expiresIn = 3600) {
   sessionStorage.removeItem(KEY);
 }
 
-async function persistentToken() {
+export async function refreshGoogleCalendarConnection() {
   const { data, error } = await supabase.functions.invoke("google-calendar-oauth", {
     body: { action: "token" },
   });
@@ -41,7 +41,7 @@ export async function ensureGoogleCalendarConnection() {
   if (!CLIENT_ID) return false;
   // Prima prova il rinnovo persistente: dopo il primo collegamento non serve
   // più alcun popup, neppure dopo refresh, logout/login o cambio dispositivo.
-  if (await persistentToken()) return true;
+  if (await refreshGoogleCalendarConnection()) return true;
   return false;
 }
 
@@ -81,7 +81,7 @@ async function googleFetch(path: string, init?: RequestInit) {
   // volta dal backend e ripetiamo la richiesta senza disturbare l'utente.
   if (response.status === 401) {
     localStorage.removeItem(KEY);
-    if (await persistentToken()) {
+    if (await refreshGoogleCalendarConnection()) {
       const renewed = token();
       response = await fetch(`https://www.googleapis.com/calendar/v3${path}`, { ...init, headers: { Authorization: `Bearer ${renewed?.accessToken}`, "Content-Type": "application/json", ...(init?.headers || {}) } });
     }
@@ -90,8 +90,10 @@ async function googleFetch(path: string, init?: RequestInit) {
   if (response.status === 204) return null;
   return response.json();
 }
-export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[]; eventId?: string }) {
-  const query = new URLSearchParams({ sendUpdates: "all", conferenceDataVersion: "1" });
+export async function createGoogleCalendarEvent(input: { title: string; start: string; end: string; description?: string; attendees?: string[]; eventId?: string; videoConference?: boolean }) {
+  const videoConference = input.videoConference !== false;
+  const query = new URLSearchParams({ sendUpdates: input.attendees?.length ? "all" : "none" });
+  if (videoConference) query.set("conferenceDataVersion", "1");
   const requestId = `ep-${input.eventId || crypto.randomUUID()}`;
   try {
     return await googleFetch(`/calendars/primary/events?${query}`, { method: "POST", body: JSON.stringify({
@@ -99,7 +101,7 @@ export async function createGoogleCalendarEvent(input: { title: string; start: s
       start: { dateTime: input.start, timeZone: "Europe/Rome" }, end: { dateTime: input.end, timeZone: "Europe/Rome" },
       attendees: input.attendees?.map((email) => email.toLowerCase() === OWNER_CALENDAR_ID ? { email, responseStatus: "accepted" } : { email }),
       extendedProperties: input.eventId ? { shared: { epAppointmentId: input.eventId } } : undefined,
-      conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } },
+      conferenceData: videoConference ? { createRequest: { requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } : undefined,
     }) });
   } catch (error) {
     if (!input.eventId || (error as { status?: number })?.status !== 409) throw error;

@@ -7,7 +7,7 @@
 // lead_activities non possono più divergere.
 import { supabase } from "./supabaseClient";
 import { withTimeout } from "./async";
-import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
+import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, refreshGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import type { Lead, SalesTask } from "./types";
 
@@ -101,9 +101,12 @@ async function readLeadStageAfterBooking(lead: Lead, clientId: string) {
   return data?.stage_id !== lead.stage_id ? data?.stage_id : undefined;
 }
 
+function createdByGiovanni(task: Pick<SalesTask, "created_by">) {
+  return task.created_by?.trim().toLowerCase().replace(/’/g, "'") === "giovanni d'agosta";
+}
+
 export function usesOwnerDiscoveryCalendar(task: Pick<SalesTask, "appointment_type" | "created_by">) {
-  return task.appointment_type === "discovery" &&
-    task.created_by?.trim().toLowerCase().replace(/’/g, "'") === "giovanni d'agosta";
+  return task.appointment_type === "discovery" && createdByGiovanni(task);
 }
 
 export function isOwnerManagedDiscovery(task: Pick<SalesTask, "id" | "google_event_id" | "appointment_type">) {
@@ -134,14 +137,21 @@ async function synchronizeBooking(task: SalesTask, description: string) {
     return;
   }
   if (task.google_event_id) return;
+  const personalSetting = task.appointment_type === "setting" && createdByGiovanni(task);
   let ownerOrganizes = false;
   try {
-    if (!await ensureGoogleCalendarConnection()) throw new Error("Google scollegato");
+    // Renew against the current CRM user so a cached token from another login
+    // can never choose the calendar for Giovanni's setting.
+    const connected = await (personalSetting ? refreshGoogleCalendarConnection() : ensureGoogleCalendarConnection());
+    if (!connected) return personalSetting
+      ? "Setting salvato nel CRM. Collega il tuo Google Calendar e riprova dal Calendario."
+      : "Prenotazione salvata nel CRM. Google Calendar da sincronizzare.";
     const start = new Date(task.due_at);
     const end = googleAppointmentEnd(start, task.appointment_type, task.duration_minutes || 60);
     const event = await createGoogleCalendarEvent({
       eventId: task.id.replace(/-/g, ""), title: task.title, start: start.toISOString(), end,
-      description, attendees: [OWNER_CALENDAR_ID],
+      description, attendees: personalSetting ? undefined : [OWNER_CALENDAR_ID],
+      videoConference: !personalSetting,
     });
     if (!event.id) throw new Error("Identità evento mancante");
     ownerOrganizes = event.organizer?.self === true && event.organizer.email?.toLowerCase() === OWNER_CALENDAR_ID;
@@ -155,7 +165,7 @@ async function synchronizeBooking(task: SalesTask, description: string) {
   } catch {
     return "Prenotazione salvata nel CRM. Google Calendar da sincronizzare.";
   }
-  if (Date.parse(task.due_at) <= Date.now()) return;
+  if (personalSetting || Date.parse(task.due_at) <= Date.now()) return;
   const eventId = task.id.replace(/-/g, "");
   if (await confirmOnPrimaryOwnerCalendar(eventId, task.due_at).catch(() => false)) return;
   // For an organizer, the optional Google Calendar color is independent of RSVP.
