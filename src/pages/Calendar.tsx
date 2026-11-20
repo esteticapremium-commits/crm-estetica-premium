@@ -69,7 +69,14 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
   const rangeLabel = `${weekStart.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${new Date(weekEnd.getTime() - 86400000).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`;
   async function connect() { setBusy(true); setError(null); try { await connectGoogleCalendar(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Collegamento non riuscito."); } setBusy(false); }
   function shiftWeek(amount: number) { setSelected(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
-  function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string }) { const initial = new Date(date); initial.setHours(10, 0, 0, 0); if (initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000); setTitle(prefill?.title || ""); setStartsAt(localDateTime(initial)); setDurationOverride(null); setNote(""); setLeadQuery(""); setAppointmentHost(""); setLeadId(prefill?.leadId || ""); setAppointmentType(prefill?.type || "discovery"); setAudienceOverride(prefill?.audience || null); setBookingId(crypto.randomUUID()); setPreviousOutcomeKey(prefill?.previousOutcomeKey); setFormError(null); setCreateOpen(true); }
+  function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string; startsAt?: Date }) {
+    const initial = new Date(prefill?.startsAt ?? date);
+    if (!prefill?.startsAt) {
+      initial.setHours(10, 0, 0, 0);
+      if (initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000);
+    }
+    setTitle(prefill?.title || ""); setStartsAt(localDateTime(initial)); setDurationOverride(null); setNote(""); setLeadQuery(""); setAppointmentHost(""); setLeadId(prefill?.leadId || ""); setAppointmentType(prefill?.type || "discovery"); setAudienceOverride(prefill?.audience || null); setBookingId(crypto.randomUUID()); setPreviousOutcomeKey(prefill?.previousOutcomeKey); setFormError(null); setCreateOpen(true);
+  }
   function chooseAppointmentType(type: AppointmentType) {
     if (type === appointmentType) return;
     setAppointmentType(type);
@@ -203,6 +210,17 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     }
   }
 
+  const nextClosingStart = selected?.kind === "crm" && selected.task.appointment_type === "demo" &&
+    !selected.task.completed_at && !isAppointmentClosed(selected.task) && selected.task.appointment_status !== "cancelled"
+    ? new Date(Date.parse(selected.task.due_at) + 30 * 60_000)
+    : null;
+
+  function bookNextClosing() {
+    if (busy || !nextClosingStart || !(nextClosingStart.getTime() > Date.now())) return;
+    setSelected(null);
+    openCreate(undefined, { type: "demo", title: "", startsAt: nextClosingStart });
+  }
+
   const visibleTasks = tasks.filter(task => task.appointment_status !== "cancelled" && (task.appointment_type || !task.completed_at));
   const linkedGoogleIds = new Set(tasks.map(task => task.google_event_id).filter(Boolean));
   const displayEvents: DisplayEvent[] = [
@@ -236,7 +254,7 @@ export default function Calendar({ client, meName, admin = false, headerTools }:
     <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} view={view} onViewChange={setView} />
     {!saleError && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
     {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); if (warning) setError(warning); }} />}
-    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName)) ? () => void syncSelected() : undefined} />}
+    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookNextClosing={nextClosingStart && nextClosingStart.getTime() > Date.now() ? bookNextClosing : undefined} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={selected.kind === "crm" && (selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName)) ? () => void syncSelected() : undefined} />}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
       <section className="calendar-modal calendar-create calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
         <header className="calendar-appointment-header">
@@ -295,12 +313,13 @@ type EventDetailsProps = {
   onDelete: () => void;
   onOutcome: (outcome: AppointmentOutcome, rebook?: boolean, proposalMade?: boolean) => void;
   onBookClosing: () => void;
+  onBookNextClosing?: () => void;
   onSync?: () => void;
 };
 
 function EventDetailsModal({
   selected, editing, title, startsAt, note, error, busy, saleDisabled, hasSale,
-  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onSync,
+  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onBookNextClosing, onSync,
 }: EventDetailsProps) {
   const task = selected.kind === "crm" ? selected.task : null;
   const heading = selected.kind === "crm" ? appointmentSubject(selected.task) : selected.event.summary || "Impegno Google";
@@ -351,6 +370,9 @@ function EventDetailsModal({
         {task?.appointment_type === "discovery" && task.appointment_status !== "cancelled" &&
           (!task.lead_id || (selected.kind === "crm" && selected.lead)) &&
           <button className="btn primary" type="button" disabled={busy} onClick={onBookClosing}>Prenota closing</button>}
+
+        {onBookNextClosing &&
+          <button className="btn" type="button" disabled={busy} onClick={onBookNextClosing}>Prenota un’altra demo dopo 30 min</button>}
 
         {canReschedule && <div className="calendar-reschedule-action">
           <div><b>Il contatto ha chiesto un rinvio?</b><p>Sposta lo stesso evento nel CRM e su Google Calendar, senza segnare un no-show.</p></div>
