@@ -1,3 +1,5 @@
+import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useDraggable, useDroppable,
+  useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppointmentTime } from "../AppointmentFields";
 import LeadDateTimePicker from "../LeadDateTimePicker";
@@ -82,6 +84,11 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   const [mobileColumn, setMobileColumn] = useState<SetterStage>("new");
   const [search, setSearch] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string>();
+  const [dragLead, setDragLead] = useState<SetterLead>();
+  const [moving, setMoving] = useState(false);
+  const [bookFromDrop, setBookFromDrop] = useState(false);
+  const movingRef = useRef(false);
+  const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor));
   const [workFeedback, setWorkFeedback] = useState("");
   const [assignOpen, setAssignOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -118,7 +125,7 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
 
   useEffect(() => { void load(); return () => { version.current += 1; }; }, [load]);
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === "visible") void load(true); };
+    const refresh = () => { if (document.visibilityState === "visible" && !movingRef.current) void load(true); };
     const timer = window.setInterval(refresh, admin ? 60_000 : 15_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
@@ -187,11 +194,59 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   function openLead(id: string) {
     workedInSequence.current.clear();
     setWorkFeedback("");
+    setBookFromDrop(false);
     setActiveLeadId(id);
   }
 
-  function renderLeadCard(lead: SetterLead) {
+  async function moveLead(event: DragEndEvent) {
+    setDragLead(undefined);
+    if (admin || movingRef.current || !event.over) return;
+    const lead = workspace?.queue.find(item => item.lead_id === event.active.id);
+    const target = event.over.data.current?.stage as SetterStage | undefined;
+    if (!lead || !target || lead.state === target || lead.state === "booked") return;
+    if (target === "booked") {
+      if (lead.state === "not_interested") {
+        setError("Sposta prima il contatto tra quelli da lavorare per fissare una Discovery.");
+        return;
+      }
+      setError("");
+      openLead(lead.lead_id);
+      setBookFromDrop(true);
+      return;
+    }
+    movingRef.current = true;
+    setMoving(true);
+    setError("");
+    const originalStage = lead.state;
+    const queueBefore = workspace?.queue ?? [];
+    ++version.current;
+    setWorkspace(current => current && { ...current, queue: [
+      { ...lead, state: target, callback_at: target === "follow_up" ? lead.callback_at : null },
+      ...current.queue.filter(item => item.lead_id !== lead.lead_id),
+    ] });
+    setMobileColumn(target);
+    try {
+      const { error } = await withTimeout(supabase.rpc("move_setter_contact", {
+        p_client_id: clientId, p_contact_id: lead.lead_id,
+        p_database_contact: Boolean(lead.database_contact), p_from: originalStage, p_to: target,
+      }));
+      if (error) throw error;
+      setWorkFeedback(`${lead.name || "Lead"} · ${columns.find(([id]) => id === target)?.[1]}`);
+    } catch (reason) {
+      setWorkspace(current => current && { ...current, queue: queueBefore });
+      setMobileColumn(originalStage);
+      await load(true);
+      setError(`Spostamento da verificare. ${errorMessage(reason)}`);
+    } finally {
+      movingRef.current = false;
+      setMoving(false);
+      setLoading(false);
+    }
+  }
+
+  function renderLeadCard(lead: SetterLead, draggable = false) {
     return <article key={lead.lead_id} className="setter-card" data-stage={lead.state}>
+      {draggable && lead.state !== "booked" && <SetterDragHandle id={lead.lead_id} label={lead.name || "lead"} disabled={moving} />}
       <button type="button" className="setter-card-main" onClick={() => openLead(lead.lead_id)}>
         <strong>{lead.name || "Lead senza nome"}</strong>
         {lead.source && <small>{lead.source}</small>}
@@ -276,34 +331,33 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
       {priorityGroups.filter(group => group.leads.length).map(group =>
         <section className="panel setter-column" key={group.id} aria-label={group.title}>
           <h3>{group.title} <span>{group.leads.length}</span></h3>
-          {group.leads.map(renderLeadCard)}
+          {group.leads.map(lead => renderLeadCard(lead))}
         </section>
       )}
-    </div> : <>
+    </div> : <DndContext sensors={dragSensors} onDragStart={event => {
+      setDragLead(workspace.queue.find(lead => lead.lead_id === event.active.id));
+    }} onDragEnd={event => void moveLead(event)} onDragCancel={() => setDragLead(undefined)}>
       <div className="setter-mobile-stages" role="group" aria-label="Colonne della postazione">
-        {grouped.map(({id,title,leads}) => <button key={id} className="btn" type="button"
-          aria-label={`${title}, ${leads.length} lead`} aria-pressed={visibleColumn === id} disabled={searching && !leads.length && visibleColumn !== id}
-          aria-controls={`setter-column-${id}`} onClick={() => setMobileColumn(id)}>
-          <span>{title}</span><b>{leads.length}</b>
-        </button>)}
+        {grouped.map(({ id, title, leads }) => <SetterStageTab key={id} stage={id} title={title}
+          count={leads.length} active={visibleColumn === id} droppable={!admin && !moving}
+          disabled={searching && !leads.length && visibleColumn !== id} onSelect={() => setMobileColumn(id)} />)}
       </div>
       <div className="setter-board">
-      {grouped.map(({id,title,leads}) => {
-        const cards = leads.length ? leads.map(renderLeadCard) : <p className="muted">Nessun lead in questa colonna.</p>;
-        return <section className="panel setter-column" key={id} id={`setter-column-${id}`} aria-label={title} data-stage={id} data-mobile-active={id === visibleColumn}>
-          <h3>{!admin && <i aria-hidden="true" />}{title} <span>{leads.length}</span></h3>
-          {admin ? cards : <div className="setter-column-cards">{cards}</div>}
-        </section>;
-      })}
+        {grouped.map(({ id, title, leads }) => <SetterDropColumn key={id} stage={id} title={title}
+          active={id === visibleColumn} admin={admin} count={leads.length} disabled={admin || moving}>
+          {leads.length ? leads.map(lead => renderLeadCard(lead, !admin)) : <p className="muted">Nessun lead in questa colonna.</p>}
+        </SetterDropColumn>)}
       </div>
-    </>)}
+      <DragOverlay>{dragLead && <div className="setter-card setter-drag-preview">{dragLead.name || "Lead senza nome"}</div>}</DragOverlay>
+    </DndContext>)}
     {!admin && metrics}
-    {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} feedback={workFeedback}
+    {activeLead && <SetterLeadDialog key={activeLead.lead_id} clientId={clientId} lead={activeLead} admin={admin} feedback={workFeedback} startBooking={bookFromDrop}
       onClose={() => { setActiveLeadId(undefined); setWorkFeedback(""); }}
       onSaved={booked => {
         workedInSequence.current.add(activeLead.lead_id);
         const next = priorityGroups.flatMap(group => group.leads).find(lead => !workedInSequence.current.has(lead.lead_id));
         setWorkFeedback(`${booked ? "Discovery prenotata" : "Esito salvato"} · ${activeLead.name || "Lead"}`);
+        setBookFromDrop(false);
         setActiveLeadId(next?.lead_id);
         void load(true);
       }} />}
@@ -312,11 +366,42 @@ export default function Setter({ clientId, admin }: { clientId: string; admin: b
   </div>;
 }
 
-function SetterLeadDialog({ clientId, lead, admin, feedback, onClose, onSaved }: {
-  clientId: string; lead: SetterLead; admin: boolean; feedback: string; onClose: () => void; onSaved: (booked: boolean) => void;
+function SetterDragHandle({ id, label, disabled }: { id: string; label: string; disabled: boolean }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id, disabled });
+  return <button ref={setNodeRef} type="button" className="setter-drag-handle"
+    {...attributes} {...listeners} aria-label={`Sposta ${label}`} title="Trascina per spostare"
+    data-dragging={isDragging} disabled={disabled}>⠿</button>;
+}
+
+function SetterDropColumn({ stage, title, active, admin, count, disabled, children }: {
+  stage: SetterStage; title: string; active: boolean; admin: boolean; count: number;
+  disabled: boolean; children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage, data: { stage }, disabled });
+  return <section ref={setNodeRef} className="panel setter-column" id={`setter-column-${stage}`}
+    aria-label={title} data-stage={stage} data-mobile-active={active} data-drop-target={isOver}>
+    <h3>{!admin && <i aria-hidden="true" />}{title} <span>{count}</span></h3>
+    {admin ? children : <div className="setter-column-cards">{children}</div>}
+  </section>;
+}
+
+function SetterStageTab({ stage, title, count, active, droppable, disabled, onSelect }: {
+  stage: SetterStage; title: string; count: number; active: boolean;
+  droppable: boolean; disabled: boolean; onSelect: () => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `mobile-${stage}`, data: { stage }, disabled: !droppable });
+  return <button ref={setNodeRef} className="btn" type="button" aria-label={`${title}, ${count} lead`}
+    aria-pressed={active} disabled={disabled} data-drop-target={isOver}
+    aria-controls={`setter-column-${stage}`} onClick={onSelect}>
+    <span>{title}</span><b>{count}</b>
+  </button>;
+}
+
+function SetterLeadDialog({ clientId, lead, admin, feedback, startBooking, onClose, onSaved }: {
+  clientId: string; lead: SetterLead; admin: boolean; feedback: string; startBooking: boolean; onClose: () => void; onSaved: (booked: boolean) => void;
 }) {
   const workAllowed = !admin && lead.state !== "booked";
-  const [action, setAction] = useState<SetterAction | "">("");
+  const [action, setAction] = useState<SetterAction | "">(startBooking ? "book" : "");
   const [time, setTime] = useState("");
   const [skipCall, setSkipCall] = useState(false);
   const [unsavedNote, setUnsavedNote] = useState(false);

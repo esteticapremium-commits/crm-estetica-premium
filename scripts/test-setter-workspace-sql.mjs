@@ -275,6 +275,31 @@ try {
   await actor(seller);
   assert.equal(await handoff(bookedLead),null);
   await db.exec("reset role");
+  await db.exec(readFileSync("supabase/upgrade_database_leads_archive.sql", "utf8"));
+  await db.exec(readFileSync("supabase/upgrade_setter_pipeline_move.sql", "utf8"));
+  const movable = id(80);
+  await db.query("insert into public.leads(id,client_id,pipeline_id,stage_id,name,position) values ($1,$2,$3,$4,'Movable lead',0)",[movable,client,pipeline,start]);
+  await db.query("insert into public.setter_assignments(lead_id,client_id,setter_id,seller_id) values ($1,$2,$3,$4)",[movable,client,setter,seller]);
+  const move = (target, source, destination, fromDatabase = false, tenant = client) =>
+    db.query("select public.move_setter_contact($1,$2,$3,$4,$5)",[tenant,target,fromDatabase,source,destination]);
+  const callsBefore = await scalar("select count(*)::int from public.lead_activities");
+  await actor(setter);
+  await db.exec("set role authenticated");
+  await move(movable,"new","follow_up");
+  await move(movable,"new","follow_up"); // idempotent retry
+  await assert.rejects(() => move(movable,"new","not_interested"), /Il lead è cambiato/);
+  await assert.rejects(() => move(movable,"follow_up","booked"), /Spostamento non disponibile/);
+  await assert.rejects(() => move(id(42),"new","follow_up",true), /Lead non accessibile/);
+  await assert.rejects(() => move(id(41),"new","follow_up",true), /passato alla vendita/);
+  await assert.rejects(() => move(movable,"follow_up","new",false,otherClient), /Accesso riservato/);
+  await move(movable,"follow_up","new");
+  await actor(otherSetter);
+  await move(id(42),"new","not_interested",true);
+  await db.exec("reset role");
+  assert.equal(await scalar("select state from public.database_leads where id=$1",[id(42)]),"not_interested");
+  assert.equal(await scalar("select state from public.setter_assignments where lead_id=$1",[movable]),"new");
+  assert.equal(await scalar("select count(*)::int from public.lead_activities"),callsBefore);
+  assert.equal(await scalar("select has_function_privilege('anon','public.move_setter_contact(uuid,uuid,boolean,text,text)','execute')"),false);
   console.log("SQL OK: chiamata e prenotazione atomiche, retry, rebooking, KPI setter e ruoli isolati");
 } finally {
   await db.close();
