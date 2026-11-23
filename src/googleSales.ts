@@ -22,7 +22,9 @@ export function googleSaleKey(event: GoogleEvent) {
   return `${event.iCalUID || event.id}|${occurrence}`;
 }
 export function isGoogleRevenue(key?: string | null) { return Boolean(key?.startsWith('google-sale:')); }
-export function saleHeld(sale: GoogleSale) { return ['won', 'follow_up', 'lost', 'closing_booked'].includes(sale.outcome); }
+const heldOutcomes: GoogleSaleOutcome[] = ['won', 'follow_up', 'lost', 'closing_booked'];
+export const googleSaleHistoryOutcomes: GoogleSaleOutcome[] = [...heldOutcomes, 'no_show'];
+export function saleHeld(sale: Pick<GoogleSale, 'outcome'>) { return heldOutcomes.includes(sale.outcome); }
 export function saleNeedsAction(sale: GoogleSale, now = new Date()) {
   return (sale.outcome === 'pending' && new Date(sale.starts_at) <= now) ||
     (['follow_up', 'rescheduled'].includes(sale.outcome) && !!sale.next_action_at && new Date(sale.next_action_at) <= now);

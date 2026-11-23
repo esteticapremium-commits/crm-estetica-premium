@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "./supabaseClient";
 import { romeStamp } from "./dates";
+import { withTimeout } from "./async";
+import { googleSaleHistoryOutcomes, saleHeld, saleOutcomes, type GoogleSale } from "./googleSales";
 import type { Contract, Lead, SalesRevenueEvent, Stage } from "./types";
+type CalendarOutcome = Pick<GoogleSale, "id" | "starts_at" | "appointment_type" | "outcome" | "qualified" | "assigned_to" | "note">;
 export type TimelineItem = { id: string; at: string | null; content: ReactNode };
 function sortKey(at: string | null) {
   if (!at) return "";
@@ -13,6 +16,27 @@ export default function LeadTimeline({lead, stages, activities, notes, contracts
   const [moves, setMoves] = useState<{id:string;changed_at:string;changed_by:string|null;from_stage_id:string|null;to_stage_id:string}[]>([]);
   const [moveError, setMoveError] = useState("");
   const [limit, setLimit] = useState(30);
+  const [calendarOutcomes, setCalendarOutcomes] = useState<CalendarOutcome[]>([]);
+  const [calendarError, setCalendarError] = useState("");
+  const { id: leadId, client_id: clientId } = lead;
+
+  useEffect(() => {
+    let active = true;
+    setCalendarOutcomes([]);
+    setCalendarError("");
+    const query = supabase.from("google_sales_appointments")
+      .select("id,starts_at,appointment_type,outcome,qualified,assigned_to,note")
+      .eq("client_id", clientId).eq("lead_id", leadId)
+      .in("appointment_type", ["discovery", "demo"]).in("outcome", googleSaleHistoryOutcomes)
+      .order("starts_at", { ascending: false }).order("id").limit(500);
+    void withTimeout(query).then(({ data, error }) => {
+      if (error) throw error;
+      if (active) setCalendarOutcomes((data as CalendarOutcome[]) ?? []);
+    }).catch(() => {
+      if (active) setCalendarError("Esiti Google Calendar non disponibili. Riapri lo storico per riprovare.");
+    });
+    return () => { active = false; };
+  }, [clientId, leadId]);
   useEffect(() => {
     let active = true;
     void Promise.resolve(supabase.from("lead_stage_events").select("id,changed_at,changed_by,from_stage_id,to_stage_id").eq("lead_id", lead.id).order("changed_at",{ascending:false}).limit(1000)).then(({data,error}) => {
@@ -24,6 +48,18 @@ export default function LeadTimeline({lead, stages, activities, notes, contracts
   const items: TimelineItem[] = [
     {id:"created",at:lead.created_at,content:<><b>Lead creato</b><small>{romeStamp(lead.created_at)}</small></>},
     ...activities,
+    ...calendarOutcomes.map(sale => ({
+      id: "google-sale-" + sale.id,
+      at: sale.starts_at,
+      content: <>
+        <b>{sale.appointment_type === "discovery" ? "Discovery" : "Closing"} · {saleHeld(sale) ? "Svolta" : "No-show"}</b>
+        <small>{romeStamp(sale.starts_at)} · Google Calendar{sale.assigned_to ? " · " + sale.assigned_to : ""}</small>
+        <small>{saleOutcomes[sale.outcome]}{sale.appointment_type === "discovery" && sale.qualified !== null
+          ? (sale.qualified ? " · In target" : " · Fuori target")
+          : ""}</small>
+        {sale.note && <p>{sale.note}</p>}
+      </>,
+    })),
     ...notes.map((note,i) => ({id:`note-${i}`,at:note.match(/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}/)?.[0] || null,content:<><b>Nota</b><p>{note}</p></>})),
     ...moves.map(m => ({id:`move-${m.id}`,at:m.changed_at,content:<><b>Cambio fase</b><p>{stages.find(s => s.id === m.from_stage_id)?.name || "Fase precedente"} → {stages.find(s => s.id === m.to_stage_id)?.name || "Altra pipeline"}</p><small>{romeStamp(m.changed_at)} · {m.changed_by || "CRM"}</small></>})),
     ...contracts.flatMap(c => [
@@ -33,5 +69,5 @@ export default function LeadTimeline({lead, stages, activities, notes, contracts
     ]),
     ...payments.filter(p => p.status === "collected").map(p => ({id:`payment-${p.id}`,at:p.occurred_at,content:<><b>Incasso · {Number(p.amount).toLocaleString("it-IT",{style:"currency",currency:"EUR"})}</b><small>Avvenuto il {romeStamp(p.occurred_at)}</small><small>Registrato il {romeStamp(p.created_at)} · {p.created_by || "CRM"}</small>{p.note && <p>{p.note}</p>}</>}))
   ].sort((a,b) => sortKey(b.at).localeCompare(sortKey(a.at)) || a.id.localeCompare(b.id));
-  return <div className="lead-timeline"><h4>La storia del lead</h4><p className="muted">Dal più recente. Le note senza data sono in fondo. Mostra gli eventi disponibili, fino a 500 azioni e 1.000 cambi di fase.</p>{(error || moveError) && <div className="notice err">{error || moveError}</div>}<ol>{items.slice(0,limit).map(item => <li key={item.id} className={!item.at ? "undated" : ""}>{item.content}{!item.at && <small>Data non registrata</small>}</li>)}</ol>{items.length > limit && <button className="btn" onClick={() => setLimit(n => n + 30)}>Mostra altri · {items.length - limit} rimanenti</button>}</div>;
+  return <div className="lead-timeline"><h4>La storia del lead</h4><p className="muted">Dal più recente. Le note senza data sono in fondo.</p>{calendarError && <div className="notice err">{calendarError}</div>}{(error || moveError) && <div className="notice err">{error || moveError}</div>}<ol>{items.slice(0,limit).map(item => <li key={item.id} className={!item.at ? "undated" : ""}>{item.content}{!item.at && <small>Data non registrata</small>}</li>)}</ol>{items.length > limit && <button className="btn" onClick={() => setLimit(n => n + 30)}>Mostra altri · {items.length - limit} rimanenti</button>}</div>;
 }
