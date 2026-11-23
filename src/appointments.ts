@@ -217,9 +217,10 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
       if (audience === "lead" && type !== "setting") {
         advancedStageId = await readLeadStageAfterBooking(lead, clientId);
       } else {
-        const { error } = await supabase.from("leads").update({ next_action_date: romeDayOf(startsAt) })
-          .eq("id", lead.id).eq("client_id", clientId);
+        const { data, error } = await supabase.from("leads").update({ next_action_date: romeDayOf(startsAt) })
+          .eq("id", lead.id).eq("client_id", clientId).select("stage_id").single();
         if (error) throw error;
+        if (type === "setting" && data?.stage_id !== lead.stage_id) advancedStageId = data?.stage_id;
       }
     } catch {
       pipelineWarning = "Appuntamento salvato. Verifica la fase e il prossimo passo nella scheda lead.";

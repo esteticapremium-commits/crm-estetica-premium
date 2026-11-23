@@ -7,6 +7,7 @@ const id = value => `00000000-0000-0000-0000-${String(value).padStart(12, "0")}`
 const client = id(1), pipeline = id(2), otherPipeline = id(3);
 const setting = id(4), discovery = id(5), closing = id(6), lost = id(7), noShow = id(8);
 const axiom = id(21), google = id(22), finished = id(23), other = id(24), newest = id(25);
+const recall = id(10), recallLead = id(26), queued = id(27), otherQueued = id(28);
 const startsAt = "2030-11-22T23:30:00Z";
 
 try {
@@ -16,17 +17,21 @@ try {
     create table public.stages(id uuid primary key, client_id uuid, pipeline_id uuid, name text, position integer);
     create table public.leads(id uuid primary key, client_id uuid, pipeline_id uuid, stage_id uuid, position integer, next_action_date date);
     create table public.sales_tasks(id uuid primary key default gen_random_uuid(), client_id uuid, lead_id uuid,
-      appointment_type text, appointment_status text, audience text, due_at timestamptz);
+      appointment_type text, appointment_status text, audience text, due_at timestamptz, completed_at timestamptz);
     create table public.google_sales_appointments(id uuid primary key default gen_random_uuid(),client_id uuid,lead_id uuid,
       appointment_type text,outcome text,revenue_type text,starts_at timestamptz,next_action_at timestamptz);
     insert into public.stages values
       ('${setting}','${client}','${pipeline}','SETTING',1),('${discovery}','${client}','${pipeline}','DISCOVERY',2),
       ('${closing}','${client}','${pipeline}','CLOSING',3),('${lost}','${client}','${pipeline}','LOST',4),
-      ('${noShow}','${client}','${pipeline}','NO SHOW',5),('${id(9)}','${client}','${otherPipeline}','SETTING',1);
+      ('${noShow}','${client}','${pipeline}','NO SHOW',5),
+      ('${recall}','${client}','${pipeline}','RECALL',6),('${id(9)}','${client}','${otherPipeline}','SETTING',1);
     insert into public.leads values
       ('${axiom}','${client}','${pipeline}','${setting}',0,null),('${google}','${client}','${pipeline}','${noShow}',0,null),
       ('${finished}','${client}','${pipeline}','${lost}',0,null),('${other}','${client}','${otherPipeline}','${id(9)}',0,null),
-      ('${newest}','${client}','${pipeline}','${setting}',0,null);
+      ('${newest}','${client}','${pipeline}','${setting}',0,null),
+      ('${recallLead}','${client}','${pipeline}','${recall}',-30,null),
+      ('${queued}','${client}','${pipeline}','${setting}',-10,null),
+      ('${otherQueued}','${client}','${otherPipeline}','${id(9)}',-80,null);
   `);
   const migration = readFileSync("supabase/upgrade_calendar_pipeline_sync.sql", "utf8");
   await db.exec(migration);
@@ -65,6 +70,27 @@ try {
   assert.equal((await db.query("select count(*)::int as n from public.sales_tasks where lead_id=$1",[other])).rows[0].n,0);
   assert.equal((await state(other)).stage_id,id(9));
   assert.equal((await db.query("select has_function_privilege('authenticated','public.sync_calendar_lead_stage(uuid,uuid,text,timestamptz)','execute') as allowed")).rows[0].allowed,false);
+  const settingPriority = readFileSync("supabase/upgrade_setting_booking_priority.sql", "utf8");
+  await db.exec(settingPriority);
+  await db.exec(settingPriority);
+  await crm(recallLead,"setting","lead","cancelled");
+  assert.equal((await state(recallLead)).stage_id,recall);
+  await crm(recallLead,"setting","client");
+  assert.equal((await state(recallLead)).stage_id,recall);
+  await crm(recallLead,"setting");
+  assert.deepEqual(await state(recallLead),{stage_id:setting,position:-11,next_action_date:"2030-11-23"});
+  await crm(queued,"setting");
+  assert.deepEqual(await state(queued),{stage_id:setting,position:-12,next_action_date:"2030-11-23"});
+  await db.query("update public.sales_tasks set due_at=$1 where lead_id=$2 and appointment_status='scheduled'",
+    ["2030-11-25T12:00:00Z",recallLead]);
+  assert.equal((await state(recallLead)).position,-11);
+  await crm(finished,"setting");
+  await crm(axiom,"setting");
+  assert.equal((await state(finished)).stage_id,lost);
+  assert.equal((await state(axiom)).stage_id,closing);
+  assert.equal((await state(otherQueued)).position,-80);
+  assert.equal((await db.query("select has_function_privilege('authenticated','public.prioritize_lead_on_setting_booking()','execute') as allowed")).rows[0].allowed,false);
+  console.log("SQL OK: Recall → Setting e priorità delle nuove prenotazioni nella pipeline corretta");
   console.log("SQL OK: Calendario CRM, collegamento Google, Closing diretta, protezione fasi terminali, rollback e permessi");
 } finally {
   await db.close();
