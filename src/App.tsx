@@ -92,6 +92,8 @@ class ModuleBoundary extends Component<{ children: ReactNode; resetKey?: string 
 
 export default function App() {
   const auth = useAuth();
+  const [recoveryFlow] = useState(() =>
+    new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
   const [tab, setTab] = useState<Tab>("control");
   const [navigationOwner, setNavigationOwner] = useState<string | null>(null);
   const navigationKey = auth.userId && auth.profile ? `ep-navigation:${auth.userId}:${auth.profile.role}` : null;
@@ -287,6 +289,10 @@ export default function App() {
   const setterRegistration = window.location.hash.match(/^#\/setter-(registrazione|attiva)\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i);
   if (setterRegistration) {
     return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento…</div>}><SetterRegistration token={setterRegistration[2]} activation={setterRegistration[1] === "attiva"} /></Suspense></ModuleBoundary>;
+  }
+
+  if (recoveryFlow) {
+    return <ModuleBoundary><Suspense fallback={<div className="center-msg">Caricamento…</div>}><Login recovery /></Suspense></ModuleBoundary>;
   }
 
   if (auth.loading || (navigationKey && navigationOwner !== navigationKey)) {

@@ -1,22 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "../supabaseClient";
 
 type Mode = "login" | "forgot" | "recovery" | "done";
 
-export default function Login() {
-  const [mode, setMode] = useState<Mode>("login");
+export default function Login({ recovery = false }: { recovery?: boolean }) {
+  const [mode, setMode] = useState<Mode>(recovery ? "recovery" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // Il link di recupero password arriva con un token nell'URL
-  // (#access_token=...&type=recovery oppure #code=...&type=recovery).
-  useEffect(() => {
-    if (window.location.hash.includes("type=recovery")) setMode("recovery");
-  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,7 +33,7 @@ export default function Login() {
     setMsg(null);
     setBusy(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: window.location.origin + "/",
+      redirectTo: "https://crm-estetica-premium.vercel.app/",
     });
     setBusy(false);
     if (error) {
@@ -142,7 +136,7 @@ export default function Login() {
           <button
             className="btn primary"
             style={{ width: "100%" }}
-            onClick={() => setMode("login")}
+            onClick={() => window.location.reload()}
           >
             Torna al login
           </button>
