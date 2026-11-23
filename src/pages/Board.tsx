@@ -1,5 +1,8 @@
 import { normalizedLeadSource } from "../salesKpi";
 import { nextSteps, matchesWork, type WorkFilter } from "../leadWork";
+import { leadCallEventTypes, leadCallProgress, type LeadCallActivity, type LeadCallProgress, type LeadGoogleCall } from "../leadCallProgress";
+import { googleSaleHistoryOutcomes } from "../googleSales";
+import { APPOINTMENT_SHORT_LABELS } from "../appointments";
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
@@ -19,7 +22,9 @@ import LeadModal from "./LeadModal";
 import { romeDay, romeToday } from "../dates";
 import { daysSinceLeadWork, latestActivityByLead } from "../leadRecency";
 
-const NextStepContext = createContext(new Map<string, SalesTask>());
+const LeadCallContext = createContext(new Map<string, LeadCallProgress>());
+const CALL_REFRESH_MS = 10_000;
+const cardAppointmentDate = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 const WORK_FILTERS = [
   ["all", "Tutti"],
@@ -29,6 +34,31 @@ const WORK_FILTERS = [
 ] as const satisfies readonly (readonly [WorkFilter, string])[];
 
 type ActivityStamp = { lead_id: string; created_at: string; occurred_at?: string | null };
+type CallHistory = { activities: LeadCallActivity[]; google: LeadGoogleCall[] };
+const emptyCallHistory: CallHistory = { activities: [], google: [] };
+
+async function readCallPages<T>(page: (offset: number, end: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await withTimeout(page(offset, offset + 499));
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < 500) return rows;
+  }
+}
+
+async function readCallHistory(clientId: string): Promise<CallHistory> {
+  const [activities, google] = await Promise.all([
+    readCallPages<LeadCallActivity>((offset, end) => supabase.from("lead_activities")
+      .select("lead_id,event_type,outcome,occurred_at,scheduled_at,created_at")
+      .eq("client_id", clientId).in("event_type", leadCallEventTypes).order("id").range(offset, end)),
+    readCallPages<LeadGoogleCall>((offset, end) => supabase.from("google_sales_appointments")
+      .select("lead_id,appointment_type,outcome,qualified,starts_at")
+      .eq("client_id", clientId).not("lead_id", "is", null).in("appointment_type", ["discovery", "demo"])
+      .in("outcome", [...googleSaleHistoryOutcomes, "pending"]).order("id").range(offset, end)),
+  ]);
+  return { activities, google };
+}
 
 // Probabilità di chiusura per fase (impostazione da CRM vendita: il valore
 // della pipeline si pondera per la probabilità della fase in cui si trova).
@@ -79,6 +109,8 @@ export default function Board({
   const [activityStamps, setActivityStamps] = useState<ActivityStamp[]>([]);
   const [completedTaskStamps, setCompletedTaskStamps] = useState<Pick<SalesTask, "lead_id" | "completed_at">[]>([]);
   const [pendingTasks, setPendingTasks] = useState<SalesTask[]>([]);
+  const [callHistory, setCallHistory] = useState<CallHistory>(emptyCallHistory);
+  const [callHistoryWarning, setCallHistoryWarning] = useState("");
   const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
   const viewDialog = useRef<HTMLDialogElement>(null);
   const [presetView, setPresetView] = useState("all");
@@ -189,7 +221,42 @@ export default function Board({
     };
   }, [client.id, pipeline.id, load]);
 
+  useEffect(() => {
+    let active = true;
+    let loadingCalls = false;
+    let lastSnapshot = "";
+    setCallHistory(emptyCallHistory);
+    setCallHistoryWarning("");
+    const refreshCallHistory = async () => {
+      if (loadingCalls || document.visibilityState !== "visible") return;
+      loadingCalls = true;
+      try {
+        const history = await readCallHistory(client.id);
+        if (!active) return;
+        const snapshot = Math.floor(Date.now() / 60_000) + JSON.stringify(history);
+        if (snapshot !== lastSnapshot) setCallHistory(history);
+        lastSnapshot = snapshot;
+        setCallHistoryWarning("");
+      } catch {
+        if (active) setCallHistoryWarning("Esiti delle chiamate non aggiornati. Il CRM riproverà automaticamente.");
+      } finally {
+        loadingCalls = false;
+      }
+    };
+    void refreshCallHistory();
+    const timer = window.setInterval(refreshCallHistory, CALL_REFRESH_MS);
+    document.addEventListener("visibilitychange", refreshCallHistory);
+    window.addEventListener("focus", refreshCallHistory);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshCallHistory);
+      window.removeEventListener("focus", refreshCallHistory);
+    };
+  }, [client.id]);
+
   const steps = useMemo(() => nextSteps(pendingTasks), [pendingTasks]);
+  const cardProgress = useMemo(() => leadCallProgress(callHistory.activities, callHistory.google, pendingTasks), [callHistory, pendingTasks]);
   const latestActivity = useMemo(() => latestActivityByLead(activityStamps, completedTaskStamps), [activityStamps, completedTaskStamps]);
 
   const visibleLeads = useMemo(() => leads.filter(l => {
@@ -317,7 +384,8 @@ export default function Board({
   const activeFilters = Number(workFilter !== "all") + Number(presetView !== "all")
     + Number(Boolean(search)) + Number(Boolean(sourceFilter)) + Number(Boolean(ownerFilter));
   return (
-    <NextStepContext.Provider value={steps}>
+    <LeadCallContext.Provider value={cardProgress}>
+      {callHistoryWarning && <div className="notice" role="status">{callHistoryWarning}</div>}
       <DndContext
         sensors={sensors}
         onDragStart={onDragStart}
@@ -439,7 +507,7 @@ export default function Board({
           }}
         />
       )}
-    </NextStepContext.Provider>
+    </LeadCallContext.Provider>
   );
 }
 
@@ -536,7 +604,9 @@ function LeadCardInner({
   stageName: string;
   latestActivity: Map<string, string>;
 }) {
-  const step = useContext(NextStepContext).get(lead.id);
+  const { step, outcome } = useContext(LeadCallContext).get(lead.id) ?? {};
+  const awaiting = Boolean(step?.type && Date.parse(step.at) <= Date.now());
+  const reminder = !step && lead.next_action_date;
   const idle = daysSinceLeadWork(lead, latestActivity);
   const isDead = ["LOST", "CLOSED"].includes(stageName);
   const callablePhone = (lead.phone ?? "").trim().replace(/[^\d+*#,;]/g, "");
@@ -577,18 +647,22 @@ function LeadCardInner({
           </span>
         </div>
       )}
-      {step && <div className="card-next-step"><b>{step.appointment_type === "demo" ? "Closing" : step.appointment_type === "discovery" ? "Discovery" : "Richiamare"}{step.is_priority ? " · Priorità" : ""}</b><span>{new Date(step.due_at).toLocaleString("it-IT", {timeZone:"Europe/Rome", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"})}</span></div>}
-      {!step && lead.next_action_date && (
-        <div className="row">
-          <span>Prossimo passo</span>
-          <span className={lead.next_action_date <= romeToday() ? "overdue" : ""}>
-            {new Date(lead.next_action_date).toLocaleDateString("it-IT", {
-              day: "numeric",
-              month: "short",
-            })}
-          </span>
-        </div>
-      )}
+      {(step || outcome || reminder) && <div className="card-next-step">
+        {step && <div className={awaiting ? "card-step-line awaiting" : "card-step-line"}>
+          <b>{step.type ? APPOINTMENT_SHORT_LABELS[step.type] + (awaiting ? " · Esito da registrare" : " · Prenotata") : "Da richiamare"}{step.priority ? " · Priorità" : ""}</b>
+          <time dateTime={step.at}>{cardAppointmentDate.format(new Date(step.at))}</time>
+        </div>}
+        {reminder && <div className="card-step-line">
+          <b>Promemoria</b>
+          <time dateTime={reminder} className={reminder <= romeToday() ? "overdue" : undefined}>
+            {new Date(reminder).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", day: "numeric", month: "short" })}
+          </time>
+        </div>}
+        {outcome && <div className={outcome.missed ? "card-step-line missed" : "card-step-line held"}>
+          <b>{APPOINTMENT_SHORT_LABELS[outcome.type]} · {outcome.label}</b>
+          <time dateTime={outcome.at}>{cardAppointmentDate.format(new Date(outcome.at))}</time>
+        </div>}
+      </div>}
       {stageName === "LOST" && lead.lost_reason && (
         <div className="row lost-reason">✗ {lead.lost_reason}</div>
       )}
