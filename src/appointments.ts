@@ -109,7 +109,7 @@ function isGiovanni(name?: string | null) {
 
 export function isGiovanniSetting(task: Pick<SalesTask, "appointment_type" | "appointment_host" | "assigned_to" | "created_by">) {
   return task.appointment_type === "setting" &&
-    isGiovanni(task.appointment_host?.trim() || task.assigned_to?.trim() || task.created_by);
+    isGiovanni(task.appointment_host?.trim() || task.created_by?.trim() || task.assigned_to);
 }
 
 export function usesOwnerDiscoveryCalendar(task: Pick<SalesTask, "appointment_type" | "created_by">) {
@@ -153,9 +153,8 @@ async function synchronizeBooking(task: SalesTask, description: string) {
         return "Setting salvato nel CRM. Giovanni può sincronizzarlo dal suo Calendario.";
       }
     }
-    // Renew against the current CRM user so a cached token from another login
-    // can never choose the calendar for Giovanni's setting.
-    const connected = await (personalSetting ? refreshGoogleCalendarConnection() : ensureGoogleCalendarConnection());
+    // For setting calls, use the Google connection of the current CRM account.
+    const connected = await (task.appointment_type === "setting" ? refreshGoogleCalendarConnection() : ensureGoogleCalendarConnection());
     if (!connected) return personalSetting
       ? "Setting salvato nel CRM. Collega il tuo Google Calendar e riprova dal Calendario."
       : "Prenotazione salvata nel CRM. Google Calendar da sincronizzare.";

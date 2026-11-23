@@ -650,7 +650,7 @@ function LeadCardInner({
       {(step || outcome || reminder) && <div className="card-next-step">
         {step && <div className={awaiting ? "card-step-line awaiting" : "card-step-line"}>
           <b>{step.type ? APPOINTMENT_SHORT_LABELS[step.type] + (awaiting ? " · Esito da registrare" : " · Prenotata") : "Da richiamare"}{step.priority ? " · Priorità" : ""}</b>
-          <time dateTime={step.at}>{cardAppointmentDate.format(new Date(step.at))}</time>
+          <span><time dateTime={step.at}>{cardAppointmentDate.format(new Date(step.at))}</time>{step.host && <small> · {step.host}</small>}</span>
         </div>}
         {reminder && <div className="card-step-line">
           <b>Promemoria</b>

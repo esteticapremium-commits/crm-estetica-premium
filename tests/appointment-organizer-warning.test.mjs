@@ -112,3 +112,12 @@ test("il setting segue chi conduce anche se lo prenota Ettore", async () => {
   assert.equal(sellerFixture.isGiovanniSetting({ ...appointment, appointment_type: "discovery" }), false);
   assert.equal(sellerFixture.isGiovanniSetting({ ...appointment, appointment_type: "demo" }), false);
 });
+
+test("la setting di Ettore usa la sua connessione Google anche se il lead è di Giovanni", async () => {
+  const fixture = setup({ userId: "owner", organizer: { email: owner, self: true } });
+  const appointment = { ...task, created_by: "Titolare", assigned_to: "Giovanni D’agosta" };
+  assert.equal(fixture.isGiovanniSetting(appointment), false);
+  assert.equal((await fixture.retry({ ...appointment, appointment_host: "Titolare" })).ok, true);
+  assert.equal(fixture.personalRefreshes(), 1);
+  assert.equal(fixture.cachedConnectionChecks(), 0);
+});

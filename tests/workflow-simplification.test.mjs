@@ -69,6 +69,7 @@ test('prenotazione propone alla transazione la stessa identità e la durata corr
     }},
     './calendarGoogle':{
       ensureGoogleCalendarConnection:async()=>true,
+      refreshGoogleCalendarConnection:async()=>true,
       async createGoogleCalendarEvent(event){googleEvents.push(event);return {id:'g1'};},
     },
   });

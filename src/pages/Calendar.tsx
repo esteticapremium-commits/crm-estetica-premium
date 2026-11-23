@@ -105,6 +105,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
   }
   function chooseAppointmentType(type: AppointmentType) {
     if (type === appointmentType) return;
+    if (type === "setting" || appointmentType === "setting") setAppointmentHost("");
     setAppointmentType(type);
     setDurationOverride(null);
   }
@@ -340,7 +341,8 @@ export default function Calendar({ client, meName, userId, admin = false, header
           </select></label>
           {leadId && leadById.get(leadId)?.assigned_to && leadById.get(leadId)?.assigned_to !== meName &&
             <label>Chi conduce<select value={appointmentHost} onChange={event => setAppointmentHost(event.target.value)}>
-              <option value="">{leadById.get(leadId)?.assigned_to}</option><option>{meName}</option>
+              <option value="">{appointmentType === "setting" ? meName : leadById.get(leadId)?.assigned_to}</option>
+              <option>{appointmentType === "setting" ? leadById.get(leadId)?.assigned_to : meName}</option>
             </select></label>}
           {appointmentType !== "setting" && <label>Con chi<select value={audience} onChange={event => setAudienceOverride(event.target.value as AppointmentAudience)}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>}
           {appointmentType === "demo" && <label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION.demo} onChange={event => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label>}

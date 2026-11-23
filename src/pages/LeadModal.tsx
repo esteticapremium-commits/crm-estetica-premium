@@ -1158,7 +1158,7 @@ export default function LeadModal({
                 <details><summary>Opzioni</summary>
                   {booking.type !== "setting" && <label>Con chi<select value={booking.audience} disabled={busy} onChange={event => setBooking({ ...booking, audience: event.target.value as AppointmentAudience })}><option value="lead">Nuovo lead</option><option value="client">Già cliente</option></select></label>}
                   {lead?.assigned_to && meName && lead.assigned_to !== meName &&
-                    <label>Chi conduce<select value={booking.host || lead.assigned_to} disabled={busy} onChange={event => setBooking({ ...booking, host: event.target.value })}>
+                    <label>Chi conduce<select value={booking.host || (booking.type === "setting" ? meName : lead.assigned_to)} disabled={busy} onChange={event => setBooking({ ...booking, host: event.target.value })}>
                       <option>{lead.assigned_to}</option><option>{meName}</option>
                     </select></label>}
                   {booking.type === "discovery" && bookingReplies.length > 0 && <label>Risposta che ha generato la discovery

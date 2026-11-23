@@ -48,6 +48,9 @@ await db.exec(migration);
 const settingMigration = readFileSync("supabase/upgrade_setting_appointments.sql", "utf8");
 await db.exec(settingMigration);
 await db.exec(settingMigration);
+const settingHostMigration = readFileSync("supabase/upgrade_setting_booking_host.sql", "utf8");
+await db.exec(settingHostMigration);
+await db.exec(settingHostMigration);
 await db.exec(readFileSync("supabase/upgrade_google_sales.sql", "utf8"));
 const earlyNoShow = readFileSync("supabase/upgrade_early_no_show.sql", "utf8");
 await db.exec(earlyNoShow);
@@ -126,7 +129,14 @@ for (const [index, type, rejected] of [[20, "setting", "no_answer"], [21, "disco
 }
 await db.exec("set test.actor='Altro venditore'");
 await assert.rejects(() => outcome(held, "no_answer"), /accessibile/);
+const personalSetting = await book("00000000-0000-0000-0000-000000000040", "setting");
+assert.equal(personalSetting.appointment_host, "Altro venditore");
+assert.equal(personalSetting.assigned_to, "Altro venditore");
+assert.equal(await scalar("select assigned_to from leads where id=$1", [lead]), "Giovanni");
 await db.exec("reset role");
+const discoveryForAssignedLead = await book("00000000-0000-0000-0000-000000000041", "discovery");
+assert.equal(discoveryForAssignedLead.appointment_host, "Giovanni");
+assert.equal(discoveryForAssignedLead.assigned_to, "Giovanni");
 assert.equal(await scalar("select has_function_privilege('anon','save_sales_appointment_outcome(uuid,timestamptz,text,integer,text,boolean)','execute')"), false);
 console.log("SQL OK: migrazione idempotente, retry, scritture atomiche, esito concorrente, collegamenti, senza lead, RLS");
 await db.close();

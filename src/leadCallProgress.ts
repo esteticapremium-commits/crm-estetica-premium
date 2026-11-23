@@ -6,7 +6,7 @@ type CallType = NonNullable<SalesTask["appointment_type"]>;
 export type LeadCallActivity = Pick<LeadActivity, "lead_id" | "event_type" | "outcome" | "occurred_at" | "scheduled_at" | "created_at">;
 export type LeadGoogleCall = Pick<GoogleSale, "lead_id" | "appointment_type" | "outcome" | "qualified" | "starts_at">;
 export type CardCallOutcome = { type: CallType; at: string; label: string; missed: boolean };
-export type CardNextStep = { type: CallType | null; at: string; priority: boolean };
+export type CardNextStep = { type: CallType | null; at: string; priority: boolean; host?: string | null };
 export type LeadCallProgress = { outcome?: CardCallOutcome; step?: CardNextStep };
 
 const activityTypes: Readonly<Record<string, CallType>> = {
@@ -68,7 +68,8 @@ export function leadCallProgress(activities: LeadCallActivity[], googleCalls: Le
   const unresolvedTasks = tasks.filter(task => !task.lead_id || !task.appointment_type ||
     !resolved.has(callKey(task.lead_id, task.appointment_type, task.due_at)));
   for (const [leadId, task] of nextSteps(unresolvedTasks)) {
-    selectStep(leadId, { type: task.appointment_type ?? null, at: task.due_at, priority: task.is_priority });
+    selectStep(leadId, { type: task.appointment_type ?? null, at: task.due_at, priority: task.is_priority,
+      host: task.appointment_type === "setting" ? task.appointment_host || task.created_by || task.assigned_to : null });
   }
   for (const sale of googleCalls) {
     if (!sale.lead_id || sale.appointment_type === "follow_up" || sale.outcome !== "pending" ||
