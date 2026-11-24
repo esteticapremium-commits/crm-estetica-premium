@@ -71,6 +71,10 @@ export function activityTimestamp(activity: LeadActivity) {
   return activity.occurred_at || activity.created_at;
 }
 
+export function isHeldClosing(outcome?: string | null) {
+  return outcome === "held" || outcome === "lost";
+}
+
 /** Minuto in cui è avvenuta l'azione, usato come granularità delle chiavi di
  *  deduplicazione: due clic sullo stesso esito nello stesso minuto sono lo
  *  stesso evento, un secondo tentativo reale un minuto dopo è un evento nuovo. */

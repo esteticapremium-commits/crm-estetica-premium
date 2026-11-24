@@ -411,7 +411,7 @@ function EventDetailsModal({
           {selected.kind === "crm" ? <>
             <div><dt>Quando</dt><dd>{formatDateTime(selected.task.due_at)}</dd></div>
             <div><dt>Durata</dt><dd>{selected.task.duration_minutes || (selected.task.appointment_type ? APPOINTMENT_DURATION[selected.task.appointment_type] : 60)} minuti</dd></div>
-            <div><dt>Stato</dt><dd>{selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show"
+            <div><dt>Stato</dt><dd>{selected.task.appointment_outcome === "lost" ? "Offerta rifiutata" : selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show"
               ? selected.task.appointment_type === "setting" && selected.task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show"
               : selected.task.appointment_status === "cancelled" ? "Annullata" : "Da svolgere"}</dd></div>
             <div><dt>Assegnato a</dt><dd>{selected.task.assigned_to || "Non assegnato"}</dd></div>

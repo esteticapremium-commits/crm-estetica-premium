@@ -28,13 +28,13 @@ function googleAppointmentEnd(start: Date, type: AppointmentType | null | undefi
 
 export type AppointmentAudience = "lead" | "client";
 export type DiscoveryOutcome = "qualified" | "not_qualified" | "no_answer" | "no_show";
-export type DemoOutcome = "held" | "no_show";
+export type DemoOutcome = "held" | "lost" | "no_show";
 export type SettingOutcome = "answered" | "no_answer" | "not_interested" | "no_show";
 export type AppointmentOutcome = SettingOutcome | DiscoveryOutcome | DemoOutcome;
 
 const SETTING_OUTCOMES: SettingOutcome[] = ["answered", "no_answer", "not_interested", "no_show"];
 export const DISCOVERY_OUTCOMES: DiscoveryOutcome[] = ["qualified", "not_qualified", "no_answer", "no_show"];
-export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "no_show"];
+export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "lost", "no_show"];
 
 /** Gli unici esiti ammessi per fase. Una demo non può essere "in target" e una
  *  discovery non può essere genericamente "svolta": sono due domande diverse. */
