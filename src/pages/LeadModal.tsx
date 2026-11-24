@@ -31,6 +31,7 @@ const activityTaskId = (activity: LeadActivity) => String(activity.details?.task
 const appointmentOutcomeLabel: Record<AppointmentOutcome, string> = {
   answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
+  lost: "Offerta rifiutata",
 };
 type ContactType = CallType | "setting";
 type AppointmentDraft = { task: SalesTask; due: string; note: string } & (
@@ -1174,7 +1175,7 @@ export default function LeadModal({
                   <span><strong>{APPOINTMENT_SHORT_LABELS[task.appointment_type ?? "discovery"]} · {label || (task.appointment_status === "no_show" ? "No-show" : "Svolta")}</strong><small>{appointmentStamp(outcome?.scheduled_at || task.due_at)} · {task.appointment_host || task.assigned_to}</small></span>
                   <div className="lead-appointment-actions">
                   <button type="button" className="btn small" disabled={busy || !!appointmentDraft || !!booking} onClick={() => openAppointmentDraft(task, "outcome")}>Correggi esito</button>
-                    {canRecordRevenue && task.appointment_type === "demo" && task.appointment_status === "held" &&
+                    {canRecordRevenue && task.appointment_type === "demo" && task.appointment_status === "held" && recordedOutcome !== "lost" &&
                       <button type="button" className="btn small" disabled={busy || !!appointmentDraft || !!booking} onClick={() => { setRevenueType("new"); setRevenueAppointmentId(task.id); setSection("payments"); }}>Registra incasso</button>}
                   </div>
                 </div>;

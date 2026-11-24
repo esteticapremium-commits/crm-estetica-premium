@@ -170,6 +170,19 @@ test('solo gli appuntamenti commerciali senza lead già classificati entrano nel
   assert.equal(reporting.suggestDailyReport('2026-11-13',data).demo_held,1);
 });
 
+test('una closing con offerta rifiutata conta come svolta senza una vendita', () => {
+  const day='2026-11-24';
+  const time=day+'T14:00:00Z';
+  const booking={id:'book',lead_id:'lead',event_type:'demo_booked',occurred_at:time,scheduled_at:time,details:{task_id:'closing'}};
+  const refusal={...booking,id:'refusal',event_type:'demo_call',outcome:'lost',details:{task_id:'closing',proposal_made:true}};
+  const inputs={activities:[booking,refusal],revenue:[],outreach:[],standalone:[],externalSales:[]};
+  const {rows,evidence}=kpiRows.calculateKpiRows({...inputs,range:{from:day,to:day}});
+  assert.equal(rows[0].demoHeldBooked,1);
+  assert.equal(rows[0].noShow,0);
+  assert.equal(evidence.filter(item=>item.kind==='held').length,1);
+  assert.equal(reporting.suggestDailyReport(day,inputs).demo_won,0);
+});
+
 test('la verifica per trattativa usa il link esplicito e l’ordine degli orari', () => {
   const discovery={id:'disc',lead_id:'lead',event_key:'disc-outcome',event_type:'discovery_call',outcome:'qualified',occurred_at:'2026-11-09T10:00:00Z'};
   const booking={id:'book',lead_id:'lead',event_type:'demo_booked',occurred_at:'2026-11-09T11:00:00Z',details:{source_outcome_key:'disc-outcome'}};

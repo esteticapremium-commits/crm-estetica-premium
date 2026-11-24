@@ -1,7 +1,7 @@
 import { romeDay as dayInRome } from "./dates";
 import type { DailyNumbers } from "./dailySales";
 import { firstNewSaleIds, googleSaleMetrics, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "./googleSales";
-import { activityTimestamp } from "./salesKpi";
+import { activityTimestamp, isHeldClosing } from "./salesKpi";
 import type { Contract, Lead, LeadActivity, SalesCost, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "./types";
 
 export interface DailyKpi {
@@ -373,12 +373,12 @@ export function calculateKpiRows({
     const proof = {id:activity.id,leadId:activity.lead_id,at:eventAt,scheduled:activity.scheduled_at,owner:activityOwner(activity) || null,label:activity.outcome || "Prenotazione"};
     if (isBookingActivity(activity)) { row.discoveryBooked += 1; evidence.push({...proof,kind:"discovery"}); }
     if (type === "demo_booked") evidence.push({...proof,kind:"closing"});
-    if ((type !== "setting_call" && isCallActivity(activity) && isHeldDiscovery(outcome)) || (type === "demo_call" && outcome === "held")) evidence.push({...proof,kind:"held"});
+    if ((type !== "setting_call" && isCallActivity(activity) && isHeldDiscovery(outcome)) || (type === "demo_call" && isHeldClosing(outcome))) evidence.push({...proof,kind:"held"});
     if (type === "demo_booked") { if (callType === "client") row.demoClientBooked += 1; else row.demoBooked += 1; }
 
     if (type === "demo_call") {
       row.callMinutes += number(activity.duration_minutes);
-      if (outcome === "held") {
+      if (isHeldClosing(outcome)) {
         if (callType === "client") { row.demoClientHeld += 1; if (fromAppointment) row.demoClientHeldBooked += 1; if (sameDay) row.demoClientSameDay += 1; }
         else { row.demoHeld += 1; if (fromAppointment) row.demoHeldBooked += 1; if (sameDay) row.demoSameDay += 1; }
       }

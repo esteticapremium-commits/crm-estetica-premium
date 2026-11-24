@@ -2,7 +2,7 @@ import { romeDay } from "./dates";
 import { emptyDailyNumbers, type DailyNumbers } from "./dailySales";
 import type { GoogleSale } from "./googleSales";
 import { calculateKpiRows, dailyReportFromKpi, type SalesKpiInputs } from "./salesKpiRows";
-import { activityTimestamp } from "./salesKpi";
+import { activityTimestamp, isHeldClosing } from "./salesKpi";
 import type { LeadActivity, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "./types";
 
 export function suggestDailyReport(day: string, inputs: SalesKpiInputs): DailyNumbers {
@@ -24,7 +24,7 @@ export function linkedAppointmentRates(
   const appointmentAt = (row: LeadActivity) => row.details?.task_id && row.scheduled_at ? row.scheduled_at : activityTimestamp(row);
   const discoveries = activities.filter(row => row.event_type === "discovery_call" &&
     ["qualified", "not_qualified"].includes(row.outcome || "") && row.call_type !== "client" && within(appointmentAt(row)));
-  const demos = activities.filter(row => row.event_type === "demo_call" && row.outcome === "held" &&
+  const demos = activities.filter(row => row.event_type === "demo_call" && isHeldClosing(row.outcome) &&
     row.call_type !== "client" && within(appointmentAt(row)));
   const replies = outreach.filter(row => row.event_type === "reply" && within(row.occurred_at));
   const discoveryByKey = new Map(discoveries.map(row => [row.event_key, row]));

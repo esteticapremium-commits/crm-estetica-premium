@@ -4,6 +4,7 @@ import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, allowedOutcomes, type Appoint
 const labels: Record<AppointmentOutcome, string> = {
   answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
+  lost: "Offerta rifiutata",
 };
 
 export function AppointmentTime({ type, value, disabled, onChange, revealPanel }: {
