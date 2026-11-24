@@ -39,7 +39,10 @@ for (const [type, stored, duration, googleDuration] of [['setting', 15, 15, 30],
     };
     const appointments=module('src/appointments.ts',{
       './supabaseClient': {supabase:{async rpc(name,args){rpcCalls.push({name,args}); return {};}}},
-      './calendarGoogle': {updateGoogleCalendarEvent:async(id,data)=>updates.push({id,data})},
+      './calendarGoogle': {
+        updateGoogleCalendarEvent:async(id,data)=>updates.push({id,data}),
+        confirmOnPrimaryOwnerCalendar:async()=>true,
+      },
     });
     const moved = new Date('2026-11-13T12:00:00Z');
     assert.equal((await appointments.updateAppointment(appointment,{subject:'Centro',startsAt:moved,note:''})).ok,true);
@@ -60,7 +63,10 @@ test('un setting risposto si può riaprire e spostare sullo stesso evento Google
   const moves=[];
   const appointments=module('src/appointments.ts',{
     './supabaseClient':{supabase:{async rpc(name,args){requests.push({name,args});return {};}}},
-    './calendarGoogle':{async updateGoogleCalendarEvent(id,data){moves.push({id,data});}},
+    './calendarGoogle':{
+      async updateGoogleCalendarEvent(id,data){moves.push({id,data});},
+      confirmOnPrimaryOwnerCalendar:async()=>true,
+    },
   });
   const task={id:'setting',updated_at:'2026-11-24T17:31:00Z',due_at:'2026-11-24T17:30:00Z',
     appointment_type:'setting',appointment_status:'held',appointment_outcome:'answered',completed_at:'2026-11-24T17:31:00Z',google_event_id:'same-event'};
