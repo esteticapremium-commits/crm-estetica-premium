@@ -7,7 +7,7 @@
 // lead_activities non possono più divergere.
 import { supabase } from "./supabaseClient";
 import { withTimeout } from "./async";
-import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, refreshGoogleCalendarConnection, removeStaleClosingEvent, updateGoogleCalendarEvent } from "./calendarGoogle";
+import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, refreshGoogleCalendarConnection, removeStaleCrmCalendarEvent, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import type { Lead, SalesTask } from "./types";
 
@@ -225,22 +225,31 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
       pipelineWarning = "Appuntamento salvato. Verifica la fase e il prossimo passo nella scheda lead.";
     }
   }
-  const warning = await synchronizeBooking(task, description);
+  let warning = await synchronizeBooking(task, description);
+  const previousTaskId = input.previousOutcomeKey?.match(/^appointment:([0-9a-f-]{36}):outcome$/i)?.[1];
+  if (!warning && !task.google_event_id && lead && previousTaskId && startsAt.getTime() > Date.now()) {
+    try {
+      await removeSupersededGoogleCopies(task, lead.id, previousTaskId);
+    } catch {
+      warning = "Nuovo appuntamento salvato su Google Calendar. Verifica se nello stesso orario è rimasto l’evento precedente.";
+    }
+  }
   return { ok: true, taskId: task.id, warning, pipelineWarning, advancedStageId };
 }
 
-async function removeSupersededClosingAtPreviousTime(task: SalesTask, leadId: string) {
+async function removeSupersededGoogleCopies(task: SalesTask, leadId: string, previousTaskId?: string) {
   // A historical no-show may have been moved directly on Google to the slot
   // later used for its replacement. Keep the historical CRM attempt and KPI.
-  const { data, error } = await supabase.from("sales_tasks").select("id,google_event_id")
+  const candidates = supabase.from("sales_tasks").select("id,title,google_event_id")
     .eq("client_id", task.client_id).eq("lead_id", leadId)
-    .eq("appointment_type", "demo").eq("appointment_status", "no_show")
-    .eq("title", task.title).lt("due_at", task.due_at).not("completed_at", "is", null)
+    .eq("appointment_type", task.appointment_type).eq("appointment_status", "no_show")
+    .lt("due_at", task.due_at).not("completed_at", "is", null)
     .not("google_event_id", "is", null);
+  const { data, error } = await (previousTaskId ? candidates.eq("id", previousTaskId) : candidates.eq("title", task.title));
   if (error) throw error;
   for (const older of data ?? []) {
-    if (older.google_event_id === older.id.replace(/-/g, "") && older.google_event_id !== task.google_event_id) {
-      await removeStaleClosingEvent(older.id, task.due_at, task.title);
+    if (older.id !== task.id && older.google_event_id === older.id.replace(/-/g, "") && older.google_event_id !== task.google_event_id) {
+      await removeStaleCrmCalendarEvent(older.id, task.due_at, older.title);
     }
   }
 }
@@ -278,11 +287,11 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
     } catch {
       googleWarning = "Appuntamento spostato nel CRM. Google Calendar non ha accettato la modifica: verifica il collegamento e i permessi sul calendario che ha creato l’evento.";
     }
-    if (!googleWarning && type === "demo" && Date.parse(task.due_at) !== changes.startsAt.getTime()) {
+    if (!googleWarning && Date.parse(task.due_at) !== changes.startsAt.getTime()) {
       await confirmOnPrimaryOwnerCalendar(task.google_event_id, changes.startsAt.toISOString()).catch(() => false);
-      if (task.lead_id) {
+      if (type === "demo" && task.lead_id) {
         try {
-          await removeSupersededClosingAtPreviousTime(task, task.lead_id);
+          await removeSupersededGoogleCopies(task, task.lead_id);
         } catch {
           googleWarning = "Appuntamento spostato su Google Calendar. Verifica se nel vecchio orario è rimasta una call precedente.";
         }

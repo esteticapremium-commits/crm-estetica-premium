@@ -155,13 +155,13 @@ export async function updateGoogleCalendarEvent(id: string, input: { title: stri
   });
 }
 
-export async function removeStaleClosingEvent(taskId: string, previousStart: string, title: string) {
+export async function removeStaleCrmCalendarEvent(taskId: string, duplicateStart: string, title: string) {
   const eventId = taskId.replace(/-/g, "");
   const path = `/calendars/primary/events/${encodeURIComponent(eventId)}`;
   try {
     const event = await googleFetch(path);
     if (event.id !== eventId || event.status !== "confirmed" || event.summary !== title ||
-      Date.parse(event.start?.dateTime) !== Date.parse(previousStart) ||
+      Date.parse(event.start?.dateTime) !== Date.parse(duplicateStart) ||
       !event.organizer?.self || event.organizer.email?.toLowerCase() !== OWNER_CALENDAR_ID ||
       event.extendedProperties?.shared?.epAppointmentId !== eventId || !event.etag ||
       event.recurringEventId || event.recurrence?.length || event.attendeesOmitted ||
