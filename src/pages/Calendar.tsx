@@ -11,7 +11,7 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
 import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 import { defaultAudience } from "../salesKpi";
-import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, GIOVANNI_ID, appointmentSubject, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, GIOVANNI_ID, appointmentSubject, canReopenSettingForReschedule, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
@@ -386,7 +386,9 @@ function EventDetailsModal({
   const task = selected.kind === "crm" ? selected.task : null;
   const heading = selected.kind === "crm" ? appointmentSubject(selected.task) : selected.event.summary || "Impegno Google";
   const canEdit = !task || (!task.completed_at && !isAppointmentClosed(task) && task.appointment_status !== "cancelled");
-  const canReschedule = Boolean(task?.appointment_type && canEdit && Date.parse(task.due_at) > Date.now());
+  const reopenSetting = Boolean(task && canReopenSettingForReschedule(task));
+  const canReschedule = Boolean(task?.appointment_type && (canEdit || reopenSetting));
+  const beforeStart = Boolean(task && Date.parse(task.due_at) > Date.now());
   const kindLabel = task
     ? task.appointment_type ? APPOINTMENT_LABELS[task.appointment_type] : "Appuntamento CRM"
     : "Evento Google personale";
@@ -437,11 +439,11 @@ function EventDetailsModal({
           <button className="btn" type="button" disabled={busy} onClick={onBookNextClosing}>Prenota un’altra demo dopo 30 min</button>}
 
         {canReschedule && <div className="calendar-reschedule-action">
-          <div><b>Il contatto ha chiesto un rinvio?</b><p>Sposta lo stesso evento nel CRM e su Google Calendar, senza segnare un no-show.</p></div>
+          <div><b>Il contatto ha chiesto un rinvio?</b><p>{reopenSetting ? "Spostando il setting, correggi anche l’esito precedente." : "Sposta lo stesso evento nel CRM e su Google Calendar."}</p></div>
           <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
         </div>}
         {task?.appointment_type && task.appointment_status !== "cancelled" &&
-          (canReschedule
+          (canReschedule && beforeStart
             ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
                 <p>Usalo se il contatto ha annullato e non avete concordato un nuovo orario.</p>
                 <CalendarOutcome key={`${task.id}:${task.updated_at}`} task={task} busy={busy} onOutcome={onOutcome} />

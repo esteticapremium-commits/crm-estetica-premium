@@ -46,6 +46,10 @@ export function isAppointmentClosed(task: Pick<SalesTask, "appointment_status">)
   return task.appointment_status === "held" || task.appointment_status === "no_show";
 }
 
+export function canReopenSettingForReschedule(task: Pick<SalesTask, "appointment_type" | "appointment_status" | "appointment_outcome">) {
+  return task.appointment_type === "setting" && task.appointment_status === "held" && task.appointment_outcome === "answered";
+}
+
 /** Una prenotazione e un esito per ogni appuntamento, qualunque sia la pagina
  *  da cui li registri. È questa chiave, non il pulsante disabilitato, a impedire
  *  il doppio conteggio. */
@@ -234,11 +238,12 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
  * la task CRM e la data pianificata nell'attività KPI.
  */
 export async function updateAppointment(task: SalesTask, changes: { subject: string; startsAt: Date; note: string; durationMinutes?: number }): Promise<AppointmentResult> {
-  if (isAppointmentClosed(task) || task.completed_at) return { ok: false, error: "Questa call ha già un esito: non spostarla. Crea una nuova prenotazione per il secondo tentativo." };
+  const reopenSetting = canReopenSettingForReschedule(task);
+  if (!reopenSetting && (isAppointmentClosed(task) || task.completed_at)) return { ok: false, error: "Questa call ha già un esito: non spostarla. Crea una nuova prenotazione per il secondo tentativo." };
   const type = (task.appointment_type as AppointmentType | null) || null;
   const title = type ? appointmentTitle(type, changes.subject) : changes.subject.trim();
   const minutes = plannedDuration(type, changes.durationMinutes ?? task.duration_minutes);
-  const updated = await supabase.rpc("reschedule_crm_appointment", {
+  const updated = await supabase.rpc(reopenSetting ? "reopen_and_reschedule_setting" : "reschedule_crm_appointment", {
     p_task_id: task.id, p_expected_updated_at: task.updated_at,
     p_title: title, p_starts_at: changes.startsAt.toISOString(),
     p_note: changes.note.trim() || null, p_duration_minutes: minutes,
