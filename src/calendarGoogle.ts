@@ -154,6 +154,24 @@ export async function updateGoogleCalendarEvent(id: string, input: { title: stri
     }),
   });
 }
+
+export async function removeStaleClosingEvent(taskId: string, previousStart: string, title: string) {
+  const eventId = taskId.replace(/-/g, "");
+  const path = `/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  try {
+    const event = await googleFetch(path);
+    if (event.id !== eventId || event.status !== "confirmed" || event.summary !== title ||
+      Date.parse(event.start?.dateTime) !== Date.parse(previousStart) ||
+      !event.organizer?.self || event.organizer.email?.toLowerCase() !== OWNER_CALENDAR_ID ||
+      event.extendedProperties?.shared?.epAppointmentId !== eventId || !event.etag ||
+      event.recurringEventId || event.recurrence?.length || event.attendeesOmitted ||
+      event.attendees?.some((attendee: { email?: string }) => attendee.email?.toLowerCase() !== OWNER_CALENDAR_ID)) return;
+    await googleFetch(`${path}?sendUpdates=none`, { method: "DELETE", headers: { "If-Match": event.etag } });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status !== 404 && status !== 410) throw error;
+  }
+}
 export async function deleteGoogleCalendarEvent(id: string) {
   return googleFetch(`/calendars/primary/events/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

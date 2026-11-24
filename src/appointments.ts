@@ -7,7 +7,7 @@
 // lead_activities non possono più divergere.
 import { supabase } from "./supabaseClient";
 import { withTimeout } from "./async";
-import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, refreshGoogleCalendarConnection, updateGoogleCalendarEvent } from "./calendarGoogle";
+import { confirmOnPrimaryOwnerCalendar, confirmOwnerCalendarAttendance, createGoogleCalendarEvent, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, refreshGoogleCalendarConnection, removeStaleClosingEvent, updateGoogleCalendarEvent } from "./calendarGoogle";
 import { OWNER_CALENDAR_ID } from "./calendarGoogle";
 import type { Lead, SalesTask } from "./types";
 
@@ -229,6 +229,22 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
   return { ok: true, taskId: task.id, warning, pipelineWarning, advancedStageId };
 }
 
+async function removeSupersededClosingAtPreviousTime(task: SalesTask, leadId: string) {
+  // A historical no-show may have been moved directly on Google to the slot
+  // later used for its replacement. Keep the historical CRM attempt and KPI.
+  const { data, error } = await supabase.from("sales_tasks").select("id,google_event_id")
+    .eq("client_id", task.client_id).eq("lead_id", leadId)
+    .eq("appointment_type", "demo").eq("appointment_status", "no_show")
+    .eq("title", task.title).lt("due_at", task.due_at).not("completed_at", "is", null)
+    .not("google_event_id", "is", null);
+  if (error) throw error;
+  for (const older of data ?? []) {
+    if (older.google_event_id === older.id.replace(/-/g, "") && older.google_event_id !== task.google_event_id) {
+      await removeStaleClosingEvent(older.id, task.due_at, task.title);
+    }
+  }
+}
+
 /**
  * Sposta o rinomina un appuntamento mantenendo allineati Google Calendar,
  * la task CRM e la data pianificata nell'attività KPI.
@@ -261,6 +277,16 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
       });
     } catch {
       googleWarning = "Appuntamento spostato nel CRM. Google Calendar non ha accettato la modifica: verifica il collegamento e i permessi sul calendario che ha creato l’evento.";
+    }
+    if (!googleWarning && type === "demo" && Date.parse(task.due_at) !== changes.startsAt.getTime()) {
+      await confirmOnPrimaryOwnerCalendar(task.google_event_id, changes.startsAt.toISOString()).catch(() => false);
+      if (task.lead_id) {
+        try {
+          await removeSupersededClosingAtPreviousTime(task, task.lead_id);
+        } catch {
+          googleWarning = "Appuntamento spostato su Google Calendar. Verifica se nel vecchio orario è rimasta una call precedente.";
+        }
+      }
     }
   } else {
     googleWarning = "Appuntamento spostato nel CRM. Non era collegato a Google Calendar, quindi lì non cambia nulla.";
