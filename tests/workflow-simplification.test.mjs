@@ -55,6 +55,28 @@ for (const [type, stored, duration, googleDuration] of [['setting', 15, 15, 30],
   });
 }
 
+test('un setting risposto si può riaprire e spostare sullo stesso evento Google', async () => {
+  const requests=[];
+  const moves=[];
+  const appointments=module('src/appointments.ts',{
+    './supabaseClient':{supabase:{async rpc(name,args){requests.push({name,args});return {};}}},
+    './calendarGoogle':{async updateGoogleCalendarEvent(id,data){moves.push({id,data});}},
+  });
+  const task={id:'setting',updated_at:'2026-11-24T17:31:00Z',due_at:'2026-11-24T17:30:00Z',
+    appointment_type:'setting',appointment_status:'held',appointment_outcome:'answered',completed_at:'2026-11-24T17:31:00Z',google_event_id:'same-event'};
+  const startsAt=new Date('2026-11-25T15:15:00Z');
+  const result=await appointments.updateAppointment(task,{subject:'Centro di prova',startsAt,note:''});
+  assert.equal(result.ok,true);
+  assert.equal(requests[0].name,'reopen_and_reschedule_setting');
+  assert.equal(requests[0].args.p_expected_updated_at,task.updated_at);
+  assert.equal(requests[0].args.p_starts_at,startsAt.toISOString());
+  assert.equal(moves[0].id,'same-event');
+  assert.equal(moves[0].data.end,'2026-11-25T15:45:00.000Z');
+  assert.equal((await appointments.updateAppointment({...task,appointment_status:'no_show',appointment_outcome:'no_show'},
+    {subject:'Centro di prova',startsAt,note:''})).ok,false);
+  assert.equal(requests.length,1);
+});
+
 test('prenotazione propone alla transazione la stessa identità e la durata corretta', async () => {
   const requests=[];
   const googleEvents=[];
