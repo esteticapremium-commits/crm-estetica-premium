@@ -261,6 +261,7 @@ export default function LeadModal({
   const [appointments, setAppointments] = useState<SalesTask[]>([]);
   const [appointmentsReady, setAppointmentsReady] = useState(false);
   const currentStageName = stages.find((stage) => stage.id === stageId)?.name ?? null;
+  const notInTargetStage = stages.find((stage) => stage.pipeline_id === lead?.pipeline_id && stage.name.trim().toLowerCase() === "non in target");
   // Tipo di chiamata e destinatario si deducono dalla fase del lead: il
   // venditore li corregge solo quando la deduzione sbaglia, non a ogni azione.
   const [callTypeOverride, setCallTypeOverride] = useState<ContactType | null>(null);
@@ -460,6 +461,32 @@ export default function LeadModal({
       onUpdated?.();
     } catch (reason) {
       setAppointmentFeedback({ text: reason instanceof Error ? reason.message : "Impossibile verificare il salvataggio. Riapri la scheda per controllare l’appuntamento.", warning: true });
+    } finally {
+      commercialActionLock.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function markNotInTarget() {
+    if (!lead || !notInTargetStage || commercialActionLock.current) return;
+    commercialActionLock.current = true;
+    setBusy(true);
+    setErr(null);
+    setActivitySaved("");
+    try {
+      const { data, error } = await withTimeout(supabase.rpc("mark_lead_not_in_target", {
+        p_lead_id: lead.id, p_expected_stage_id: persistedStage.current ?? lead.stage_id,
+        p_note: commercialNote.trim() || null,
+      }));
+      if (error || !data) throw new Error(error?.message || "Spostamento non confermato.");
+      persistedStage.current = data;
+      setStageId(data);
+      setCommercialNote("");
+      setActivitySaved("Lead spostato in Non in target");
+      onUpdated?.();
+      await reloadActivityHistory();
+    } catch (reason) {
+      setErr(reason instanceof Error ? reason.message : "Impossibile spostare il lead in Non in target.");
     } finally {
       commercialActionLock.current = false;
       setBusy(false);
@@ -1199,6 +1226,7 @@ export default function LeadModal({
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>}
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>}
                 {!settingDue && !settingOutcomeDraft && contactType === "setting" && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("not_interested")}><b>Non interessato</b><small>Registra l’esito del setting</small></button>}
+                {notInTargetStage && notInTargetStage.id !== stageId && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void markNotInTarget()}><b>Non in target</b><small>Sposta nella colonna dedicata</small></button>}
                 <button
                   data-action-group="contact"
                   type="button"
