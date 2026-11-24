@@ -121,3 +121,59 @@ test("la setting di Ettore usa la sua connessione Google anche se il lead è di 
   assert.equal(fixture.personalRefreshes(), 1);
   assert.equal(fixture.cachedConnectionChecks(), 0);
 });
+
+test("riprenotare un no-show crea un nuovo evento Google confermato per setting, discovery e closing", async () => {
+  const previousId = "3597cf4f-cc6e-4c96-bd17-ac93a572f634";
+  const lead = { id: "babea8e3-9038-4aa4-a92d-7285ec4c2fbf", name: "Centro di prova", stage_id: "current" };
+  const startsAt = new Date(task.due_at);
+  for (const type of ["setting", "discovery", "demo"]) {
+    const exports = {};
+    const actions = [];
+    const prior = { id: previousId, title: "Tentativo precedente", google_event_id: previousId.replaceAll("-", "") };
+    const rows = {
+      select() { return this; }, update() { return this; }, not() { return this; }, lt() { return this; },
+      eq(column, value) {
+        if (column === "id" && value === previousId) actions.push("validated predecessor");
+        return this;
+      },
+      async single() { return { data: { stage_id: lead.stage_id }, error: null }; },
+      then(resolve) { return Promise.resolve({ data: [prior], error: null }).then(resolve); },
+    };
+    const imports = {
+      "./supabaseClient": { supabase: {
+        from: () => rows,
+        rpc: async (_, params) => {
+          assert.equal(params.p_previous_outcome_key, exports.outcomeKey(previousId));
+          return { data: { ...task, client_id: "client", lead_id: lead.id, appointment_type: type, title: params.p_title, appointment_host: "Titolare" } };
+        },
+      } },
+      "./calendarGoogle": {
+        OWNER_CALENDAR_ID: owner,
+        ensureGoogleCalendarConnection: async () => true,
+        refreshGoogleCalendarConnection: async () => true,
+        createGoogleCalendarEvent: async event => {
+          assert.equal(event.eventId, task.id.replaceAll("-", ""));
+          assert.equal(event.start, startsAt.toISOString());
+          assert.deepEqual(Array.from(event.attendees), [owner]);
+          actions.push("created replacement");
+          return { id: event.eventId, organizer: { email: owner, self: true } };
+        },
+        confirmOnPrimaryOwnerCalendar: async () => { actions.push("confirmed replacement"); return true; },
+        removeStaleCrmCalendarEvent: async (id, start, title) => {
+          assert.equal(id, previousId);
+          assert.equal(Date.parse(start), startsAt.getTime());
+          assert.equal(title, prior.title);
+          actions.push("checked duplicate");
+        },
+      },
+    };
+    vm.runInNewContext(script, { exports, require: name => imports[name] ?? {} });
+    const result = await exports.createAppointment({
+      type, lead, audience: "lead", startsAt, note: "", subject: lead.name, clientId: "client", requestId: task.id,
+      previousOutcomeKey: exports.outcomeKey(previousId),
+    });
+    assert.equal(result.warning, undefined);
+    assert.equal(result.pipelineWarning, undefined);
+    assert.deepEqual(actions, ["created replacement", "confirmed replacement", "validated predecessor", "checked duplicate"]);
+  }
+});
