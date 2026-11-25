@@ -11,7 +11,7 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
 import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 import { defaultAudience } from "../salesKpi";
-import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, GIOVANNI_ID, appointmentSubject, canReopenSettingForReschedule, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, CONFIRMATION_LABEL, CONFIRMATION_MINUTES, GIOVANNI_ID, appointmentSubject, bookConfirmationCall, canReopenSettingForReschedule, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
@@ -48,6 +48,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
   const [leadQuery, setLeadQuery] = useState("");
   const [appointmentHost, setAppointmentHost] = useState("");
   const [bookingId, setBookingId] = useState("");
+  const [confirmationClosingId, setConfirmationClosingId] = useState<string>();
   const [previousOutcomeKey, setPreviousOutcomeKey] = useState<string>();
   const saveOutcomeLock = useRef(false);
   const [tasks, setTasks] = useState<SalesTask[]>([]); const [leads, setLeads] = useState<Lead[]>([]); const [stages, setStages] = useState<Stage[]>([]); const [google, setGoogle] = useState<GoogleEvent[]>([]);
@@ -95,7 +96,8 @@ export default function Calendar({ client, meName, userId, admin = false, header
   const rangeLabel = `${weekStart.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${new Date(weekEnd.getTime() - 86400000).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`;
   async function connect() { setBusy(true); setError(null); try { await connectGoogleCalendar(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Collegamento non riuscito."); } setBusy(false); }
   function shiftWeek(amount: number) { setSelected(null); setOwnerEvent(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
-  function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string; startsAt?: Date }) {
+  function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string; startsAt?: Date; confirmationClosingId?: string }) {
+    setConfirmationClosingId(prefill?.confirmationClosingId);
     const initial = new Date(prefill?.startsAt ?? date);
     if (!prefill?.startsAt) {
       initial.setHours(10, 0, 0, 0);
@@ -114,12 +116,15 @@ export default function Calendar({ client, meName, userId, admin = false, header
     const lead = leadId ? leadById.get(leadId) : null;
     const subject = title.trim() || lead?.name || "";
     const start = new Date(startsAt);
-    const minutes = appointmentType === "demo" ? durationOverride ?? APPOINTMENT_DURATION.demo : APPOINTMENT_DURATION[appointmentType];
-    if (appointmentType === "setting" && !lead) return setFormError("Cerca e seleziona il lead a cui collegare il setting.");
+    const minutes = confirmationClosingId ? CONFIRMATION_MINUTES
+      : appointmentType === "demo" ? durationOverride ?? APPOINTMENT_DURATION.demo : APPOINTMENT_DURATION[appointmentType];
+    if (!confirmationClosingId && appointmentType === "setting" && !lead) return setFormError("Cerca e seleziona il lead a cui collegare il setting.");
     if (!subject || !Number.isFinite(start.getTime()) || minutes < 15) return setFormError("Inserisci contatto, data e ora.");
     saveLock.current = true; setBusy(true); setFormError(null);
     try {
-      const result = await createAppointment({
+      const result = confirmationClosingId
+        ? await bookConfirmationCall(confirmationClosingId, bookingId, subject, start, note)
+        : await createAppointment({
         clientId: client.id, lead: lead || null, type: appointmentType, audience, subject, startsAt: start,
         durationMinutes: minutes, note, requestId: bookingId, previousOutcomeKey, host: appointmentHost || undefined,
       });
@@ -248,7 +253,16 @@ export default function Calendar({ client, meName, userId, admin = false, header
     openCreate(undefined, { type: "demo", title: "", startsAt: nextClosingStart });
   }
 
-  const calendarTasks = tasks.filter(task => task.appointment_status !== "cancelled" && (task.appointment_type || !task.completed_at));
+  function openConfirmationCall() {
+    if (busy || selected?.kind !== "crm" || selected.task.appointment_type !== "demo") return;
+    const { task } = selected;
+    const earliest = Math.max(eventEnd(task).getTime(), Date.now() + 60_000);
+    const start = new Date(Math.ceil(earliest / 1_800_000) * 1_800_000);
+    setSelected(null);
+    openCreate(undefined, { type: "demo", title: appointmentSubject(task), startsAt: start, confirmationClosingId: task.id });
+  }
+
+  const calendarTasks = tasks.filter(task => task.appointment_status !== "cancelled" && (task.appointment_type || task.confirmation_for || !task.completed_at));
   const visibleTasks = admin && userId === ETTORE_ID
     ? calendarTasks.filter(task => !isGiovanniSetting(task))
     : calendarTasks;
@@ -268,7 +282,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
     }]) : [];
 
   const displayEvents: DisplayEvent[] = [
-    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : "Richiamo"} · ${task.appointment_status === "held" ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
     ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})})),
     ...sharedCalendarEvents,
   ].filter(event => event.at && event.endAt);
@@ -300,7 +314,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
     <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} view={view} onViewChange={setView} />
     {!saleError && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
     {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); if (warning) setError(warning); }} />}
-    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookNextClosing={nextClosingStart && nextClosingStart.getTime() > Date.now() ? bookNextClosing : undefined} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={canSyncSelected ? () => void syncSelected() : undefined} />}
+    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookConfirmation={openConfirmationCall} onBookNextClosing={nextClosingStart && nextClosingStart.getTime() > Date.now() ? bookNextClosing : undefined} onOutcome={(outcome, rebook, proposalMade) => void setAppointmentOutcome(outcome, rebook, proposalMade)} onSync={canSyncSelected ? () => void syncSelected() : undefined} />}
     {showOwnerCalendar && ownerEvent && <div className="calendar-modal-overlay" role="presentation" onClick={() => setOwnerEvent(null)}>
       <section className="calendar-modal calendar-event-modal calendar-appointment-dialog" role="dialog" aria-modal="true"
         aria-label="Evento del calendario di Ettore" onClick={event => event.stopPropagation()}>
@@ -317,21 +331,26 @@ export default function Calendar({ client, meName, userId, admin = false, header
       </section>
     </div>}
     {createOpen && <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && setCreateOpen(false)}>
-      <section className="calendar-modal calendar-create calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Nuovo appuntamento" onClick={(event) => event.stopPropagation()}>
+      <section className="calendar-modal calendar-create calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label={confirmationClosingId ? CONFIRMATION_LABEL : "Nuovo appuntamento"} onClick={(event) => event.stopPropagation()}>
         <header className="calendar-appointment-header">
-          <h2>Fissa appuntamento</h2>
+          <h2>{confirmationClosingId ? CONFIRMATION_LABEL : "Fissa appuntamento"}</h2>
           <button type="button" className="btn calendar-close" aria-label="Chiudi" disabled={busy} onClick={() => setCreateOpen(false)}>×</button>
         </header>
         {formError && <div className="notice err">{formError}</div>}
-        <div className="calendar-appointment-kind">
+        {!confirmationClosingId && <div className="calendar-appointment-kind">
           <b>Tipo di appuntamento</b>
           <div className="calendar-type-options" role="group" aria-label="Tipo di appuntamento">
             {(["setting", "discovery", "demo"] as const).map(type =>
               <button key={type} type="button" className="btn" aria-pressed={appointmentType === type} disabled={busy}
                 onClick={() => chooseAppointmentType(type)}>{APPOINTMENT_SHORT_LABELS[type]}</button>)}
           </div>
-        </div>
+        </div>}
         <label>Contatto<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Nome del centro o della persona" /></label>
+        {confirmationClosingId ? <>
+          <p className="muted">Durata {CONFIRMATION_MINUTES} minuti</p>
+          <LeadDateTimePicker value={startsAt} onChange={setStartsAt} disabled={busy} />
+          <label>Nota (facoltativa)<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
+        </> : <>
         <AppointmentTime type={appointmentType} value={startsAt} disabled={busy} onChange={setStartsAt} />
         <details key={appointmentType} open><summary>{appointmentType === "setting" ? "Lead da contattare" : "Collega il lead · sincronizza la pipeline"}</summary>
           <label>Cerca lead<input type="search" value={leadQuery} onChange={event => setLeadQuery(event.target.value)} /></label>
@@ -348,6 +367,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
           {appointmentType === "demo" && <label>Durata<select value={durationOverride ?? APPOINTMENT_DURATION.demo} onChange={event => setDurationOverride(Number(event.target.value))}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 ora</option><option value="90">1 ora e 30</option><option value="120">2 ore</option></select></label>}
           <label>Nota<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
         </details>
+        </>}
         <footer className="calendar-appointment-footer"><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>
       </section>
     </div>}
@@ -375,22 +395,23 @@ type EventDetailsProps = {
   onDelete: () => void;
   onOutcome: (outcome: AppointmentOutcome, rebook?: boolean, proposalMade?: boolean) => void;
   onBookClosing: () => void;
+  onBookConfirmation: () => void;
   onBookNextClosing?: () => void;
   onSync?: () => void;
 };
 
 function EventDetailsModal({
   selected, editing, title, startsAt, note, error, busy, saleDisabled, hasSale,
-  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onBookNextClosing, onSync,
+  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onBookConfirmation, onBookNextClosing, onSync,
 }: EventDetailsProps) {
   const task = selected.kind === "crm" ? selected.task : null;
   const heading = selected.kind === "crm" ? appointmentSubject(selected.task) : selected.event.summary || "Impegno Google";
   const canEdit = !task || (!task.completed_at && !isAppointmentClosed(task) && task.appointment_status !== "cancelled");
   const reopenSetting = Boolean(task && canReopenSettingForReschedule(task));
-  const canReschedule = Boolean(task?.appointment_type && (canEdit || reopenSetting));
+  const canReschedule = Boolean((task?.appointment_type || task?.confirmation_for) && (canEdit || reopenSetting));
   const beforeStart = Boolean(task && Date.parse(task.due_at) > Date.now());
   const kindLabel = task
-    ? task.appointment_type ? APPOINTMENT_LABELS[task.appointment_type] : "Appuntamento CRM"
+    ? task.confirmation_for ? CONFIRMATION_LABEL : task.appointment_type ? APPOINTMENT_LABELS[task.appointment_type] : "Appuntamento CRM"
     : "Evento Google personale";
 
   return <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
@@ -438,6 +459,9 @@ function EventDetailsModal({
         {onBookNextClosing &&
           <button className="btn" type="button" disabled={busy} onClick={onBookNextClosing}>Prenota un’altra demo dopo 30 min</button>}
 
+        {task?.appointment_type === "demo" && ["held", "scheduled", "rescheduled"].includes(task.appointment_status || "") &&
+          <button className="btn primary" type="button" disabled={busy} onClick={onBookConfirmation}>Prenota call di conferma</button>}
+
         {canReschedule && <div className="calendar-reschedule-action">
           <div><b>Il contatto ha chiesto un rinvio?</b><p>{reopenSetting ? "Spostando il setting, correggi anche l’esito precedente." : "Sposta lo stesso evento nel CRM e su Google Calendar."}</p></div>
           <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
@@ -450,7 +474,7 @@ function EventDetailsModal({
               </details>
             : <CalendarOutcome key={`${task.id}:${task.updated_at}`} task={task} busy={busy} onOutcome={onOutcome} />)}
 
-        {task?.commercial_tracked && onSync && (!task.google_event_id || isOwnerManagedDiscovery(task)) && !task.completed_at &&
+        {(task?.commercial_tracked || task?.confirmation_for) && onSync && (!task.google_event_id || isOwnerManagedDiscovery(task)) && !task.completed_at &&
           <button type="button" className="btn calendar-sync-action" disabled={busy} onClick={onSync}>Sincronizza con Google</button>}
 
         {selected.kind === "google" && <div className="calendar-sale-action">

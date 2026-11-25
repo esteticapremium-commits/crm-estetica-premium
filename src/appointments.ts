@@ -62,7 +62,9 @@ export const APPOINTMENT_LABELS: Record<AppointmentType, string> = {
 export const APPOINTMENT_SHORT_LABELS: Record<AppointmentType, string> = {
   setting: "Setting", discovery: "Discovery", demo: "Closing",
 };
-const titleLabels = [...Object.values(APPOINTMENT_LABELS), "Discovery telefonica", "Demo video", "Appuntamento"].join("|");
+export const CONFIRMATION_LABEL = "Call di conferma";
+export const CONFIRMATION_MINUTES = 30;
+const titleLabels = [...Object.values(APPOINTMENT_LABELS), CONFIRMATION_LABEL, "Discovery telefonica", "Demo video", "Appuntamento"].join("|");
 const titleLabelPattern = new RegExp(`^(?:${titleLabels})\\s*—\\s*|\\s*—\\s*(?:${titleLabels})$`, "g");
 const channelFor = (type: AppointmentType) => (type === "discovery" ? "phone" : "video_call");
 
@@ -194,6 +196,17 @@ async function synchronizeBooking(task: SalesTask, description: string) {
   return "Evento salvato su Google Calendar. Conferma di partecipazione del titolare da verificare.";
 }
 
+export async function bookConfirmationCall(closingId: string, requestId: string, subject: string, startsAt: Date, note: string): Promise<AppointmentResult> {
+  const { data, error } = await supabase.rpc("book_confirmation_call", {
+    p_id: requestId, p_closing_id: closingId, p_starts_at: startsAt.toISOString(),
+    p_title: `${appointmentSubject({ title: subject })} — ${CONFIRMATION_LABEL}`, p_note: note.trim() || null,
+  });
+  const task = (Array.isArray(data) ? data[0] : data) as SalesTask | null;
+  if (error || !task?.id) return { ok: false, error: error?.message || "Call di conferma non salvata." };
+  const warning = await synchronizeBooking(task, task.description || "");
+  return { ok: true, taskId: task.id, warning };
+}
+
 export async function retryAppointmentSync(task: SalesTask): Promise<AppointmentResult> {
   const warning = await synchronizeBooking(task, task.description || "");
   return { ok: !warning, error: warning, taskId: task.id };
@@ -266,8 +279,9 @@ export async function updateAppointment(task: SalesTask, changes: { subject: str
   const reopenSetting = canReopenSettingForReschedule(task);
   if (!reopenSetting && (isAppointmentClosed(task) || task.completed_at)) return { ok: false, error: "Questa call ha già un esito: non spostarla. Crea una nuova prenotazione per il secondo tentativo." };
   const type = (task.appointment_type as AppointmentType | null) || null;
-  const title = type ? appointmentTitle(type, changes.subject) : changes.subject.trim();
-  const minutes = plannedDuration(type, changes.durationMinutes ?? task.duration_minutes);
+  const title = type ? appointmentTitle(type, changes.subject) : task.confirmation_for
+    ? `${appointmentSubject({ title: changes.subject })} — ${CONFIRMATION_LABEL}` : changes.subject.trim();
+  const minutes = task.confirmation_for ? CONFIRMATION_MINUTES : plannedDuration(type, changes.durationMinutes ?? task.duration_minutes);
   const updated = await supabase.rpc(reopenSetting ? "reopen_and_reschedule_setting" : "reschedule_crm_appointment", {
     p_task_id: task.id, p_expected_updated_at: task.updated_at,
     p_title: title, p_starts_at: changes.startsAt.toISOString(),
