@@ -83,6 +83,34 @@ test('un setting risposto si può riaprire e spostare sullo stesso evento Google
   assert.equal(requests.length,1);
 });
 
+test('la conferma riusa il collegamento alla closing e si sincronizza come evento di 30 minuti', async () => {
+  const writes=[];
+  const updates={eq(){return this;},select(){return this;},async single(){return {};}};
+  const appointments=module('src/appointments.ts',{
+    './supabaseClient':{supabase:{
+      async rpc(name,args){
+        assert.equal(name,'book_confirmation_call');
+        assert.equal(args.p_closing_id,'source-closing');
+        assert.equal(args.p_title,'Centro di prova — Call di conferma');
+        return {data:{id:args.p_id,title:args.p_title,due_at:args.p_starts_at,confirmation_for:args.p_closing_id,duration_minutes:30}};
+      },
+      from(){return {update(){return updates;}};},
+    }},
+    './calendarGoogle':{
+      ensureGoogleCalendarConnection:async()=>true,
+      async createGoogleCalendarEvent(event){writes.push(event);return {id:event.eventId};},
+      confirmOnPrimaryOwnerCalendar:async()=>true,
+    },
+  });
+  const startsAt=new Date(Date.now()+86_400_000);
+  const result=await appointments.bookConfirmationCall('source-closing','confirmation-id','Centro di prova — Closing video',startsAt,'');
+  assert.equal(result.ok,true);
+  assert.equal(result.warning,undefined);
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].eventId,'confirmationid');
+  assert.equal(Date.parse(writes[0].end)-Date.parse(writes[0].start),30*60_000);
+});
+
 test('prenotazione propone alla transazione la stessa identità e la durata corretta', async () => {
   const requests=[];
   const googleEvents=[];

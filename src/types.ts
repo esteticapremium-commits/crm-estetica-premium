@@ -98,6 +98,7 @@ export interface SalesTask {
   created_at: string;
   updated_at: string;
   appointment_type?: "setting" | "discovery" | "demo" | null;
+  confirmation_for?: string | null;
   appointment_status?: "scheduled" | "held" | "no_show" | "cancelled" | "rescheduled" | null;
   duration_minutes?: number | null;
   google_event_id?: string | null;
