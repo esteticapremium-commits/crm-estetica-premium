@@ -281,9 +281,19 @@ export default function Calendar({ client, meName, userId, admin = false, header
       onOpen: () => setOwnerEvent(event),
     }]) : [];
 
+  const googleSalesByKey = new Map(googleSales.map(sale => [sale.google_key, sale]));
   const displayEvents: DisplayEvent[] = [
-    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
-    ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => ({id:`google-${event.id}`,at:event.start?.dateTime || event.start?.date || "",endAt:event.end?.dateTime || event.end?.date || event.start?.date || "",title:event.summary || "Impegno Google",subtitle:googleSales.some(s => s.google_key === googleSaleKey(event)) ? `Vendita · ${saleOutcomes[googleSales.find(s => s.google_key === googleSaleKey(event))!.outcome]}` : "Google personale",kind:"google" as const,allDay:!event.start?.dateTime,onOpen:()=>setSelected({kind:"google",event})})),
+    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => {
+      const sale = googleSalesByKey.get(googleSaleKey(event));
+      return {
+        id: `google-${event.id}`, at: event.start?.dateTime || event.start?.date || "",
+        endAt: event.end?.dateTime || event.end?.date || event.start?.date || "",
+        title: event.summary || "Impegno Google", subtitle: sale ? `Vendita · ${saleOutcomes[sale.outcome]}` : "Google personale",
+        kind: "google" as const, allDay: !event.start?.dateTime, skipAsNext: sale?.outcome === "no_show" || sale?.outcome === "rescheduled",
+        onOpen: () => setSelected({ kind: "google", event }),
+      };
+    }),
     ...sharedCalendarEvents,
   ].filter(event => event.at && event.endAt);
   return <div className="page calendar-page">

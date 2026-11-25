@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 const exports={};
 vm.runInNewContext(ts.transpileModule(readFileSync('src/calendarLayout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,Date,Intl});
-const {layoutIntervals,romeMinutes}=exports;
+const {layoutIntervals,nextTimedEvent,romeMinutes}=exports;
 const event=(id,start,end)=>({id,start,end});
 test('sovrapposizioni parziali, non soltanto inizi identici, affiancate',()=>{
  const placed=layoutIntervals([event('a',600,660),event('b',630,690)]);
@@ -34,4 +34,18 @@ test('gli orari sono di Roma, anche al cambio dell’ora',()=>{
  assert.equal(romeMinutes('2026-07-01T08:30:00Z'),630);
  assert.equal(romeMinutes('2026-11-02T09:30:00Z'),630);
  assert.equal(romeMinutes('2026-11-01T23:00:00Z'),0);
+});
+test('il conto alla rovescia usa il prossimo appuntamento valido e ignora quelli già trascorsi',()=>{
+ const now=new Date('2026-11-25T12:15:20Z');
+ const next=nextTimedEvent([
+  {at:'2026-11-25T13:00:00Z'},
+  {at:'2026-11-25T12:17:00Z',skipAsNext:true},
+  {at:'2026-11-25T12:16:00Z',allDay:true},
+  {at:'2026-11-25T12:14:00Z'},
+  {at:'2026-11-25T12:32:00Z'},
+ ],now);
+ assert.equal(next.at,'2026-11-25T12:32:00Z');
+ assert.equal(next.minutes,17);
+ assert.equal(nextTimedEvent([{at:'2026-11-25T12:15:00Z'}],now).minutes,0);
+ assert.equal(nextTimedEvent([{at:'2026-11-25T12:14:59Z'}],now),null);
 });

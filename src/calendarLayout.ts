@@ -17,3 +17,19 @@ export function romeMinutes(iso: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {timeZone:"Europe/Rome",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(iso));
   return Number(parts.find(p=>p.type==="hour")?.value)*60 + Number(parts.find(p=>p.type==="minute")?.value);
 }
+
+export function nextTimedEvent(events: readonly { at: string; allDay?: boolean; skipAsNext?: boolean }[], now: Date) {
+  const currentMinute = Math.floor(now.getTime() / 60_000) * 60_000;
+  let nextAt: string | undefined;
+  let delay = Infinity;
+  for (const event of events) {
+    if (event.allDay || event.skipAsNext) continue;
+    const startsAt = Date.parse(event.at);
+    const wait = startsAt - now.getTime();
+    if (startsAt >= currentMinute && wait < delay) {
+      nextAt = event.at;
+      delay = wait;
+    }
+  }
+  return nextAt ? { at: nextAt, minutes: Math.max(0, Math.ceil(delay / 60_000)) } : null;
+}

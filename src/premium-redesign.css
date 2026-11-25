@@ -1886,6 +1886,11 @@ textarea:disabled { cursor: not-allowed; opacity: .54; }
 .theme-premium .schedule-hours span { position:absolute; right:10px; font-size:11px; color:var(--ep-muted); }
 .theme-premium .schedule-day { border-left:1px solid var(--ep-border); background:linear-gradient(to bottom, transparent calc(100% - 1px), var(--ep-border) 0) 0 0 / 100% var(--schedule-hour) repeat-y; }
 .theme-premium .schedule-position { position:absolute; padding:2px; min-width:0; }
+.theme-premium .schedule-now-summary { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:0 0 8px; color:var(--ep-muted); font-size:12px; }
+.theme-premium .schedule-now-clock { padding:4px 8px; border-radius:6px; background:var(--ep-brand-faint); color:var(--ep-brand); font-weight:750; white-space:nowrap; }
+.theme-premium .schedule-now-summary time { font-weight:750; font-variant-numeric:tabular-nums; }
+.theme-premium .schedule-now-line { position:absolute; inset-inline:0; height:0; border-top:2px solid var(--ep-brand); z-index:3; pointer-events:none; }
+.theme-premium .schedule-now-line > span { position:absolute; inset-inline-start:0; top:-1px; transform:translateY(-50%); padding:1px 5px; border-radius:0 5px 5px 0; background:var(--ep-brand); color:var(--ep-surface-raised); font-size:10px; font-weight:750; font-variant-numeric:tabular-nums; }
 .theme-premium .schedule-event { display:flex; flex-direction:column; gap:3px; width:100%; height:100%; text-align:left; padding:6px 8px; font:inherit; border:1px solid var(--ep-border); border-left:3px solid var(--ep-brand); background:var(--ep-brand-soft); color:var(--ep-ink); border-radius:7px; overflow:hidden; cursor:pointer; }
 .theme-premium .schedule-event.google { background:var(--ep-surface-muted); border-left-color:var(--ep-muted); }
 .theme-premium .schedule-event time { font-size:11px; font-weight:700; white-space:nowrap; flex-shrink:0; }

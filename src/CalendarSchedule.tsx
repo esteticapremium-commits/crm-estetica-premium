@@ -1,6 +1,6 @@
-import { type CSSProperties } from "react";
-import { romeDay, romeToday } from "./dates";
-import { layoutIntervals, romeMinutes } from "./calendarLayout";
+import { useEffect, useState, type CSSProperties } from "react";
+import { romeDay } from "./dates";
+import { layoutIntervals, nextTimedEvent, romeMinutes } from "./calendarLayout";
 
 export type DisplayEvent = {
   id: string;
@@ -10,12 +10,20 @@ export type DisplayEvent = {
   subtitle: string;
   kind: "crm" | "google" | "owner";
   allDay?: boolean;
+  skipAsNext?: boolean;
   onOpen: () => void;
 };
 
 const hourHeight = 100;
 const labelWidth = 64;
 const timeFormat = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+
+function untilNext(minutes: number) {
+  if (minutes === 0) return "adesso";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `tra ${hours ? `${hours} h${rest ? ` ${rest} min` : ""}` : `${rest} min`}`;
+}
 
 function EventButton({ event, compact = false }: { event: DisplayEvent; compact?: boolean }) {
   const time = event.allDay ? "Tutto il giorno" : timeFormat.format(new Date(event.at));
@@ -35,6 +43,25 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
   view: CalendarView;
   onViewChange: (view: CalendarView) => void;
 }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer: number | undefined;
+    const tick = () => {
+      window.clearTimeout(timer);
+      const instant = new Date();
+      setNow(instant);
+      timer = window.setTimeout(tick, 60_000 - instant.getTime() % 60_000);
+    };
+    tick();
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+  const today = romeDay(now);
+  const nowIso = now.toISOString();
+  const nowLabel = timeFormat.format(now);
   const forDay = (day: string) => events.filter(event => {
     const start = event.allDay ? event.at.slice(0, 10) : romeDay(event.at);
     // Google all-day end dates are exclusive, as are timed midnight endings.
@@ -52,9 +79,13 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
     const lanes = Math.max(1, ...placed.map(event => event.columns));
     return { day, date, dailyEvents, placed, lanes, minWidth: Math.max(134, lanes * 96) };
   });
+  const todaySchedule = week.find(day => day.day === today);
+  const nowMinute = todaySchedule ? romeMinutes(nowIso) : null;
+  const nowHour = nowMinute === null ? null : Math.floor(nowMinute / 60);
+  const next = todaySchedule ? nextTimedEvent(todaySchedule.dailyEvents, now) : null;
   const timedEvents = week.flatMap(({ placed }) => placed);
-  const startHour = Math.min(8, ...timedEvents.map(event => Math.floor(event.start / 60)));
-  const endHour = Math.max(20, ...timedEvents.map(event => Math.ceil(event.end / 60)));
+  const startHour = Math.min(8, nowHour ?? 8, ...timedEvents.map(event => Math.floor(event.start / 60)));
+  const endHour = Math.max(20, nowHour === null ? 20 : nowHour + 1, ...timedEvents.map(event => Math.ceil(event.end / 60)));
   const hours = Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index);
   const positionAt = (minute: number) => (minute / 60 - startHour) * hourHeight;
   const weekStyle = {
@@ -64,6 +95,10 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
   } as CSSProperties;
 
   return <>
+    {todaySchedule && <div className="schedule-now-summary">
+      <span className="schedule-now-clock">Ora <time dateTime={nowIso}>{nowLabel}</time></span>
+      {next && <span>Prossimo impegno alle <time dateTime={next.at}>{timeFormat.format(new Date(next.at))}</time> · {untilNext(next.minutes)}</span>}
+    </div>}
     {view === "agenda" ? <div className="schedule-agenda">
       {week.map(({ day, date, dailyEvents }) => <section key={day}>
         <header>
@@ -77,7 +112,7 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
       <div className="schedule-week" style={weekStyle}>
         <div className="schedule-head">
           <div className="schedule-zone">Roma</div>
-          {week.map(({ day, date, lanes, dailyEvents }) => <header key={day} className={day === romeToday() ? "today" : ""}>
+          {week.map(({ day, date, lanes, dailyEvents }) => <header key={day} className={day === today ? "today" : ""}>
             <span>{date.toLocaleDateString("it-IT", { weekday: "short" })}</span>
             <b>{date.getDate()}</b>
             <button type="button" onClick={() => onCreate(date)} aria-label={`Aggiungi il ${date.toLocaleDateString("it-IT")}`}>+</button>
@@ -98,6 +133,9 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
             }}>
               <EventButton event={event} compact={event.end - event.start <= 30} />
             </div>)}
+            {day === today && nowMinute !== null && <div className="schedule-now-line" style={{ top: positionAt(nowMinute) }} aria-hidden="true">
+              <span>{nowLabel}</span>
+            </div>}
           </div>)}
         </div>
       </div>
