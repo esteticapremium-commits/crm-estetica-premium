@@ -256,6 +256,7 @@ export default function LeadModal({
   const [closingAction, setClosingAction] = useState<"held" | "no_show" | null>(null);
   const [closingMinutes, setClosingMinutes] = useState("");
   const [commercialNote, setCommercialNote] = useState("");
+  const [recallDraft, setRecallDraft] = useState<{ id: string; due: string } | null>(null);
   const [commercialMinutes, setCommercialMinutes] = useState("");
   const [activitySaved, setActivitySaved] = useState("");
   const [activityHistory, setActivityHistory] = useState<LeadActivity[]>([]);
@@ -494,9 +495,47 @@ export default function LeadModal({
     }
   }
 
-  async function recordQuickActivity(outcome: "no_answer" | "answered" | "not_interested" | "qualified" | "not_qualified" | "completed" | "lost", bookClosing = false) {
+  async function saveContactDisposition(outcome: "not_available_now" | "not_interested") {
     if (!lead || commercialActionLock.current) return;
-    const isContact = outcome === "no_answer" || outcome === "answered" || outcome === "not_interested";
+    const recallAt = outcome === "not_available_now" && recallDraft?.due ? new Date(recallDraft.due) : null;
+    if (recallAt && (!Number.isFinite(recallAt.getTime()) || recallAt.getTime() <= Date.now())) {
+      setErr("Scegli una data e un orario futuri per il richiamo.");
+      return;
+    }
+    commercialActionLock.current = true;
+    setBusy(true);
+    setErr(null);
+    setActivitySaved("");
+    try {
+      const { data, error } = await withTimeout(supabase.rpc("record_lead_contact_disposition", {
+        p_lead_id: lead.id, p_expected_stage_id: persistedStage.current ?? lead.stage_id,
+        p_request_id: outcome === "not_available_now" && recallDraft ? recallDraft.id : crypto.randomUUID(),
+        p_outcome: outcome, p_contact_type: contactType, p_note: commercialNote.trim() || null,
+        p_recall_at: recallAt?.toISOString() ?? null,
+      }));
+      if (error || !data) throw new Error(error?.message || "Esito non confermato.");
+      const updated = data as Lead;
+      persistedStage.current = updated.stage_id;
+      persistedNextAction.current = updated.next_action_date || "";
+      setStageId(updated.stage_id);
+      setNextAction(persistedNextAction.current);
+      setLostReason(updated.lost_reason || "");
+      setCommercialNote("");
+      setRecallDraft(null);
+      setActivitySaved(outcome === "not_interested" ? "Lead spostato in LOST" : recallAt ? "Lead spostato in RECALL · Richiamo fissato" : "Lead spostato in RECALL");
+      onUpdated?.();
+      await Promise.all([reloadActivityHistory(), reloadFollowUps()]);
+    } catch (reason) {
+      setErr(reason instanceof Error ? reason.message : "Impossibile salvare l’esito del contatto.");
+    } finally {
+      commercialActionLock.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function recordQuickActivity(outcome: "no_answer" | "answered" | "qualified" | "not_qualified" | "completed" | "lost", bookClosing = false) {
+    if (!lead || commercialActionLock.current) return;
+    const isContact = outcome === "no_answer" || outcome === "answered";
     const isSetting = isContact && contactType === "setting";
     if (pendingSetting && settingDue && isContact) {
       openAppointmentDraft(pendingSetting, "outcome");
@@ -1226,7 +1265,8 @@ export default function LeadModal({
               <div className={"commercial-quick-actions action-group-" + actionGroup}>
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>}
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>}
-                {!settingDue && !settingOutcomeDraft && contactType === "setting" && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("not_interested")}><b>Non interessato</b><small>Registra l’esito del setting</small></button>}
+                {!settingOutcomeDraft && stages.some(stage => stage.pipeline_id === lead?.pipeline_id && stage.name.trim().toUpperCase() === "RECALL") && <button data-action-group="contact" type="button" disabled={busy} onClick={() => setRecallDraft({ id: crypto.randomUUID(), due: "" })}><b>Non disponibile ora</b><small>Sposta in RECALL</small></button>}
+                {!settingOutcomeDraft && stages.some(stage => stage.pipeline_id === lead?.pipeline_id && stage.id !== stageId && stage.name.trim().toUpperCase() === "LOST") && <button data-action-group="contact" type="button" disabled={busy || !!recallDraft} onClick={() => void saveContactDisposition("not_interested")}><b>Non interessato</b><small>Sposta in LOST</small></button>}
                 {notInTargetStage && notInTargetStage.id !== stageId && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void markNotInTarget()}><b>Non in target</b><small>Sposta nella colonna dedicata</small></button>}
                 <button
                   data-action-group="contact"
@@ -1245,6 +1285,14 @@ export default function LeadModal({
                 {!hasClosing && <button data-action-group="closing" type="button" disabled={busy || !appointmentsReady || hasClosing || !!appointmentDraft || !!booking} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>Non era in calendario</small></button>}
                 <button data-action-group="other" type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
+              {actionGroup === "contact" && recallDraft && <div className="commercial-quick-detail">
+                <b>Non disponibile ora</b>
+                <label>Nota<textarea rows={2} value={commercialNote} onChange={e => setCommercialNote(e.target.value)} disabled={busy} /></label>
+                <details><summary>Fissa un richiamo (facoltativo)</summary>
+                  <LeadDateTimePicker value={recallDraft.due} onChange={due => setRecallDraft({ ...recallDraft, due })} disabled={busy} />
+                </details>
+                <div className="commercial-quick-confirm"><button type="button" className="btn" disabled={busy} onClick={() => setRecallDraft(null)}>Annulla</button><button type="button" className="btn primary" disabled={busy} onClick={() => void saveContactDisposition("not_available_now")}>Sposta in RECALL</button></div>
+              </div>}
               {quickAction && <div className="commercial-quick-detail">
                 {quickAction !== "lost" && <details><summary>La call è di un altro giorno?</summary><LeadDateTimePicker value={manualCallAt} onChange={setManualCallAt} disabled={busy} /></details>}
 

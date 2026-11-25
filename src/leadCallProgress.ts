@@ -17,6 +17,7 @@ export const leadCallEventTypes = Object.keys(activityTypes);
 const outcomeLabels: Readonly<Record<string, string>> = {
   answered: "Svolta", held: "Svolta", qualified: "Svolta · In target", not_qualified: "Svolta · Fuori target",
   not_interested: "Svolta · Non interessato", no_answer: "Non risponde", no_show: "No-show",
+  not_available_now: "Non disponibile ora",
   lost: "Offerta rifiutata",
 };
 
