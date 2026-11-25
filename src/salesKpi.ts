@@ -47,6 +47,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   negative: "Risposta negativa",
   answered: "Risposto",
   not_interested: "Non interessato",
+  not_available_now: "Non disponibile ora",
   not_in_target: "Non in target",
   no_answer: "Non risponde",
   qualified: "Svolta · in target",
