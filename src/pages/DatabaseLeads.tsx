@@ -18,6 +18,7 @@ const messageFor = (error: unknown) => typeof error === "object" && error && "me
 
 export default function DatabaseLeads({ clientId }: { clientId: string }) {
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [commercialOwnerId, setCommercialOwnerId] = useState<string | null>(null);
   const [staffError, setStaffError] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
@@ -35,16 +36,24 @@ export default function DatabaseLeads({ clientId }: { clientId: string }) {
   const [notice, setNotice] = useState("");
   const searchId = useId();
   const setters = staff.filter(person => person.role === "setter");
-  const sellers = staff.filter(person => person.role === "venditore");
-  const sellerId = seller || (sellers.length === 1 ? sellers[0].id : "");
+  const sellers = staff.filter(person => person.role === "venditore" || person.id === commercialOwnerId);
+  const sellerId = seller || commercialOwnerId || (sellers.length === 1 ? sellers[0].id : "");
   const eligible = contacts.filter(available);
   const entirePageSelected = eligible.length > 0 && eligible.every(contact => selected.includes(contact.id));
 
   useEffect(() => {
     let active = true;
-    withTimeout(supabase.rpc("list_users")).then(({ data, error }) => {
-      if (error) throw error;
-      if (active) setStaff(((data || []) as Staff[]).filter(person => person.client_id === clientId));
+    Promise.all([
+      withTimeout(supabase.rpc("list_users")),
+      withTimeout(supabase.rpc("get_database_leads_commercial_owner", { p_client_id: clientId })),
+    ]).then(([users, owner]) => {
+      if (users.error || owner.error) throw users.error || owner.error;
+      if (active) {
+        const team = (users.data || []) as Staff[];
+        const ownerId = typeof owner.data === "string" && team.some(person => person.id === owner.data) ? owner.data : null;
+        setCommercialOwnerId(ownerId);
+        setStaff(team.filter(person => person.client_id === clientId || person.id === ownerId));
+      }
     }).catch(reason => { if (active) setStaffError(messageFor(reason)); });
     return () => { active = false; };
   }, [clientId]);
@@ -137,9 +146,9 @@ export default function DatabaseLeads({ clientId }: { clientId: string }) {
           <label>Setter<select required value={setter} disabled={saving} onChange={e => setSetter(e.target.value)}>
             <option value="">Scegli un setter</option>{setters.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}
           </select></label>
-          {sellers.length !== 1 && <label>Venditore per la discovery<select required value={sellerId} disabled={saving} onChange={e => setSeller(e.target.value)}>
-            <option value="">Scegli un venditore</option>{sellers.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}
-          </select></label>}
+          <label>Referente per la discovery<select required value={sellerId} disabled={saving} onChange={e => setSeller(e.target.value)}>
+            <option value="">Scegli un referente</option>{sellers.map(person => <option key={person.id} value={person.id}>{labelFor(person)}</option>)}
+          </select></label>
         </div>
         <button className="btn primary" type="submit" disabled={saving || loading || !setter || !sellerId}>{saving ? "Assegnazione…" : "Assegna i contatti"}</button>
       </form>}
