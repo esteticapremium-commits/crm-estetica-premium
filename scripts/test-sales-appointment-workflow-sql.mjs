@@ -168,4 +168,36 @@ await db.exec("set test.actor='Altro venditore'");
 await assert.rejects(() => saveConfirmation(heldConfirmation, "no_show"), /non accessibile/);
 assert.equal(await scalar("select has_function_privilege('anon','save_confirmation_call_outcome(uuid,timestamptz,text)','execute')"), false);
 console.log("SQL OK: esiti delle conferme, correzioni, retry e permessi");
+await db.exec("reset role");
+const pipelineId = "00000000-0000-0000-0000-000000000043";
+const closingStageId = "00000000-0000-0000-0000-000000000044";
+const lostStageId = "00000000-0000-0000-0000-000000000045";
+await db.exec(`
+  create table stages(id uuid, client_id uuid, pipeline_id uuid, name text, position int);
+  alter table leads add column stage_id uuid, add column position int, add column lost_reason text;
+  insert into stages values
+    ('${closingStageId}', '${client}', '${pipelineId}', 'CLOSING', 1),
+    ('${lostStageId}', '${client}', '${pipelineId}', 'LOST', 2);
+  update leads set stage_id='${closingStageId}', pipeline_id='${pipelineId}' where id='${lead}';
+  grant select on stages to authenticated;
+`);
+const lostMigration = readFileSync("supabase/upgrade_confirmation_call_lost.sql", "utf8");
+await db.exec(lostMigration);
+await db.exec(lostMigration);
+await db.exec("set test.actor='Giovanni'; set role authenticated");
+const closeFromConfirmation = (task, stage) => scalar(
+  "select to_jsonb(save_confirmation_call_outcome_and_close_lead($1,$2,'no_show',$3))",
+  [task.id, task.updated_at, stage],
+);
+await assert.rejects(() => closeFromConfirmation(heldConfirmation, lostStageId), /fase del lead è cambiata/);
+assert.equal(await scalar("select appointment_outcome from sales_tasks where id=$1", [confirmationId]), "held");
+const closed = await closeFromConfirmation(heldConfirmation, closingStageId);
+assert.equal(closed.appointment_outcome, "no_show");
+assert.equal(await scalar("select stage_id from leads where id=$1", [lead]), lostStageId);
+assert.equal(await scalar("select lost_reason from leads where id=$1", [lead]), "Non interessato più");
+await closeFromConfirmation(heldConfirmation, closingStageId);
+assert.equal(await scalar("select count(*)::int from lead_activities where event_key=$1", [`confirmation:${confirmationId}:not-interested`]), 1);
+await db.exec("set test.actor='Altro venditore'");
+await assert.rejects(() => closeFromConfirmation(closed, closingStageId), /non accessibile/);
+console.log("SQL OK: no-show e chiusura lead atomici, correzioni e retry");
 await db.close();

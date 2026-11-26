@@ -58,6 +58,15 @@
   font-size: 14px;
 }
 
+.calendar-confirmation-disposition {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.calendar-confirmation-disposition input { width: auto; flex: none; }
+
 .calendar-appointment-dialog .calendar-type-options,
 .calendar-appointment-dialog .calendar-outcome-actions,
 .calendar-appointment-dialog .appointment-outcomes [role="group"],
