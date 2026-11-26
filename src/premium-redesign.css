@@ -246,6 +246,11 @@
 .theme-premium.platform-shell .commercial-quick-actions > button.active.danger { border-color: var(--ep-danger); background: var(--ep-danger-soft); color: var(--ep-danger); }
 .theme-premium.platform-shell .commercial-quick-detail { margin-top: 9px; padding: 12px; border: 1px solid var(--ep-line); border-radius: 10px; background: var(--ep-surface-muted); }
 .theme-premium.platform-shell .commercial-quick-detail > label { color: var(--ep-ink); font-size: 10px; font-weight: 800; }
+.theme-premium.platform-shell .contact-recall-detail > .field { margin: 0; }
+.theme-premium.platform-shell .contact-recall-detail > details { margin-top: 8px; }
+.theme-premium.platform-shell .contact-recall-detail summary { padding-block: 6px; color: var(--ep-brand); font-size: 13px; font-weight: 700; cursor: pointer; }
+.theme-premium.platform-shell .contact-recall-detail summary small { color: var(--ep-muted); font-size: 11px; font-weight: 500; }
+.theme-premium.platform-shell .contact-recall-detail details[open] > .lead-date-time { margin-top: 6px; }
 .theme-premium.platform-shell .quick-closing-explanation { margin: 0 0 10px; color: var(--ep-muted); font-size: 10px; line-height: 1.5; }
 .theme-premium.platform-shell .quick-closing-explanation b { color: var(--ep-ink); }
 .theme-premium.platform-shell .duration-chips { display: flex; gap: 5px; margin: 7px 0 10px; flex-wrap: wrap; }
