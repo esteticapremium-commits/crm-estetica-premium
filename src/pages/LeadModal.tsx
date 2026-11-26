@@ -1261,11 +1261,18 @@ export default function LeadModal({
               {settingOutcomeDraft && appointmentForm}
               {actionGroup === "contact" && !settingOutcomeDraft && !settingDue && <div className="field quick-call-type"><label htmlFor="quick-call-type">Tipo di contatto</label><select id="quick-call-type" value={contactType} onChange={e => setCallTypeOverride(e.target.value as ContactType)}><option value="setting">Setting</option><option value="lead">Richiamo</option><option value="outbound">Outbound</option><option value="client">Già cliente</option><option value="other">Altro</option></select></div>}
               {((actionGroup === "discovery" && hasDiscovery) || (actionGroup === "closing" && hasClosing)) && <p>Per le call in agenda usa «Registra esito» in Appuntamenti del lead.</p>}
-              <div className="lead-action-groups">{[["contact", "Contatto"], ["discovery", "Discovery"], ["closing", "Closing"], ["other", "Altre azioni"]].map(([id, label]) => <button type="button" key={id} aria-pressed={actionGroup === id} onClick={() => { setActionGroup(id); setQuickAction(null); setClosingAction(null); setManualCallAt(""); }}>{label}</button>)}</div>
+              <div className="lead-action-groups">{[["contact", "Contatto"], ["discovery", "Discovery"], ["closing", "Closing"], ["other", "Altre azioni"]].map(([id, label]) => <button type="button" key={id} aria-pressed={actionGroup === id} onClick={() => { setActionGroup(id); if (id !== "contact") setRecallDraft(null); setQuickAction(null); setClosingAction(null); setManualCallAt(""); }}>{label}</button>)}</div>
               <div className={"commercial-quick-actions action-group-" + actionGroup}>
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("no_answer")}><b>Non risponde</b><small>Registra un tentativo</small></button>}
                 {!settingDue && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void recordQuickActivity("answered")}><b>Ha risposto</b><small>Call senza discovery</small></button>}
-                {!settingOutcomeDraft && stages.some(stage => stage.pipeline_id === lead?.pipeline_id && stage.name.trim().toUpperCase() === "RECALL") && <button data-action-group="contact" type="button" disabled={busy} onClick={() => setRecallDraft({ id: crypto.randomUUID(), due: "" })}><b>Non disponibile ora</b><small>Sposta in RECALL</small></button>}
+                {!settingOutcomeDraft && stages.some(stage => stage.pipeline_id === lead?.pipeline_id && stage.name.trim().toUpperCase() === "RECALL") && (
+                  <button data-action-group="contact" type="button" disabled={busy}
+                    className={recallDraft ? "active" : undefined} aria-expanded={!!recallDraft}
+                    aria-controls={recallDraft ? "contact-recall-detail" : undefined}
+                    onClick={() => setRecallDraft(recallDraft ? null : { id: crypto.randomUUID(), due: "" })}>
+                    <b>Non disponibile ora</b><small>Sposta in RECALL</small>
+                  </button>
+                )}
                 {!settingOutcomeDraft && stages.some(stage => stage.pipeline_id === lead?.pipeline_id && stage.id !== stageId && stage.name.trim().toUpperCase() === "LOST") && <button data-action-group="contact" type="button" disabled={busy || !!recallDraft} onClick={() => void saveContactDisposition("not_interested")}><b>Non interessato</b><small>Sposta in LOST</small></button>}
                 {notInTargetStage && notInTargetStage.id !== stageId && !settingOutcomeDraft && <button data-action-group="contact" type="button" disabled={busy} onClick={() => void markNotInTarget()}><b>Non in target</b><small>Sposta nella colonna dedicata</small></button>}
                 <button
@@ -1285,13 +1292,21 @@ export default function LeadModal({
                 {!hasClosing && <button data-action-group="closing" type="button" disabled={busy || !appointmentsReady || hasClosing || !!appointmentDraft || !!booking} className={closingAction === "no_show" ? "active danger" : "danger"} onClick={() => { setQuickAction(null); setClosingAction("no_show"); }}><b>No-show closing</b><small>Non era in calendario</small></button>}
                 <button data-action-group="other" type="button" disabled={busy} className={quickAction === "lost" ? "active danger" : "danger"} onClick={() => { setClosingAction(null); setQuickAction("lost"); }}><b>Perso</b><small>Indica il motivo</small></button>
               </div>
-              {actionGroup === "contact" && recallDraft && <div className="commercial-quick-detail">
-                <b>Non disponibile ora</b>
-                <label>Nota<textarea rows={2} value={commercialNote} onChange={e => setCommercialNote(e.target.value)} disabled={busy} /></label>
-                <details><summary>Fissa un richiamo (facoltativo)</summary>
-                  <LeadDateTimePicker value={recallDraft.due} onChange={due => setRecallDraft({ ...recallDraft, due })} disabled={busy} />
+              {actionGroup === "contact" && recallDraft && <div className="commercial-quick-detail contact-recall-detail" id="contact-recall-detail">
+                <div className="field">
+                  <label htmlFor="contact-recall-note">Nota facoltativa</label>
+                  <input id="contact-recall-note" value={commercialNote} onChange={e => setCommercialNote(e.target.value)} disabled={busy} />
+                </div>
+                <details>
+                  <summary>Fissa un richiamo <small>(facoltativo)</small></summary>
+                  <LeadDateTimePicker value={recallDraft.due} onChange={due => setRecallDraft({ ...recallDraft, due })} disabled={busy} revealPanel />
                 </details>
-                <div className="commercial-quick-confirm"><button type="button" className="btn" disabled={busy} onClick={() => setRecallDraft(null)}>Annulla</button><button type="button" className="btn primary" disabled={busy} onClick={() => void saveContactDisposition("not_available_now")}>Sposta in RECALL</button></div>
+                <div className="commercial-quick-confirm">
+                  <button type="button" className="btn small" disabled={busy} onClick={() => setRecallDraft(null)}>Annulla</button>
+                  <button type="button" className="btn small primary" disabled={busy} onClick={() => void saveContactDisposition("not_available_now")}>
+                    {busy ? "Salvataggio…" : "Sposta in RECALL"}
+                  </button>
+                </div>
               </div>}
               {quickAction && <div className="commercial-quick-detail">
                 {quickAction !== "lost" && <details><summary>La call è di un altro giorno?</summary><LeadDateTimePicker value={manualCallAt} onChange={setManualCallAt} disabled={busy} /></details>}
