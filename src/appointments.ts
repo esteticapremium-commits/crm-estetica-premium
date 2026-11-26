@@ -35,10 +35,12 @@ export type AppointmentOutcome = SettingOutcome | DiscoveryOutcome | DemoOutcome
 const SETTING_OUTCOMES: SettingOutcome[] = ["answered", "no_answer", "not_interested", "no_show"];
 export const DISCOVERY_OUTCOMES: DiscoveryOutcome[] = ["qualified", "not_qualified", "no_answer", "no_show"];
 export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "lost", "no_show"];
+const CONFIRMATION_OUTCOMES: AppointmentOutcome[] = ["held", "no_show"];
 
 /** Gli unici esiti ammessi per fase. Una demo non può essere "in target" e una
  *  discovery non può essere genericamente "svolta": sono due domande diverse. */
-export function allowedOutcomes(type: AppointmentType): AppointmentOutcome[] {
+export function allowedOutcomes(type: AppointmentType | "confirmation"): AppointmentOutcome[] {
+  if (type === "confirmation") return CONFIRMATION_OUTCOMES;
   return type === "setting" ? SETTING_OUTCOMES : type === "discovery" ? DISCOVERY_OUTCOMES : DEMO_OUTCOMES;
 }
 
@@ -368,10 +370,13 @@ export async function recordAppointmentOutcome(
   note?: string,
   proposalMade?: boolean,
 ): Promise<AppointmentResult> {
-  const { data, error } = await supabase.rpc("save_sales_appointment_outcome", {
-    p_id: task.id, p_expected_updated_at: task.updated_at, p_outcome: outcome,
-    p_minutes: actualMinutes ?? null, p_note: note?.trim() ?? null, p_proposal_made: proposalMade ?? null,
-  });
+  const outcomeParams = { p_id: task.id, p_expected_updated_at: task.updated_at, p_outcome: outcome };
+  const { data, error } = task.confirmation_for
+    ? await supabase.rpc("save_confirmation_call_outcome", outcomeParams)
+    : await supabase.rpc("save_sales_appointment_outcome", {
+        ...outcomeParams, p_minutes: actualMinutes ?? null,
+        p_note: note?.trim() ?? null, p_proposal_made: proposalMade ?? null,
+      });
   const saved = Array.isArray(data) ? data[0] : data;
   if (error || saved?.id !== task.id) return { ok: false, error: error?.message || "Esito non confermato. Riprova." };
   return { ok: true, taskId: task.id };
