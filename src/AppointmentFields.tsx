@@ -17,7 +17,7 @@ export function AppointmentTime({ type, value, disabled, onChange, revealPanel }
 }
 
 export function AppointmentOutcomeChoices({ type, value, disabled, beforeStart = false, onChange }: {
-  type: AppointmentType; value?: AppointmentOutcome | ""; disabled?: boolean; beforeStart?: boolean; onChange: (value: AppointmentOutcome) => void;
+  type: AppointmentType | "confirmation"; value?: AppointmentOutcome | ""; disabled?: boolean; beforeStart?: boolean; onChange: (value: AppointmentOutcome) => void;
 }) {
   const choices = beforeStart ? ["no_show"] as const : allowedOutcomes(type);
   return <div className="lead-appointment-actions" role="group" aria-label="Esito della call">
@@ -28,6 +28,6 @@ export function AppointmentOutcomeChoices({ type, value, disabled, beforeStart =
       disabled={disabled}
       aria-pressed={value === outcome}
       onClick={() => onChange(outcome)}
-    >{beforeStart ? "No-show preannunciato" : outcome === "no_show" && type !== "demo" ? "Disdetta" : type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}
+    >{beforeStart ? "No-show preannunciato" : outcome === "no_show" && (type === "setting" || type === "discovery") ? "Disdetta" : type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}
   </div>;
 }

@@ -283,7 +283,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
 
   const googleSalesByKey = new Map(googleSales.map(sale => [sale.google_key, sale]));
   const displayEvents: DisplayEvent[] = [
-    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
     ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => {
       const sale = googleSalesByKey.get(googleSaleKey(event));
       return {
@@ -476,7 +476,7 @@ function EventDetailsModal({
           <div><b>Il contatto ha chiesto un rinvio?</b><p>{reopenSetting ? "Spostando il setting, correggi anche l’esito precedente." : "Sposta lo stesso evento nel CRM e su Google Calendar."}</p></div>
           <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
         </div>}
-        {task?.appointment_type && task.appointment_status !== "cancelled" &&
+        {task && (task.appointment_type || task.confirmation_for) && task.appointment_status !== "cancelled" &&
           (canReschedule && beforeStart
             ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
                 <p>Usalo se il contatto ha annullato e non avete concordato un nuovo orario.</p>
@@ -515,18 +515,19 @@ function CalendarOutcome({ task, busy, onOutcome }: {
 }) {
   const [value, setValue] = useState<AppointmentOutcome | "">((task.appointment_outcome || "") as AppointmentOutcome | "");
   const [proposalMade, setProposalMade] = useState(task.proposal_made ?? undefined);
-  if (!task.appointment_type) return null;
+  const type = task.confirmation_for ? "confirmation" : task.appointment_type;
+  if (!type) return null;
   const beforeStart = Date.parse(task.due_at) > Date.now();
   const saveValue = !beforeStart || value === "no_show" ? value : "";
   const canAdvance = value === "qualified" || (task.appointment_type === "setting" && value === "answered");
-  const nextAction = beforeStart ? null : value === "qualified" ? "Salva e prenota closing"
+  const nextAction = beforeStart || type === "confirmation" ? null : value === "qualified" ? "Salva e prenota closing"
     : task.appointment_type === "setting" && value === "answered" ? "Salva e prenota discovery"
     : value === "no_show" || value === "no_answer" ? value === "no_answer" && task.appointment_type === "setting" ? "Non risponde e riprenota setting" : "No-show e riprenota"
     : null;
   return <div className="appointment-outcomes">
     {!beforeStart && <b>{isAppointmentClosed(task) ? "Correggi l’esito" : "Com’è andata?"}</b>}
-    <AppointmentOutcomeChoices type={task.appointment_type} value={value} disabled={busy} beforeStart={beforeStart} onChange={setValue} />
-    {value === "held" && <label><input type="checkbox" checked={proposalMade ?? false} disabled={busy} onChange={event => setProposalMade(event.target.checked)} /> Proposta presentata</label>}
+    <AppointmentOutcomeChoices type={type} value={value} disabled={busy} beforeStart={beforeStart} onChange={setValue} />
+    {type === "demo" && value === "held" && <label><input type="checkbox" checked={proposalMade ?? false} disabled={busy} onChange={event => setProposalMade(event.target.checked)} /> Proposta presentata</label>}
     <div className="calendar-outcome-actions">
       <button type="button" className={canAdvance ? "btn" : "btn primary"}
         disabled={busy || !saveValue} onClick={() => { if (saveValue) onOutcome(saveValue, false, proposalMade); }}>Salva esito</button>
