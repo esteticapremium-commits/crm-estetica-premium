@@ -64,7 +64,7 @@ export const APPOINTMENT_LABELS: Record<AppointmentType, string> = {
 export const APPOINTMENT_SHORT_LABELS: Record<AppointmentType, string> = {
   setting: "Setting", discovery: "Discovery", demo: "Closing",
 };
-export const CLOSING_WON_LABEL = "Vendita vinta";
+export const CLOSING_WON_LABEL = "CHIUSO";
 export const CONFIRMATION_LABEL = "Call di conferma";
 export const CONFIRMATION_MINUTES = 30;
 const titleLabels = [...Object.values(APPOINTMENT_LABELS), CONFIRMATION_LABEL, "Discovery telefonica", "Demo video", "Appuntamento"].join("|");

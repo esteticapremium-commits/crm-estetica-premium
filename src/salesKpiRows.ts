@@ -1,6 +1,6 @@
 import { romeDay as dayInRome } from "./dates";
 import type { DailyNumbers } from "./dailySales";
-import { firstNewSaleIds, googleSaleMetrics, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "./googleSales";
+import { firstNewSaleIds, googleSaleMetrics, isCalendarClosingRevenue, isGoogleRevenue, saleHeld, saleOutcomes, type GoogleSale } from "./googleSales";
 import { activityTimestamp, isHeldClosing } from "./salesKpi";
 import type { Contract, Lead, LeadActivity, SalesCost, SalesOutreachEvent, SalesRevenueEvent, SalesTask } from "./types";
 
@@ -404,21 +404,34 @@ export function calculateKpiRows({
     if (inRange(proposalDay)) rowOf(proposalDay).proposals += 1;
   });
 
+  const closingValues = new Map(dedupRevenue
+    .filter(entry => entry.sale_appointment_id && entry.status !== "cancelled" && isCalendarClosingRevenue(entry.event_key))
+    .map(entry => [entry.sale_appointment_id, entry.contract_value]));
+  const previouslyRecordedDeals = new Set(dedupRevenue
+    .filter(entry => entry.sale_appointment_id && entry.status === "collected" && !isCalendarClosingRevenue(entry.event_key))
+    .map(entry => `${entry.sale_appointment_id}:${entry.revenue_type}`));
   revenue.forEach((entry) => {
+    if (!sellerMatches(entry.assigned_to) || !sourceMatches(entry.lead_id)) return;
+    const calendarClosing = isCalendarClosingRevenue(entry.event_key);
     const day = dayInRome(entry.occurred_at);
-    if (!inRange(day) || entry.status !== "collected" || !sellerMatches(entry.assigned_to) || !sourceMatches(entry.lead_id)) return;
+    const saleDay = calendarClosing ? dayInRome(entry.created_at || entry.occurred_at) : day;
+    if (inRange(saleDay) && firstNewSales.has(`revenue:${entry.id}`)) {
+      const saleRow = rowOf(saleDay);
+      saleRow.won += 1;
+      const leadValue = entry.lead_id ? signedValueByLead.get(entry.lead_id) ?? leadById.get(entry.lead_id)?.value : null;
+      saleRow.contractValue += number(closingValues.get(entry.sale_appointment_id) ?? entry.contract_value ?? leadValue);
+    }
+    if (calendarClosing && inRange(saleDay) && (entry.status === "collected" || (entry.status === "expected" && entry.sale_appointment_id))
+      && !previouslyRecordedDeals.has(`${entry.sale_appointment_id}:${entry.revenue_type}`)) {
+      if (entry.revenue_type === "renewal") rowOf(saleDay).renewals += 1;
+      if (entry.revenue_type === "upsell") rowOf(saleDay).upsells += 1;
+    }
+    if (!inRange(day) || entry.status !== "collected") return;
     const row = rowOf(day);
     evidence.push({id:entry.id,kind:"cash",leadId:entry.lead_id,at:entry.occurred_at,owner:entry.assigned_to,value:number(entry.amount),label:entry.note || (entry.revenue_type === "new" ? "Nuovo cliente" : entry.revenue_type === "renewal" ? "Rinnovo" : "Upsell")});
-    if (entry.revenue_type === "new") {
-      row.collectedNew += number(entry.amount);
-      // Rate successive aumentano l'incassato, ma la closing resta una sola.
-      if (entry.lead_id && firstNewSales.has(`revenue:${entry.id}`)) {
-        row.won += 1;
-        row.contractValue += number(entry.contract_value ?? signedValueByLead.get(entry.lead_id) ?? leadById.get(entry.lead_id)?.value);
-      }
-    }
-    if (entry.revenue_type === "renewal") { if (!isGoogleRevenue(entry.event_key)) row.renewals += 1; row.collectedRenewal += number(entry.amount); }
-    if (entry.revenue_type === "upsell") { if (!isGoogleRevenue(entry.event_key)) row.upsells += 1; row.collectedUpsell += number(entry.amount); }
+    if (entry.revenue_type === "new") row.collectedNew += number(entry.amount);
+    if (entry.revenue_type === "renewal") { if (!calendarClosing && !isGoogleRevenue(entry.event_key)) row.renewals += 1; row.collectedRenewal += number(entry.amount); }
+    if (entry.revenue_type === "upsell") { if (!calendarClosing && !isGoogleRevenue(entry.event_key)) row.upsells += 1; row.collectedUpsell += number(entry.amount); }
   });
 
   if (origin !== "google") standalone.forEach(task => {

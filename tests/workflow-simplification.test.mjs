@@ -180,6 +180,27 @@ const googleSales = module('src/googleSales.ts');
 const kpiRows = module('src/salesKpiRows.ts', {'./dates': dates, './googleSales': googleSales, './salesKpi': kpi});
 const reporting = module('src/salesReporting.ts', {'./dates': dates, './dailySales': dailySales, './salesKpiRows': kpiRows, './salesKpi': kpi});
 
+test('la closing da calendario separa accordo e incasso e non riconta le rate', () => {
+  const day = '2026-11-27';
+  const tomorrow = '2026-11-28';
+  const createdAt = day + 'T16:00:00Z';
+  const collectedAt = tomorrow + 'T10:00:00Z';
+  const agreement = {id:'calendar', lead_id:'a', event_key:'calendar-closing:task', sale_appointment_id:'task',
+    revenue_type:'new', status:'expected', amount:0, contract_value:1800, occurred_at:createdAt, created_at:createdAt};
+  const inputs = { activities:[], outreach:[], standalone:[], externalSales:[], range:{from:day,to:tomorrow} };
+  let { rows } = kpiRows.calculateKpiRows({...inputs,revenue:[agreement]});
+  assert.equal(rows.find(row => row.day === day).won,1);
+  assert.equal(rows.find(row => row.day === day).contractValue,1800);
+  assert.equal(rows.find(row => row.day === day).collectedNew,0);
+  ({ rows } = kpiRows.calculateKpiRows({...inputs,revenue:[
+    {...agreement,status:'collected',occurred_at:collectedAt,amount:500},
+    {id:'instalment',lead_id:'a',revenue_type:'new',status:'collected',occurred_at:collectedAt,amount:200},
+  ]}));
+  assert.equal(rows.find(row => row.day === day).won,1);
+  assert.equal(rows.find(row => row.day === tomorrow).won,0);
+  assert.equal(rows.find(row => row.day === tomorrow).collectedNew,700);
+});
+
 test('i no-show preannunciati entrano nel giorno della call senza gonfiare i tentativi', () => {
   const day = '2026-11-09';
   const startsAt = day + 'T16:00:00Z';

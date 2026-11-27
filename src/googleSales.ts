@@ -21,6 +21,8 @@ export function googleSaleKey(event: GoogleEvent) {
   const occurrence = event.originalStartTime?.dateTime || event.originalStartTime?.date || '';
   return `${event.iCalUID || event.id}|${occurrence}`;
 }
+export const calendarClosingRevenueKey = (id: string) => `calendar-closing:${id}`;
+export function isCalendarClosingRevenue(key?: string | null) { return Boolean(key?.startsWith('calendar-closing:')); }
 export function isGoogleRevenue(key?: string | null) { return Boolean(key?.startsWith('google-sale:')); }
 const heldOutcomes: GoogleSaleOutcome[] = ['won', 'follow_up', 'lost', 'closing_booked'];
 export const googleSaleHistoryOutcomes: GoogleSaleOutcome[] = [...heldOutcomes, 'no_show'];
@@ -71,10 +73,16 @@ export function googleSaleMetrics(sale: GoogleSale, day: string, now = new Date(
 }
 
 /** One new-customer win per linked lead, even after linking a Google sale or adding instalments. */
-export function firstNewSaleIds(sales: GoogleSale[], revenue: Array<{id:string; lead_id:string|null; revenue_type:string; status:string; occurred_at:string; event_key?:string|null}>) {
+export function firstNewSaleIds(sales: GoogleSale[], revenue: Array<{id:string; lead_id:string|null; revenue_type:string; status:string; occurred_at:string; created_at?:string; sale_appointment_id?:string|null; event_key?:string|null}>) {
   const candidates = [
     ...sales.filter(s => s.outcome === 'won' && s.revenue_type === 'new').map(s => ({key:`google:${s.id}`,lead:s.lead_id,at:s.starts_at})),
-    ...revenue.filter(r => r.lead_id && r.revenue_type === 'new' && r.status === 'collected' && !isGoogleRevenue(r.event_key)).map(r => ({key:`revenue:${r.id}`,lead:r.lead_id,at:r.occurred_at})),
+    ...revenue.filter(r => r.revenue_type === 'new' && !isGoogleRevenue(r.event_key) && (
+      (isCalendarClosingRevenue(r.event_key) && (r.status === 'collected' || (r.status === 'expected' && r.sale_appointment_id))) ||
+      (r.lead_id && r.status === 'collected')
+    )).map(r => ({
+      key:`revenue:${r.id}`, lead:r.lead_id,
+      at:isCalendarClosingRevenue(r.event_key) ? r.created_at || r.occurred_at : r.occurred_at,
+    })),
   ].sort((a,b) => Date.parse(a.at)-Date.parse(b.at) || a.key.localeCompare(b.key));
   const seen=new Set<string>(); const ids=new Set<string>();
   for(const c of candidates) { if(c.lead && seen.has(c.lead)) continue; ids.add(c.key); if(c.lead)seen.add(c.lead); }

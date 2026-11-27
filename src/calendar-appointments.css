@@ -161,3 +161,15 @@
   background: var(--ep-surface-muted);
   border-left-color: var(--ep-brand);
 }
+
+.calendar-closing-form,
+.calendar-closing-amounts {
+  display: grid;
+  gap: 10px;
+}
+
+.calendar-closing-amounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.calendar-closing-form label { display: grid; gap: 5px; min-width: 0; }
+.calendar-closing-form input,
+.calendar-closing-form select { width: 100%; min-width: 0; }
+.calendar-closing-form .notice { margin: 0; }
