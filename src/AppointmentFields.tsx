@@ -1,10 +1,10 @@
 import LeadDateTimePicker from "./LeadDateTimePicker";
-import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, allowedOutcomes, type AppointmentOutcome, type AppointmentType } from "./appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, CLOSING_WON_LABEL, allowedOutcomes, type AppointmentOutcome, type AppointmentType } from "./appointments";
 
 const labels: Record<AppointmentOutcome, string> = {
   answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
-  lost: "Offerta rifiutata",
+  won: CLOSING_WON_LABEL, lost: "Offerta rifiutata",
 };
 
 export function AppointmentTime({ type, value, disabled, onChange, revealPanel }: {

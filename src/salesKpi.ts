@@ -73,7 +73,7 @@ export function activityTimestamp(activity: LeadActivity) {
 }
 
 export function isHeldClosing(outcome?: string | null) {
-  return outcome === "held" || outcome === "lost";
+  return outcome === "held" || outcome === "won" || outcome === "lost";
 }
 
 /** Minuto in cui è avvenuta l'azione, usato come granularità delle chiavi di

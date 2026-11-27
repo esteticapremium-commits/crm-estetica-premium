@@ -11,7 +11,7 @@ import { supabase } from "../supabaseClient";
 import type { Client, Lead, SalesTask, Stage } from "../types";
 import { connectGoogleCalendar, deleteGoogleCalendarEvent, ensureGoogleCalendarConnection, googleCalendarConfigured, googleCalendarConnected, listGoogleCalendarEvents, updateGoogleCalendarEvent, type GoogleEvent } from "../calendarGoogle";
 import { defaultAudience } from "../salesKpi";
-import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, CONFIRMATION_LABEL, CONFIRMATION_MINUTES, GIOVANNI_ID, appointmentSubject, bookConfirmationCall, canReopenSettingForReschedule, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_LABELS, APPOINTMENT_SHORT_LABELS, CLOSING_WON_LABEL, CONFIRMATION_LABEL, CONFIRMATION_MINUTES, GIOVANNI_ID, appointmentSubject, bookConfirmationCall, canReopenSettingForReschedule, createAppointment, deleteAppointment, isAppointmentClosed, isGiovanniSetting, isOwnerManagedDiscovery, outcomeKey, recordAppointmentOutcome, retryAppointmentSync, updateAppointment, usesOwnerDiscoveryCalendar, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" }).format(new Date(iso));
 const monday = (value: Date) => { const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date; };
@@ -303,7 +303,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
 
   const googleSalesByKey = new Map(googleSales.map(sale => [sale.google_key, sale]));
   const displayEvents: DisplayEvent[] = [
-    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_outcome === "won" ? CLOSING_WON_LABEL : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
     ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => {
       const sale = googleSalesByKey.get(googleSaleKey(event));
       return {
@@ -465,7 +465,7 @@ function EventDetailsModal({
           {selected.kind === "crm" ? <>
             <div><dt>Quando</dt><dd>{formatDateTime(selected.task.due_at)}</dd></div>
             <div><dt>Durata</dt><dd>{selected.task.duration_minutes || (selected.task.appointment_type ? APPOINTMENT_DURATION[selected.task.appointment_type] : 60)} minuti</dd></div>
-            <div><dt>Stato</dt><dd>{selected.task.appointment_outcome === "lost" ? "Offerta rifiutata" : selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show"
+            <div><dt>Stato</dt><dd>{selected.task.appointment_outcome === "won" ? CLOSING_WON_LABEL : selected.task.appointment_outcome === "lost" ? "Offerta rifiutata" : selected.task.appointment_status === "held" ? "Svolta" : selected.task.appointment_status === "no_show"
               ? selected.task.appointment_type === "setting" && selected.task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show"
               : selected.task.appointment_status === "cancelled" ? "Annullata" : "Da svolgere"}</dd></div>
             <div><dt>Assegnato a</dt><dd>{selected.task.assigned_to || "Non assegnato"}</dd></div>
