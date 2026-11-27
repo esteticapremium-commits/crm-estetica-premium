@@ -7,11 +7,11 @@ const labels: Record<AppointmentOutcome, string> = {
   won: CLOSING_WON_LABEL, lost: "Offerta rifiutata",
 };
 
-export function AppointmentTime({ type, value, disabled, onChange, revealPanel }: {
-  type: AppointmentType; value: string; disabled?: boolean; onChange: (value: string) => void; revealPanel?: boolean;
+export function AppointmentTime({ type, value, disabled, onChange, revealPanel, durationMinutes = APPOINTMENT_DURATION[type] }: {
+  type: AppointmentType; value: string; disabled?: boolean; onChange: (value: string) => void; revealPanel?: boolean; durationMinutes?: number;
 }) {
   return <div>
-    <p className="muted">{APPOINTMENT_LABELS[type]} · {APPOINTMENT_DURATION[type]} min</p>
+    <p className="calendar-duration">{APPOINTMENT_LABELS[type]} · {durationMinutes} min</p>
     <LeadDateTimePicker value={value} disabled={!!disabled} onChange={onChange} revealPanel={revealPanel} />
   </div>;
 }

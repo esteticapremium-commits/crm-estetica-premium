@@ -335,3 +335,22 @@ test('un setting entra solo nei tentativi telefonici, alla data fissata', () => 
   assert.equal(reporting.suggestDailyReport(callDay,data).calls_made,2);
   assert.equal(rows[0].discoveryHeld,0);
 });
+
+test('ripara l’orario di una conferma Google già collegata senza creare un duplicato', async () => {
+ const writes = [];
+ const google = {
+  updateGoogleCalendarEvent: async (id, payload) => writes.push([id, payload]),
+  confirmOnPrimaryOwnerCalendar: async () => true,
+ };
+ const appointments = module('src/appointments.ts', {'./supabaseClient':{},'./calendarGoogle':google});
+ const due_at = '2026-11-28T10:00:00Z';
+ const result = await appointments.retryAppointmentSync({
+  id:'confirm', title:'Call di conferma', due_at, confirmation_for:'closing', google_event_id:'existing',
+ });
+ assert.equal(result.ok, true);
+ assert.equal(writes.length, 1);
+ assert.equal(writes[0][0], 'existing');
+ assert.equal(writes[0][1].end, '2026-11-28T10:30:00.000Z');
+ google.updateGoogleCalendarEvent = async () => { throw new Error('rejected'); };
+ assert.equal((await appointments.retryAppointmentSync({id:'confirm',due_at,google_event_id:'existing'})).ok,false);
+});

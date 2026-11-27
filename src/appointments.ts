@@ -211,6 +211,20 @@ export async function bookConfirmationCall(closingId: string, requestId: string,
 }
 
 export async function retryAppointmentSync(task: SalesTask): Promise<AppointmentResult> {
+  if (task.google_event_id && !isOwnerManagedDiscovery(task)) {
+    try {
+      const startsAt = new Date(task.due_at);
+      const minutes = task.confirmation_for ? CONFIRMATION_MINUTES : plannedDuration(task.appointment_type, task.duration_minutes);
+      await updateGoogleCalendarEvent(task.google_event_id, {
+        title: task.title, start: startsAt.toISOString(), end: googleAppointmentEnd(startsAt, task.appointment_type, minutes),
+        description: task.description ?? undefined,
+      });
+      await confirmOnPrimaryOwnerCalendar(task.google_event_id, task.due_at).catch(() => false);
+      return { ok: true, taskId: task.id };
+    } catch {
+      return { ok: false, taskId: task.id, error: "Google Calendar non ha accettato la sincronizzazione. Controlla il collegamento e riprova." };
+    }
+  }
   const warning = await synchronizeBooking(task, task.description || "");
   return { ok: !warning, error: warning, taskId: task.id };
 }

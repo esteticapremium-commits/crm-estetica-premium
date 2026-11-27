@@ -1,6 +1,7 @@
 import LeadDateTimePicker from './LeadDateTimePicker';
 import { useEffect, useRef, useState } from 'react';
-import { createAppointment } from './appointments';
+import { CLOSING_WON_LABEL, createAppointment } from './appointments';
+import { calendarLeadMatches } from './calendarLayout';
 import { supabase } from './supabaseClient';
 import { withTimeout } from './async';
 import { listGoogleCalendarEvents, type GoogleEvent } from './calendarGoogle';
@@ -27,13 +28,7 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
   const [contact, setContact] = useState(sale?.contact_name || event?.summary || '');
   const [leadId, setLeadId] = useState(sale?.lead_id || '');
   const [leadSearch, setLeadSearch] = useState('');
-  const normalizeSearch = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
-  const query = normalizeSearch(leadSearch);
-  const matchingLeads = query ? leads.filter(lead => {
-    const text = normalizeSearch([lead.name, lead.email, lead.phone].filter(Boolean).join(' '));
-    const phoneQuery = query.replace(/[\s()+.-]/g, '');
-    return text.includes(query) || (/^\d+$/.test(phoneQuery) && (lead.phone || '').replace(/\D/g, '').includes(phoneQuery));
-  }) : [];
+  const matchingLeads = calendarLeadMatches(leads, leadSearch);
   const selectedLead = leads.find(lead => lead.id === leadId);
   const [type, setType] = useState<GoogleSale['appointment_type'] | "">(sale?.appointment_type ||
     (/\bdiscovery\b/i.test(event?.summary || "") ? "discovery" : /\b(?:demo|closing)\b/i.test(event?.summary || "") ? "demo" : ""));
@@ -163,11 +158,11 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
     finally { lock.current = false; setBusy(false); }
   }
   return <div className="calendar-modal-overlay" onClick={() => !busy && onClose()}>
-    <section className="calendar-modal google-sale-modal" role="dialog" aria-modal="true" aria-label="Appuntamento di vendita Google" onClick={e => e.stopPropagation()}>
-      <header className="calendar-detail-head"><span className="calendar-detail-label">Google Calendar · Vendita</span><button disabled={busy} aria-label="Chiudi vendita" onClick={onClose}>×</button></header>
-      <h2>{sale ? 'Esito appuntamento' : 'Appuntamento di vendita'}</h2>
-      <p>Collega un lead per sincronizzare la Discovery o la Closing con la sua fase in pipeline.</p>
-      <p className="muted">Solo i dati inseriti qui vengono condivisi nel CRM con chi è autorizzato. Le note private di Google non vengono copiate.</p>
+    <section className="calendar-modal calendar-appointment-dialog google-sale-modal" role="dialog" aria-modal="true" aria-label="Appuntamento di vendita Google" onClick={e => e.stopPropagation()}>
+      <header className="calendar-appointment-header">
+        <div><h2>{sale ? 'Esito appuntamento' : 'Appuntamento di vendita'}</h2><span className="calendar-detail-label">Google Calendar</span></div>
+        <button type="button" className="btn calendar-close" disabled={busy} aria-label="Chiudi vendita" onClick={onClose}>×</button>
+      </header>
       {error && <div className="notice err" role="alert">{error}</div>}
       <form onSubmit={e => { e.preventDefault(); void save(); }}>
         <fieldset disabled={busy}>
@@ -182,9 +177,9 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
           </div>
 
           {sale && event?.start?.dateTime && new Date(event.start.dateTime).getTime() !== new Date(sale.starts_at).getTime() && <p className="notice">La data su Google è cambiata. <button type="button" className="btn small" onClick={() => setStartsAt(localStamp(event.start?.dateTime))}>Usa il nuovo orario Google</button></p>}
-          <label>Esito<select disabled={!!bookedClosing.current} value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
+          <label>Com’è andata?<select disabled={!!bookedClosing.current} value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
             {type === 'discovery' && <option value="closing_booked" disabled={beforeStart}>Closing prenotata</option>}
-            {Object.entries(saleOutcomes).filter(([key]) => key !== 'closing_booked').map(([key, label]) => <option key={key} value={key} disabled={beforeStart && !googleOutcomesBeforeStart.includes(key as GoogleSaleOutcome)}>{beforeStart && key === 'no_show' ? 'No-show preannunciato' : label}</option>)}
+            {Object.entries(saleOutcomes).filter(([key]) => key !== 'closing_booked').map(([key, label]) => <option key={key} value={key} disabled={beforeStart && !googleOutcomesBeforeStart.includes(key as GoogleSaleOutcome)}>{beforeStart && key === 'no_show' ? 'No-show preannunciato' : type === 'demo' && key === 'won' ? CLOSING_WON_LABEL : label}</option>)}
           </select></label>
           {outcome === 'closing_booked' && <>
             <label>Closing<select value={closingMode} disabled={!!bookedClosing.current} onChange={e => setClosingMode(e.target.value as typeof closingMode)}>
@@ -219,23 +214,25 @@ export default function GoogleSaleModal({ clientId, event, sale, leads, admin, o
           {type === 'discovery' && ['won','lost','follow_up'].includes(outcome) && <label>Contatto in target<select required value={qualified} onChange={e => setQualified(e.target.value)}><option value="">Seleziona</option><option value="true">Sì</option><option value="false">No</option></select></label>}
           {['follow_up','rescheduled'].includes(outcome) && <label>Prossimo passo · data e ora<input type="datetime-local" required value={next} onChange={e => setNext(e.target.value)} /><small>Comparirà nella home alla scadenza. Per spostare o creare l’evento usa Google Calendar.</small></label>}
           {outcome === 'won' && <>
-            <label>Valore dell’accordo (€)<input type="number" min="0.01" max="9999999999.99" step="0.01" required value={value} onChange={e => setValue(e.target.value)} /></label>
-            <label>Incasso registrato per questa vendita (€)<input type="number" min="0" max="9999999999.99" step="0.01" value={cash} disabled={!admin} onChange={e => setCash(e.target.value)} /></label>
+            <div className="google-sale-grid">
+            <label>Valore del contratto (€)<input type="number" min="0.01" max="9999999999.99" step="0.01" required value={value} onChange={e => setValue(e.target.value)} /></label>
+            <label>Incassato (€)<input type="number" min="0" max="9999999999.99" step="0.01" value={cash} disabled={!admin} onChange={e => setCash(e.target.value)} /></label>
+            </div>
             {!admin && <small>L’incasso di una vendita esterna viene registrato dall’amministratore.</small>}
             {Number(cash) > 0 && <label>Data effettiva dell’incasso<input type="datetime-local" required disabled={!admin} value={cashAt} onChange={e => setCashAt(e.target.value)} /></label>}
-            <small>Registra qui un pagamento, con la sua data effettiva, solo se non è già presente nel CRM. Questo campo corregge lo stesso pagamento: per rate in date diverse usa il registro incassi collegato al lead.</small>
+            <small>Per evitare doppioni, inserisci qui solo il pagamento che stai registrando da questo evento.</small>
           </>}
           <div className="google-sale-lead-picker">
             <label>Lead collegato · facoltativo<input type="search" placeholder="Cerca per nome, telefono o email" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} /></label>
             <div className="google-sale-selected-lead">{leadId ? <><span><b>{selectedLead?.name || 'Lead collegato'}</b>{selectedLead?.phone && <small>{selectedLead.phone}</small>}</span><button type="button" className="btn small" onClick={() => setLeadId('')}>Rimuovi collegamento</button></> : <small>Senza un lead collegato, salvi la call solo nel registro vendite.</small>}</div>
-            {query && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
+            {leadSearch.trim() && <><small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? ' · primi 50, precisa la ricerca' : ''}` : 'Nessun lead trovato tra quelli accessibili.'}</small><div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead => <button type="button" key={lead.id} aria-pressed={lead.id === leadId} onClick={() => { setLeadId(lead.id); setLeadSearch(''); }}><b>{lead.name || 'Senza nome'}</b><small>{[lead.phone, lead.email].filter(Boolean).join(' · ')}</small></button>)}</div></>}
           </div>
-          <details><summary>Data, ora e nota</summary>
+          <details className="calendar-form-options"><summary>Data, ora e nota</summary>
           <label>Data e ora della call<input type="datetime-local" required value={startsAt} onChange={e => setStartsAt(e.target.value)} /></label>
           <label>Nota {outcome === 'lost' ? '/ motivo' : '/ prossimo passo'}<textarea rows={3} maxLength={5000} value={note} onChange={e => setNote(e.target.value)} /></label>
                   </details>
         </fieldset>
-        <footer><button type="button" className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy || (outcome === 'closing_booked' && (closingMode === 'existing' ? closingLoading || !closingReference : !closingDay || !closingTime))}>{busy ? 'Salvataggio…' : outcome === 'closing_booked' && closingMode === 'new' ? bookedClosing.current ? 'Salva esito Discovery' : 'Prenota Closing e salva esito' : 'Salva nei risultati'}</button></footer>
+        <footer className="calendar-appointment-footer"><button type="button" className="btn" disabled={busy} onClick={onClose}>Annulla</button><button className="btn primary" disabled={busy || (outcome === 'closing_booked' && (closingMode === 'existing' ? closingLoading || !closingReference : !closingDay || !closingTime))}>{busy ? 'Salvataggio…' : outcome === 'closing_booked' && closingMode === 'new' ? bookedClosing.current ? 'Salva esito Discovery' : 'Prenota Closing e salva esito' : 'Salva nei risultati'}</button></footer>
       </form>
     </section>
   </div>;

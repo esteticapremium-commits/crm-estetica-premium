@@ -231,3 +231,71 @@
 @media (max-width: 380px) {
   .calendar-closing-amounts { grid-template-columns: minmax(0, 1fr); }
 }
+
+.theme-premium.platform-shell .calendar-page .calendar-appointment-dialog {
+  max-height: min(850px, calc(100dvh - 36px));
+  min-width: 0;
+}
+.calendar-page .calendar-duration {
+  display: block;
+  margin: 0 0 8px;
+  color: var(--ep-muted);
+  font-size: 13px;
+}
+.calendar-page .calendar-create > label { margin: 0; }
+.calendar-page .calendar-create .calendar-appointment-footer { margin-top: 0; }
+.calendar-page .calendar-booking-lead { display: grid; gap: 8px; min-width: 0; }
+.calendar-page .calendar-booking-lead > label,
+.calendar-page .calendar-form-options > label { display: grid; gap: 6px; font-size: 13px; font-weight: 700; }
+.calendar-page .calendar-form-options {
+  padding: 0 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: 10px;
+  background: var(--ep-surface-muted);
+}
+.calendar-page .calendar-form-options > summary { padding: 10px 0; cursor: pointer; font-size: 13px; font-weight: 700; }
+.calendar-page .calendar-form-options[open] { padding-bottom: 12px; }
+.calendar-page .calendar-form-options > label + label { margin-top: 10px; }
+.calendar-page .calendar-linked-lead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: 10px;
+}
+.calendar-page .calendar-linked-lead > strong { overflow-wrap: anywhere; }
+.calendar-page .calendar-booking-lead .google-sale-lead-results button { min-height: 44px; }
+.calendar-page .calendar-reschedule-action {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.calendar-page .calendar-reschedule-action .btn,
+.calendar-page .calendar-confirmation-action { justify-self: start; }
+.calendar-page .calendar-delete-action { justify-self: start; }
+.calendar-page .calendar-create input,
+.calendar-page .calendar-create select,
+.calendar-page .calendar-event-edit input { min-height: 44px; }
+.calendar-page .schedule-agenda section.today { border-color: var(--ep-brand); }
+.calendar-page .schedule-event[data-state="won"] {
+  border-left-color: var(--ep-success);
+  background: var(--ep-success-soft);
+}
+.calendar-page .schedule-event[data-state="absent"] {
+  border-left-color: var(--ep-danger);
+}
+.calendar-page .schedule-event[data-state="held"] { border-left-color: var(--ep-success); }
+@media (max-width: 760px) {
+  .theme-premium.platform-shell .calendar-page .calendar-appointment-dialog { max-height: calc(100dvh - 14px); }
+  .calendar-page .calendar-create input,
+  .calendar-page .calendar-create select,
+  .calendar-page .calendar-event-edit input { font-size: 16px; }
+  .calendar-page .calendar-create footer {
+    bottom: -16px;
+    background: var(--ep-surface);
+    z-index: 1;
+  }
+}

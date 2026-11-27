@@ -1,6 +1,8 @@
 import "../calendar-appointments.css";
 import LeadDateTimePicker from "../LeadDateTimePicker";
 import { AppointmentOutcomeChoices, AppointmentTime } from "../AppointmentFields";
+import { salesPages } from "../salesReportingData";
+import { calendarLeadMatches } from "../calendarLayout";
 import { loadGoogleSales } from "../googleSalesData";
 import GoogleSaleModal from "../GoogleSaleModal";
 import { calendarClosingRevenueKey, googleSaleKey, saleOutcomes, type GoogleSale } from "../googleSales";
@@ -46,6 +48,8 @@ export default function Calendar({ client, meName, userId, admin = false, header
   const [saleRecord, setSaleRecord] = useState<GoogleSale | null>(null);
   const [saleOpen, setSaleOpen] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [leadLoadError, setLeadLoadError] = useState(false);
+  const [leadLoading, setLeadLoading] = useState(false);
   const [leadQuery, setLeadQuery] = useState("");
   const [appointmentHost, setAppointmentHost] = useState("");
   const [bookingId, setBookingId] = useState("");
@@ -59,6 +63,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
   // re-render, blocca il secondo clic anche quando la rete è lenta.
   const saveLock = useRef(false);
   const [editTitle, setEditTitle] = useState(""); const [editStartsAt, setEditStartsAt] = useState(""); const [editNote, setEditNote] = useState(""); const [editError, setEditError] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState("");
   const [error, setError] = useState<string | null>(null); const [formError, setFormError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const weekEnd = useMemo(() => { const date = new Date(weekStart); date.setDate(date.getDate() + 7); return date; }, [weekStart]);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => { const date = new Date(weekStart); date.setDate(date.getDate() + index); return date; }), [weekStart]);
@@ -67,24 +72,29 @@ export default function Calendar({ client, meName, userId, admin = false, header
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
     setLoading(true); setError(null);
+    setLeadLoading(true); setLeadLoadError(false);
+    void withTimeout(salesPages<Lead>("leads", client.id)).then(
+      data => {
+        if (version === loadVersion.current) { setLeads(data); setLeadLoading(false); }
+      },
+      () => {
+        if (version === loadVersion.current) { setLeads([]); setLeadLoadError(true); setLeadLoading(false); }
+      },
+    );
     try {
-    const [taskResult, leadResult, stageResult, saleResult] = await Promise.all([supabase.from("sales_tasks").select("*").eq("client_id", client.id).gte("due_at", weekStart.toISOString()).lt("due_at", weekEnd.toISOString()).order("due_at"), supabase.from("leads").select("*").eq("client_id", client.id), supabase.from("stages").select("*").eq("client_id", client.id), loadGoogleSales(client.id)]);
+    const [taskResult, stageResult, saleResult] = await withTimeout(Promise.all([
+      supabase.from("sales_tasks").select("*").eq("client_id", client.id)
+        .gte("due_at", weekStart.toISOString()).lt("due_at", weekEnd.toISOString()).order("due_at"),
+      supabase.from("stages").select("*").eq("client_id", client.id),
+      loadGoogleSales(client.id),
+    ]));
     if (version !== loadVersion.current) return;
-    const failure = taskResult.error || leadResult.error || stageResult.error;
+    const failure = taskResult.error || stageResult.error;
     if (failure) throw new Error(failure.message);
-    const loadedTasks = (taskResult.data as SalesTask[]) || [];
-    const loadedLeads = (leadResult.data as Lead[]) || [];
-    const loadedLeadIds = new Set(loadedLeads.map(lead => lead.id));
-    const missingLeadIds = [...new Set(loadedTasks.flatMap(task =>
-      task.confirmation_for && task.lead_id && !loadedLeadIds.has(task.lead_id) ? [task.lead_id] : []))];
-    if (missingLeadIds.length) {
-      const { data } = await supabase.from("leads").select("*").eq("client_id", client.id).in("id", missingLeadIds);
-      if (version !== loadVersion.current) return;
-      if (data) loadedLeads.push(...data as Lead[]);
-    }
     setSaleError(saleResult.error ? "Registro vendite Google non disponibile. Riprova prima di classificare una call." : null);
     setGoogleSales((saleResult.data as GoogleSale[]) || []);
-    setTasks(loadedTasks); setLeads(loadedLeads); setStages((stageResult.data as Stage[]) || []);
+    setTasks((taskResult.data as SalesTask[]) || []);
+    setStages((stageResult.data as Stage[]) || []);
     const [personal, shared] = await Promise.allSettled([
       ensureGoogleCalendarConnection().then(connected => connected ? listGoogleCalendarEvents(weekStart, weekEnd) : []),
       showOwnerCalendar ? loadOwnerCalendarTitles(weekStart, weekEnd) : Promise.resolve([]),
@@ -98,21 +108,29 @@ export default function Calendar({ client, meName, userId, admin = false, header
       if (version === loadVersion.current) { setGoogle([]); setError(`Calendario non aggiornato completamente: ${reason instanceof Error ? reason.message : "errore di connessione"}. Riprova con Aggiorna.`); }
     } finally { if (version === loadVersion.current) setLoading(false); }
   }, [client.id, showOwnerCalendar, weekEnd, weekStart]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return () => { loadVersion.current += 1; }; }, [load]);
   const leadById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
+  const matchingLeads = useMemo(() => calendarLeadMatches(leads, leadQuery), [leads, leadQuery]);
+  const selectedLead = selected?.kind === "crm" && selected.task.lead_id ? leadById.get(selected.task.lead_id) ?? selected.lead : null;
+  async function showAppointmentWeek(start: Date) {
+    const week = monday(start);
+    if (week.getTime() === weekStart.getTime()) await load();
+    else setWeekStart(week);
+  }
   const stageNameOf = (lead: Lead | null) => (lead ? stages.find((stage) => stage.id === lead.stage_id)?.name ?? null : null);
   // Un appuntamento con un lead in CLOSED è un appuntamento con un cliente:
   // lo deduciamo, lasciando al venditore la possibilità di correggere.
   const audience = appointmentType === "setting" ? "lead" : audienceOverride ?? defaultAudience(stageNameOf(leadId ? leadById.get(leadId) || null : null));
   const rangeLabel = `${weekStart.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${new Date(weekEnd.getTime() - 86400000).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`;
   async function connect() { setBusy(true); setError(null); try { await connectGoogleCalendar(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Collegamento non riuscito."); } setBusy(false); }
-  function shiftWeek(amount: number) { setSelected(null); setOwnerEvent(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
+  function shiftWeek(amount: number) { setSyncNotice(""); setSelected(null); setOwnerEvent(null); setWeekStart((current) => { const next = new Date(current); next.setDate(next.getDate() + amount * 7); return next; }); }
   function openCreate(date = new Date(), prefill?: { type: AppointmentType; leadId?: string | null; title: string; audience?: AppointmentAudience | null; previousOutcomeKey?: string; startsAt?: Date; confirmationClosingId?: string }) {
+    setSyncNotice("");
     setConfirmationClosingId(prefill?.confirmationClosingId);
     const initial = new Date(prefill?.startsAt ?? date);
     if (!prefill?.startsAt) {
       initial.setHours(10, 0, 0, 0);
-      if (initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000);
+      if (initial.toDateString() === new Date().toDateString() && initial < new Date()) initial.setTime(Math.ceil(Date.now() / 1_800_000) * 1_800_000);
     }
     setTitle(prefill?.title || ""); setStartsAt(localDateTime(initial)); setDurationOverride(null); setNote(""); setLeadQuery(""); setAppointmentHost(""); setLeadId(prefill?.leadId || ""); setAppointmentType(prefill?.type || "discovery"); setAudienceOverride(prefill?.audience || null); setBookingId(crypto.randomUUID()); setPreviousOutcomeKey(prefill?.previousOutcomeKey); setFormError(null); setCreateOpen(true);
   }
@@ -125,6 +143,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
   async function saveAppointment() {
     if (saveLock.current) return;
     const lead = leadId ? leadById.get(leadId) : null;
+    if (leadId && !lead) return setFormError("Il lead collegato non è disponibile. Aggiorna il calendario e riprova.");
     const subject = title.trim() || lead?.name || "";
     const start = new Date(startsAt);
     const minutes = confirmationClosingId ? CONFIRMATION_MINUTES
@@ -141,8 +160,8 @@ export default function Calendar({ client, meName, userId, admin = false, header
       });
       if (!result.ok) return setFormError(result.error || "Appuntamento non salvato.");
       setCreateOpen(false);
-      await load();
-      if (result.warning || result.pipelineWarning) setError([result.pipelineWarning, result.warning].filter(Boolean).join(" "));
+      await showAppointmentWeek(start);
+      setSyncNotice([result.pipelineWarning, result.warning].filter(Boolean).join(" "));
     } catch (reason) {
       setFormError(reason instanceof Error ? reason.message : "Prenotazione da verificare. Riprova.");
     } finally {
@@ -156,45 +175,55 @@ export default function Calendar({ client, meName, userId, admin = false, header
     const start = new Date(editStartsAt);
     if (Number.isNaN(start.getTime())) return setEditError("Data o ora non valide.");
     setBusy(true); setEditError(null);
-    if (selected.kind === "crm") {
-      const result = await updateAppointment(selected.task, { subject: editTitle.trim(), startsAt: start, note: editNote });
-      setBusy(false);
-      if (!result.ok) return setEditError(result.error || "Modifica non riuscita.");
-      setSelected(null); setEditingEvent(false);
-      await load();
-      if (result.warning) setError(result.warning);
-      return;
-    }
     try {
+      if (selected.kind === "crm") {
+        const result = await updateAppointment(selected.task, { subject: editTitle.trim(), startsAt: start, note: editNote });
+        if (!result.ok) return setEditError(result.error || "Modifica non riuscita.");
+        setSelected(null);
+        setEditingEvent(false);
+        await showAppointmentWeek(start);
+        setSyncNotice(result.warning || "");
+        return;
+      }
       const originalStart = Date.parse(selected.event.start?.dateTime || "");
       const originalEnd = Date.parse(selected.event.end?.dateTime || "");
       const duration = originalEnd - originalStart;
       const end = new Date(start.getTime() + (duration > 0 ? duration : 60 * 60 * 1000));
       await updateGoogleCalendarEvent(selected.event.id, { title: editTitle.trim(), start: start.toISOString(), end: end.toISOString(), description: editNote.trim() });
-      setSelected({ kind: "google", event: { ...selected.event, summary: editTitle.trim(), description: editNote.trim(), start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() } } });
-      setEditingEvent(false); await load();
-    } catch (reason) { setEditError(reason instanceof Error ? reason.message : "Modifica non riuscita. Ricollega Google Calendar e riprova."); }
-    setBusy(false);
+      setSelected(null);
+      setEditingEvent(false);
+      await showAppointmentWeek(start);
+    } catch (reason) {
+      setEditError(reason instanceof Error ? reason.message : "Modifica non riuscita. Riprova.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function deleteSelected() {
-    if (!selected || !confirm("Eliminare questo appuntamento? Verrà rimosso anche da Google Calendar e dai KPI.")) return;
+    if (!selected || !confirm("Eliminare questo appuntamento?")) return;
     setBusy(true); setEditError(null);
-    if (selected.kind === "crm") {
-      const result = await deleteAppointment(selected.task);
-      setBusy(false);
-      if (!result.ok) return setEditError(result.error || "Eliminazione non riuscita.");
-    } else {
-      try { await deleteGoogleCalendarEvent(selected.event.id); } catch (reason) { setBusy(false); return setEditError(reason instanceof Error ? reason.message : "Eliminazione non riuscita."); }
+    try {
+      if (selected.kind === "crm") {
+        const result = await deleteAppointment(selected.task);
+        if (!result.ok) return setEditError(result.error || "Eliminazione non riuscita.");
+      } else {
+        await deleteGoogleCalendarEvent(selected.event.id);
+      }
+      setSelected(null);
+      setEditingEvent(false);
+      await load();
+    } catch (reason) {
+      setEditError(reason instanceof Error ? reason.message : "Eliminazione non riuscita. Riprova.");
+    } finally {
       setBusy(false);
     }
-    setSelected(null); setEditingEvent(false); await load();
   }
 
   function bookClosingFromDiscovery() {
     if (busy || selected?.kind !== "crm") return;
-    const { task, lead } = selected;
-    if (task.appointment_type !== "discovery" || task.appointment_status === "cancelled" || (task.lead_id && !lead)) return;
+    const { task } = selected;
+    if (task.appointment_type !== "discovery" || task.appointment_status === "cancelled" || (task.lead_id && !leadById.has(task.lead_id))) return;
     setSelected(null);
     openCreate(new Date(), {
       type: "demo",
@@ -207,6 +236,9 @@ export default function Calendar({ client, meName, userId, admin = false, header
   async function setAppointmentOutcome(outcome: AppointmentOutcome, rebook = false, proposalMade?: boolean, markLost = false, closingAmounts?: ClosingAmounts) {
     if (!selected || selected.kind !== "crm" || saveOutcomeLock.current) return;
     const { task } = selected;
+    if (rebook && task.lead_id && !leadById.has(task.lead_id)) {
+      return setEditError("Il lead collegato non è ancora disponibile. Attendi il caricamento e riprova.");
+    }
     if (rebook && outcome === "no_show" && !isAppointmentClosed(task) && Date.parse(task.due_at) > Date.now()) {
       beginEdit();
       return;
@@ -224,7 +256,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
             return { ok: saved?.id === task.id && !error, error: error?.message };
           })
         : await recordAppointmentOutcome(task, outcome, task.outcome_minutes || undefined, undefined, proposalMade,
-            markLost ? selected.lead?.stage_id : undefined);
+            markLost ? selectedLead?.stage_id : undefined);
       if (!result.ok) {
         if (markLost && result.error?.includes("La fase del lead è cambiata") && task.lead_id) {
           const { data: latestLead } = await supabase.from("leads").select("*")
@@ -267,20 +299,11 @@ export default function Calendar({ client, meName, userId, admin = false, header
       const result = await retryAppointmentSync(selected.task);
       if (!result.ok) return setEditError(result.error || "Sincronizzazione non riuscita.");
       setSelected(null); await load();
+    } catch (reason) {
+      setEditError(reason instanceof Error ? reason.message : "Sincronizzazione non riuscita. Riprova.");
     } finally {
       setBusy(false);
     }
-  }
-
-  const nextClosingStart = selected?.kind === "crm" && selected.task.appointment_type === "demo" &&
-    !selected.task.completed_at && !isAppointmentClosed(selected.task) && selected.task.appointment_status !== "cancelled"
-    ? new Date(Date.parse(selected.task.due_at) + 30 * 60_000)
-    : null;
-
-  function bookNextClosing() {
-    if (busy || !nextClosingStart || !(nextClosingStart.getTime() > Date.now())) return;
-    setSelected(null);
-    openCreate(undefined, { type: "demo", title: "", startsAt: nextClosingStart });
   }
 
   function openConfirmationCall() {
@@ -300,6 +323,10 @@ export default function Calendar({ client, meName, userId, admin = false, header
     ? userId === GIOVANNI_ID
     : selected.task.created_by === meName || (selected.task.setter_id && selected.task.assigned_to === meName) ||
       (admin && usesOwnerDiscoveryCalendar(selected.task)));
+  const selectedGoogleCopy = selected?.kind === "crm"
+    ? google.find(event => event.id === selected.task.google_event_id) : undefined;
+  const selectedGoogleTimeMismatch = selected?.kind === "crm" && !!selectedGoogleCopy?.start?.dateTime &&
+    Date.parse(selectedGoogleCopy.start.dateTime) !== Date.parse(selected.task.due_at);
   const linkedGoogleIds = new Set(tasks.map(task => task.google_event_id).filter(Boolean));
   const knownEvents = new Set([
     ...visibleTasks.map(task => calendarEventKey(task.title, task.due_at)),
@@ -311,27 +338,50 @@ export default function Calendar({ client, meName, userId, admin = false, header
       onOpen: () => setOwnerEvent(event),
     }]) : [];
 
+  function openEvent(event: Selected) {
+    setEditError(null);
+    setEditingEvent(false);
+    setSelected(event);
+  }
+
   const googleSalesByKey = new Map(googleSales.map(sale => [sale.google_key, sale]));
   const displayEvents: DisplayEvent[] = [
-    ...visibleTasks.map(task => ({id:`crm-${task.id}`,at:task.due_at,endAt:eventEnd(task).toISOString(),title:appointmentSubject(task),subtitle:`${task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type] : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo"} · ${task.appointment_outcome === "won" ? CLOSING_WON_LABEL : task.appointment_status === "no_show" ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show" : task.appointment_status === "held" || (task.confirmation_for && task.completed_at) ? "Svolta" : task.assigned_to || "CRM"}`,kind:"crm" as const,skipAsNext:Boolean(task.completed_at) || isAppointmentClosed(task),onOpen:()=>setSelected({kind:"crm",task,lead:task.lead_id ? leadById.get(task.lead_id)||null : null})})),
+    ...visibleTasks.map(task => {
+      const closed = task.appointment_status === "held" || Boolean(task.confirmation_for && task.completed_at);
+      const absent = task.appointment_status === "no_show";
+      const label = task.appointment_type ? APPOINTMENT_SHORT_LABELS[task.appointment_type]
+        : task.confirmation_for ? CONFIRMATION_LABEL : "Richiamo";
+      const status = absent ? task.appointment_type === "setting" && task.appointment_outcome !== "no_show" ? "Non risponde" : "No-show"
+        : task.appointment_outcome === "won" ? CLOSING_WON_LABEL : task.appointment_outcome === "lost" ? "Offerta rifiutata"
+        : closed ? "Svolta" : task.assigned_to || "CRM";
+      return {
+        id: `crm-${task.id}`, at: task.due_at, endAt: eventEnd(task).toISOString(),
+        title: appointmentSubject(task), subtitle: `${label} · ${status}`, kind: "crm" as const,
+        state: absent ? "absent" as const : task.appointment_outcome === "won" ? "won" as const : closed ? "held" as const : undefined,
+        skipAsNext: Boolean(task.completed_at) || isAppointmentClosed(task),
+        onOpen: () => openEvent({ kind: "crm", task, lead: task.lead_id ? leadById.get(task.lead_id) || null : null }),
+      };
+    }),
     ...google.filter(event => !linkedGoogleIds.has(event.id) && !calendarTasks.some(task => task.title === event.summary && event.start?.dateTime && Math.abs(new Date(task.due_at).getTime()-new Date(event.start.dateTime).getTime())<60000)).map(event => {
       const sale = googleSalesByKey.get(googleSaleKey(event));
       return {
         id: `google-${event.id}`, at: event.start?.dateTime || event.start?.date || "",
         endAt: event.end?.dateTime || event.end?.date || event.start?.date || "",
         title: event.summary || "Impegno Google", subtitle: sale ? `Vendita · ${saleOutcomes[sale.outcome]}` : "Google personale",
-        kind: "google" as const, allDay: !event.start?.dateTime, skipAsNext: sale?.outcome === "no_show" || sale?.outcome === "rescheduled",
-        onOpen: () => setSelected({ kind: "google", event }),
+        kind: "google" as const, allDay: !event.start?.dateTime,
+        state: sale?.outcome === "won" ? "won" as const : sale?.outcome === "no_show" ? "absent" as const : undefined,
+        skipAsNext: Boolean(sale && !["pending", "excluded"].includes(sale.outcome)),
+        onOpen: () => openEvent({ kind: "google", event }),
       };
     }),
     ...sharedCalendarEvents,
-  ].filter(event => event.at && event.endAt);
+  ].filter(event => Number.isFinite(Date.parse(event.at)) && Number.isFinite(Date.parse(event.endAt)));
   return <div className="page calendar-page">
     <header className="calendar-compact-bar">
       <div><h1>Calendario</h1><span aria-live="polite">{rangeLabel}</span></div>
       <div className="calendar-navigation" role="group" aria-label="Navigazione calendario">
         <button type="button" aria-label="Settimana precedente" onClick={() => shiftWeek(-1)}>‹</button>
-        <button type="button" onClick={() => { setSelected(null); setOwnerEvent(null); setWeekStart(monday(new Date())); }}>Oggi</button>
+        <button type="button" onClick={() => { setSyncNotice(""); setSelected(null); setOwnerEvent(null); setWeekStart(monday(new Date())); }}>Oggi</button>
         <button type="button" aria-label="Settimana successiva" onClick={() => shiftWeek(1)}>›</button>
       </div>
       <details ref={menu} className="calendar-options">
@@ -342,19 +392,21 @@ export default function Calendar({ client, meName, userId, admin = false, header
           </select></label>
           {headerTools}
           <button className="btn" type="button" onClick={() => { if (menu.current) menu.current.open = false; openCreate(); }}>+ Nuovo appuntamento</button>
-          <button className="btn" type="button" disabled={loading} onClick={() => { if (menu.current) menu.current.open = false; void load(); }}>Aggiorna</button>
+          <button className="btn" type="button" disabled={loading} onClick={() => { if (menu.current) menu.current.open = false; setSyncNotice(""); void load(); }}>Aggiorna</button>
           {googleCalendarConfigured() ? <button className="btn" type="button" disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; void connect(); }}>{googleCalendarConnected() ? "Google collegato" : "Collega Google Calendar"}</button> : <small>Google Calendar da configurare</small>}
         </div>
       </details>
     </header>
     {error && <div className="notice err" role="alert">{error}</div>}
+    {syncNotice && <div className="notice warn" role="status">{syncNotice}</div>}
     {saleError && <div className="notice err" role="alert">{saleError}</div>}
     {showOwnerCalendar && ownerCalendarError && <div className="notice warn" role="status">Calendario di Ettore temporaneamente non disponibile.</div>}
+    {leadLoadError && <div className="notice warn" role="status">La ricerca lead non è disponibile. Riprova da Opzioni → Aggiorna.</div>}
     {loading && <span className="calendar-loading" role="status">Caricamento appuntamenti…</span>}
     <CalendarSchedule days={days} events={displayEvents} onCreate={openCreate} view={view} onViewChange={setView} />
-    {!saleError && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
-    {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); if (warning) setError(warning); }} />}
-    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookConfirmation={openConfirmationCall} onBookNextClosing={nextClosingStart && nextClosingStart.getTime() > Date.now() ? bookNextClosing : undefined} onOutcome={setAppointmentOutcome} canRecordClosingRevenue={admin} canMarkConfirmationLost={selected.kind === "crm" && !!selected.lead && Boolean(stages.some(stage => stage.pipeline_id === selected.lead?.pipeline_id && stage.id !== selected.lead?.stage_id && stage.name.trim().toUpperCase() === "LOST"))} onSync={canSyncSelected ? () => void syncSelected() : undefined} />}
+    {!saleError && googleSales.some(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()) && <details className="panel google-sales-pending"><summary>Vendite Google registrate · questa settimana</summary>{googleSales.filter(s => s.starts_at >= weekStart.toISOString() && s.starts_at < weekEnd.toISOString()).map(s => <div className="google-sale-row" key={s.id}><div><b>{s.contact_name}</b><small>{formatDateTime(s.starts_at)} · {saleOutcomes[s.outcome]}</small></div><button className="btn" onClick={() => { setSelected(null); setSaleRecord(s); setSaleOpen(true); }}>Apri esito</button></div>)}</details>}
+    {saleOpen && (saleRecord || selected?.kind === "google") && <GoogleSaleModal clientId={client.id} event={selected?.kind === "google" ? selected.event : undefined} sale={saleRecord || (selected?.kind === "google" ? googleSales.find(s => s.google_key === googleSaleKey(selected.event)) : undefined)} leads={leads} admin={admin} onClose={() => { setSaleOpen(false); setSaleRecord(null); }} onSaved={async warning => { setSaleOpen(false); setSaleRecord(null); setSelected(null); await load(); setSyncNotice(warning || ""); }} />}
+    {selected && !saleOpen && <EventDetailsModal onSale={() => setSaleOpen(true)} saleDisabled={!!saleError} hasSale={selected.kind === "google" && googleSales.some(s => s.google_key === googleSaleKey(selected.event))}  selected={selected.kind === "crm" ? { ...selected, lead: selectedLead } : selected} editing={editingEvent} title={editTitle} startsAt={editStartsAt} note={editNote} error={editError} busy={busy} onClose={() => { setSelected(null); setEditingEvent(false); }} onEdit={beginEdit} onCancelEdit={() => setEditingEvent(false)} onTitle={setEditTitle} onStartsAt={setEditStartsAt} onNote={setEditNote} onSave={() => void saveEventChanges()} onDelete={() => void deleteSelected()} onBookClosing={bookClosingFromDiscovery} onBookConfirmation={openConfirmationCall} onOutcome={setAppointmentOutcome} canRecordClosingRevenue={admin} canMarkConfirmationLost={!!selectedLead && Boolean(stages.some(stage => stage.pipeline_id === selectedLead.pipeline_id && stage.id !== selectedLead.stage_id && stage.name.trim().toUpperCase() === "LOST"))} onSync={canSyncSelected && selected.kind === "crm" && (!selected.task.google_event_id || isOwnerManagedDiscovery(selected.task) || selectedGoogleTimeMismatch) ? () => void syncSelected() : undefined} />}
     {showOwnerCalendar && ownerEvent && <div className="calendar-modal-overlay" role="presentation" onClick={() => setOwnerEvent(null)}>
       <section className="calendar-modal calendar-event-modal calendar-appointment-dialog" role="dialog" aria-modal="true"
         aria-label="Evento del calendario di Ettore" onClick={event => event.stopPropagation()}>
@@ -376,7 +428,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
           <h2>{confirmationClosingId ? CONFIRMATION_LABEL : "Fissa appuntamento"}</h2>
           <button type="button" className="btn calendar-close" aria-label="Chiudi" disabled={busy} onClick={() => setCreateOpen(false)}>×</button>
         </header>
-        {formError && <div className="notice err">{formError}</div>}
+        {formError && <div className="notice err" role="alert">{formError}</div>}
         {!confirmationClosingId && <div className="calendar-appointment-kind">
           <b>Tipo di appuntamento</b>
           <div className="calendar-type-options" role="group" aria-label="Tipo di appuntamento">
@@ -385,19 +437,33 @@ export default function Calendar({ client, meName, userId, admin = false, header
                 onClick={() => chooseAppointmentType(type)}>{APPOINTMENT_SHORT_LABELS[type]}</button>)}
           </div>
         </div>}
-        <label>Contatto<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Nome del centro o della persona" /></label>
+        <label>Contatto<input value={title} disabled={busy} onChange={event => setTitle(event.target.value)} placeholder="Nome del centro o della persona" /></label>
         {confirmationClosingId ? <>
-          <p className="muted">Durata {CONFIRMATION_MINUTES} minuti</p>
-          <LeadDateTimePicker value={startsAt} onChange={setStartsAt} disabled={busy} />
-          <label>Nota (facoltativa)<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
+          <span className="calendar-duration">Durata · {CONFIRMATION_MINUTES} min</span>
+          <LeadDateTimePicker value={startsAt} onChange={setStartsAt} disabled={busy} revealPanel />
+          <label>Nota (facoltativa)<textarea rows={2} disabled={busy} value={note} onChange={event => setNote(event.target.value)} /></label>
         </> : <>
-        <AppointmentTime type={appointmentType} value={startsAt} disabled={busy} onChange={setStartsAt} />
-        <details key={appointmentType} open><summary>{appointmentType === "setting" ? "Lead da contattare" : "Collega il lead · sincronizza la pipeline"}</summary>
-          <label>Cerca lead<input type="search" value={leadQuery} onChange={event => setLeadQuery(event.target.value)} /></label>
-          <label>Lead collegato{appointmentType !== "setting" && <small> (facoltativo)</small>}<select value={leadId} onChange={event => { setLeadId(event.target.value); setAppointmentHost(""); }}>
-            <option value="">Nessun lead</option>
-            {leads.filter(lead => lead.id === leadId || (leadQuery.trim() && [lead.name, lead.phone, lead.email].join(" ").toLowerCase().includes(leadQuery.trim().toLowerCase()))).slice(0, 50).map(lead => <option key={lead.id} value={lead.id}>{lead.name || "Senza nome"} · {lead.phone}</option>)}
-          </select></label>
+        <AppointmentTime type={appointmentType} durationMinutes={durationOverride ?? undefined} value={startsAt} disabled={busy} onChange={setStartsAt} revealPanel />
+        <div className="calendar-booking-lead">
+          <label>{appointmentType === "setting" ? "Lead da contattare" : "Collega un lead (facoltativo)"}
+            <input type="search" placeholder="Nome, telefono o email" value={leadQuery} disabled={busy}
+              onChange={event => setLeadQuery(event.target.value)} />
+          </label>
+          {leadId && <div className="calendar-linked-lead">
+            <strong>{leadById.get(leadId)?.name || "Lead collegato"}</strong>
+            <button type="button" className="btn small" disabled={busy} onClick={() => { setLeadId(""); setAppointmentHost(""); }}>Rimuovi</button>
+          </div>}
+          {leadQuery.trim() && <div className="google-sale-lead-picker">
+            <small role="status">{matchingLeads.length ? `${matchingLeads.length} risultati${matchingLeads.length > 50 ? " · primi 50" : ""}` : leadLoading ? "Ricerca in corso…" : leadLoadError ? "Ricerca non disponibile" : "Nessun lead trovato"}</small>
+            <div className="google-sale-lead-results">{matchingLeads.slice(0, 50).map(lead =>
+              <button key={lead.id} type="button" disabled={busy} aria-pressed={lead.id === leadId}
+                onClick={() => { setLeadId(lead.id); setLeadQuery(""); setAppointmentHost(""); }}>
+                <strong>{lead.name || "Senza nome"}</strong>
+                <small>{[lead.phone, lead.email].filter(Boolean).join(" · ")}</small>
+              </button>)}</div>
+          </div>}
+        </div>
+        <details className="calendar-form-options" key={appointmentType}><summary>Opzioni appuntamento</summary>
           {leadId && leadById.get(leadId)?.assigned_to && leadById.get(leadId)?.assigned_to !== meName &&
             <label>Chi conduce<select value={appointmentHost} onChange={event => setAppointmentHost(event.target.value)}>
               <option value="">{appointmentType === "setting" ? meName : leadById.get(leadId)?.assigned_to}</option>
@@ -408,7 +474,7 @@ export default function Calendar({ client, meName, userId, admin = false, header
           <label>Nota<textarea value={note} onChange={event => setNote(event.target.value)} /></label>
         </details>
         </>}
-        <footer className="calendar-appointment-footer"><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : "Crea appuntamento"}</button></footer>
+        <footer className="calendar-appointment-footer"><button className="btn" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Annulla</button><button className="btn primary" type="button" disabled={busy} onClick={() => void saveAppointment()}>{busy ? "Salvataggio…" : confirmationClosingId ? "Prenota conferma" : "Crea appuntamento"}</button></footer>
       </section>
     </div>}
   </div>;
@@ -438,13 +504,12 @@ type EventDetailsProps = {
   canRecordClosingRevenue: boolean;
   onBookClosing: () => void;
   onBookConfirmation: () => void;
-  onBookNextClosing?: () => void;
   onSync?: () => void;
 };
 
 function EventDetailsModal({
   selected, editing, title, startsAt, note, error, busy, saleDisabled, hasSale,
-  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onBookConfirmation, onBookNextClosing, onSync, canMarkConfirmationLost, canRecordClosingRevenue,
+  onSale, onClose, onEdit, onCancelEdit, onTitle, onStartsAt, onNote, onSave, onDelete, onOutcome, onBookClosing, onBookConfirmation, onSync, canMarkConfirmationLost, canRecordClosingRevenue,
 }: EventDetailsProps) {
   const task = selected.kind === "crm" ? selected.task : null;
   const heading = selected.kind === "crm" ? appointmentSubject(selected.task) : selected.event.summary || "Impegno Google";
@@ -457,7 +522,7 @@ function EventDetailsModal({
     : "Evento Google personale";
 
   const isClosing = task?.appointment_type === "demo";
-  const showOutcomeFirst = isClosing && !beforeStart;
+  const showOutcomeFirst = !beforeStart;
   const outcomeControls = task && (task.appointment_type || task.confirmation_for) && task.appointment_status !== "cancelled" && (
     <CalendarOutcome key={`${task.id}:${task.updated_at}:${selected.kind === "crm" ? selected.lead?.stage_id : ""}`}
       task={task} busy={busy} onOutcome={onOutcome} canMarkLost={canMarkConfirmationLost}
@@ -477,7 +542,7 @@ function EventDetailsModal({
 
       {editing ? <div className="calendar-event-edit">
         <label>Titolo<input autoFocus value={title} onChange={event => onTitle(event.target.value)} /></label>
-        <LeadDateTimePicker value={startsAt} onChange={onStartsAt} disabled={busy} />
+        <LeadDateTimePicker value={startsAt} onChange={onStartsAt} disabled={busy} revealPanel />
         <label>Note<textarea value={note} onChange={event => onNote(event.target.value)} /></label>
       </div> : <>
         <dl className="calendar-appointment-facts">
@@ -508,15 +573,12 @@ function EventDetailsModal({
           (!task.lead_id || (selected.kind === "crm" && selected.lead)) &&
           <button className="btn primary" type="button" disabled={busy} onClick={onBookClosing}>Prenota closing</button>}
 
-        {onBookNextClosing &&
-          <button className="btn" type="button" disabled={busy} onClick={onBookNextClosing}>Prenota un’altra demo dopo 30 min</button>}
-
         {task?.appointment_type === "demo" && ["held", "scheduled", "rescheduled"].includes(task.appointment_status || "") &&
-          <button className={showOutcomeFirst ? "btn calendar-confirmation-action" : "btn primary"} type="button" disabled={busy} onClick={onBookConfirmation}>Prenota call di conferma</button>}
+          <button className="btn calendar-confirmation-action" type="button" disabled={busy} onClick={onBookConfirmation}>Prenota call di conferma</button>}
 
         {canReschedule && <div className="calendar-reschedule-action">
-          <div><b>Il contatto ha chiesto un rinvio?</b><p>{reopenSetting ? "Spostando il setting, correggi anche l’esito precedente." : "Sposta lo stesso evento nel CRM e su Google Calendar."}</p></div>
-          <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
+          {reopenSetting && <p>Il rinvio corregge anche l’esito precedente.</p>}
+          <button className="btn" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
         </div>}
         {!showOutcomeFirst && (canReschedule && beforeStart && outcomeControls
           ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
@@ -525,7 +587,7 @@ function EventDetailsModal({
             </details>
           : outcomeControls)}
 
-        {(task?.commercial_tracked || task?.confirmation_for) && onSync && (!task.google_event_id || isOwnerManagedDiscovery(task)) && !task.completed_at &&
+        {(task?.commercial_tracked || task?.confirmation_for) && onSync && !task.completed_at &&
           <button type="button" className="btn calendar-sync-action" disabled={busy} onClick={onSync}>Sincronizza con Google</button>}
 
         {selected.kind === "google" && <div className="calendar-sale-action">
@@ -543,7 +605,7 @@ function EventDetailsModal({
           <button className="btn" type="button" disabled={busy} onClick={onCancelEdit}>Annulla</button>
           <button className="btn primary" type="button" disabled={busy} onClick={onSave}>{busy ? "Salvataggio…" : "Salva modifiche"}</button>
         </> : <>
-          <button className="btn danger" type="button" disabled={busy || hasSale} onClick={onDelete}>Elimina</button>
+          <button className="btn danger calendar-delete-action" type="button" disabled={busy || hasSale} onClick={onDelete}>Elimina</button>
           {canEdit && !canReschedule && <button className="btn" type="button" disabled={busy} onClick={onEdit}>Modifica appuntamento</button>}
         </>}
       </footer>

@@ -9,6 +9,7 @@ export type DisplayEvent = {
   title: string;
   subtitle: string;
   kind: "crm" | "google" | "owner";
+  state?: "won" | "held" | "absent";
   allDay?: boolean;
   skipAsNext?: boolean;
   onOpen: () => void;
@@ -28,7 +29,7 @@ function untilNext(minutes: number) {
 function EventButton({ event, compact = false }: { event: DisplayEvent; compact?: boolean }) {
   const time = event.allDay ? "Tutto il giorno" : timeFormat.format(new Date(event.at));
   return <button type="button" className={`schedule-event ${event.kind}${compact ? " compact" : ""}`}
-    onClick={event.onOpen} title={event.title} aria-label={`${time} · ${event.title} · ${event.subtitle}`}>
+    data-state={event.state} onClick={event.onOpen} title={event.title} aria-label={`${time} · ${event.title} · ${event.subtitle}`}>
     <time dateTime={event.at}>{time}</time>
     <b>{event.title}</b>
     {!compact && <small>{event.subtitle}</small>}
@@ -100,7 +101,7 @@ export default function CalendarSchedule({ days, events, onCreate, view, onViewC
       {next && <span>Prossimo impegno alle <time dateTime={next.at}>{timeFormat.format(new Date(next.at))}</time> · {untilNext(next.minutes)}</span>}
     </div>}
     {view === "agenda" ? <div className="schedule-agenda">
-      {week.map(({ day, date, dailyEvents }) => <section key={day}>
+      {week.map(({ day, date, dailyEvents }) => <section key={day} className={day === today ? "today" : undefined}>
         <header>
           <b>{date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</b>
           <button className="btn" type="button" onClick={() => onCreate(date)}>+ Appuntamento</button>
