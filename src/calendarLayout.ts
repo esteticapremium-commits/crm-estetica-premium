@@ -33,3 +33,14 @@ export function nextTimedEvent(events: readonly { at: string; allDay?: boolean; 
   }
   return nextAt ? { at: nextAt, minutes: Math.max(0, Math.ceil(delay / 60_000)) } : null;
 }
+
+
+export function calendarLeadMatches<T extends {name: string | null; email: string | null; phone: string | null}>(leads: T[], search: string) {
+  const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const query = normalize(search);
+  if (!query) return [];
+  const phoneQuery = query.replace(/[\s()+.-]/g, "");
+  return leads.filter(lead =>
+    normalize([lead.name, lead.email, lead.phone].filter(Boolean).join(" ")).includes(query) ||
+    (/^\d+$/.test(phoneQuery) && (lead.phone || "").replace(/\D/g, "").includes(phoneQuery)));
+}

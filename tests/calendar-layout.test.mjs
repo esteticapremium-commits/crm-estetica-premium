@@ -49,3 +49,15 @@ test('il conto alla rovescia usa il prossimo appuntamento valido e ignora quelli
  assert.equal(nextTimedEvent([{at:'2026-11-25T12:15:00Z'}],now).minutes,0);
  assert.equal(nextTimedEvent([{at:'2026-11-25T12:14:59Z'}],now),null);
 });
+
+test('ricerca lead anche oltre il primo migliaio, per accenti, telefono ed email', () => {
+ const leads = Array.from({ length: 1100 }, () => ({name:'Altro',email:null,phone:null}));
+ const lead = {name:'Caffè Élite',email:'info@elite.it',phone:'+39 333 123-4567'};
+ leads.push(lead);
+ for (const query of ['caffe elite', '3331234567', ' INFO@ELITE.IT ']) {
+  const results = exports.calendarLeadMatches(leads, query);
+  assert.equal(results.length, 1);
+  assert.equal(results[0], lead);
+ }
+ assert.equal(exports.calendarLeadMatches(leads, '   ').length, 0);
+});
