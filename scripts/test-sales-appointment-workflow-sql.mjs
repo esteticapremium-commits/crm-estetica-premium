@@ -220,4 +220,46 @@ const standaloneDemo = await scalar("select to_jsonb(t) from sales_tasks t where
 assert.equal((await outcome(standaloneDemo, "won")).appointment_outcome, "won");
 await assert.rejects(() => outcome(answered, "won"), /Esito non valido/);
 console.log("SQL OK: vendita vinta, retry, correzione e nessun incasso implicito");
+await db.exec("reset role");
+await db.exec(`
+  create or replace function public.is_admin() returns boolean language sql as $$select my_full_name()='Giovanni'$$;
+  alter table leads add column value numeric, add column closing_date date;
+  alter table sales_revenue_events add column pipeline_id uuid, add column revenue_type text,
+    add column amount numeric, add column contract_value numeric, add column status text,
+    add column assigned_to text, add column created_by text, add column note text, add column event_key text,
+    add column created_at timestamptz default now();
+  create unique index revenue_key on sales_revenue_events(client_id,event_key);
+  insert into stages values ('00000000-0000-0000-0000-000000000046','${client}','${pipelineId}','CLOSED',3);
+  update sales_revenue_events set amount=100,status='collected',revenue_type='new' where sale_appointment_id='${demo}';
+`);
+await db.exec(readFileSync("supabase/upgrade_calendar_closing_revenue.sql", "utf8"));
+await db.exec(readFileSync("supabase/upgrade_daily_revenue_overview.sql", "utf8"));
+await db.exec(readFileSync("supabase/upgrade_monthly_revenue_overview.sql", "utf8"));
+const saveCalendarClosing = (task, contract, cash, revenueType = "new") => scalar(
+  "select to_jsonb(save_calendar_closing($1,$2,$3,$4,$5))", [task.id, task.updated_at, contract, cash, revenueType],
+);
+await db.exec("set test.actor='Altro venditore'; set role authenticated");
+await assert.rejects(() => saveCalendarClosing(standaloneDemo, 4000, 0), /Solo l’amministratore/);
+await db.exec("set test.actor='Giovanni'");
+const demoForRevenue = await scalar("select to_jsonb(t) from sales_tasks t where id=$1", [demo]);
+await assert.rejects(() => saveCalendarClosing(demoForRevenue, 1000, 50), /inferiore/);
+await assert.rejects(() => saveCalendarClosing(demoForRevenue, 1000, 1200), /compreso/);
+assert.equal(await scalar("select appointment_outcome from sales_tasks where id=$1", [demo]), "lost");
+const closingWithCash = await saveCalendarClosing(demoForRevenue, 1200, 400);
+assert.equal(closingWithCash.appointment_outcome, "won");
+assert.equal(await scalar("select value::int from leads where id=$1", [lead]), 1200);
+assert.equal(await scalar("select s.name from stages s join leads l on l.stage_id=s.id where l.id=$1", [lead]), "CLOSED");
+assert.equal(await scalar("select sum(amount)::int from sales_revenue_events where sale_appointment_id=$1 and status='collected'", [demo]), 400);
+assert.equal((await saveCalendarClosing(demoForRevenue, 1200, 400)).updated_at, closingWithCash.updated_at);
+await assert.rejects(() => saveCalendarClosing(demoForRevenue, 1500, 500), /aggiornato/);
+await saveCalendarClosing(closingWithCash, 1300, 300);
+assert.equal(await scalar("select count(*)::int from sales_revenue_events where event_key=$1", [`calendar-closing:${demo}`]), 1);
+assert.equal(await scalar("select company_daily_collected($1,(now() at time zone 'Europe/Rome')::date)::int", [client]), 300);
+assert.equal(await scalar("select company_monthly_collected($1,(now() at time zone 'Europe/Rome')::date)::int", [client]), 300);
+const currentStandalone = await scalar("select to_jsonb(t) from sales_tasks t where id=$1", [standalone]);
+const unpaid = await saveCalendarClosing(currentStandalone, 3000, 0);
+assert.equal(unpaid.appointment_outcome, "won");
+assert.equal(await scalar("select status from sales_revenue_events where sale_appointment_id=$1", [standalone]), "expected");
+assert.equal(await scalar("select company_daily_collected($1,(now() at time zone 'Europe/Rome')::date)::int", [client]), 300);
+console.log("SQL OK: importi closing, pagamenti esistenti, aggiornamenti, permessi e totali della dashboard");
 await db.close();
