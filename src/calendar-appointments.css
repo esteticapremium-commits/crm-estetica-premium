@@ -162,14 +162,72 @@
   border-left-color: var(--ep-brand);
 }
 
-.calendar-closing-form,
-.calendar-closing-amounts {
+/* Closing details and outcome */
+.theme-premium.platform-shell .calendar-closing-dialog { gap: 16px; }
+.calendar-closing-dialog .calendar-appointment-facts { gap: 0 16px; }
+.calendar-closing-dialog .calendar-appointment-facts > div {
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ep-border);
+  border-radius: 0;
+}
+.calendar-closing-dialog .calendar-confirmation-action { justify-self: start; }
+.theme-premium.platform-shell .calendar-closing-dialog .appointment-outcomes {
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+}
+.theme-premium.platform-shell .calendar-closing-dialog .appointment-outcomes > b { font-size: 16px; }
+.theme-premium.platform-shell .calendar-closing-dialog .appointment-outcomes > [role="group"] {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.calendar-closing-dialog .appointment-outcomes [role="group"] > .btn { font-size: 13px; }
+.theme-premium.platform-shell .calendar-closing-dialog .btn[data-outcome="won"] {
+  border-color: var(--ep-success);
+  background: var(--ep-success-soft);
+  color: var(--ep-success);
+  font-weight: 800;
+}
+.theme-premium.platform-shell .calendar-closing-dialog .btn[data-outcome="won"][aria-pressed="true"] {
+  background: var(--ep-success);
+  color: #fff;
 }
 
+.calendar-closing-form,
+.calendar-closing-amounts { display: grid; gap: 12px; }
+.calendar-closing-form {
+  padding-top: 14px;
+  border-top: 1px solid var(--ep-border);
+}
 .calendar-closing-amounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.calendar-closing-form label { display: grid; gap: 5px; min-width: 0; }
+.calendar-closing-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ep-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
 .calendar-closing-form input,
-.calendar-closing-form select { width: 100%; min-width: 0; }
+.calendar-closing-form select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+.calendar-amount-input { position: relative; display: block; }
+.calendar-amount-input > span {
+  position: absolute;
+  inset-inline-start: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ep-muted);
+  pointer-events: none;
+}
+.theme-premium.platform-shell .calendar-amount-input input {
+  padding-inline-start: 30px;
+  font-variant-numeric: tabular-nums;
+}
 .calendar-closing-form .notice { margin: 0; }
+.calendar-closing-form .calendar-outcome-actions { justify-content: flex-end; }
+
+@media (max-width: 380px) {
+  .calendar-closing-amounts { grid-template-columns: minmax(0, 1fr); }
+}

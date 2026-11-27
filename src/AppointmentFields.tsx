@@ -26,6 +26,7 @@ export function AppointmentOutcomeChoices({ type, value, disabled, beforeStart =
       className={`btn small${value === outcome ? " primary" : ""}`}
       type="button"
       disabled={disabled}
+      data-outcome={outcome}
       aria-pressed={value === outcome}
       onClick={() => onChange(outcome)}
     >{beforeStart ? "No-show preannunciato" : outcome === "no_show" && (type === "setting" || type === "discovery") ? "Disdetta" : type === "setting" && outcome === "no_answer" ? "Non risponde" : labels[outcome]}</button>)}

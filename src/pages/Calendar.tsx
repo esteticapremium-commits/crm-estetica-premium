@@ -456,8 +456,16 @@ function EventDetailsModal({
     ? task.confirmation_for ? CONFIRMATION_LABEL : task.appointment_type ? APPOINTMENT_LABELS[task.appointment_type] : "Appuntamento CRM"
     : "Evento Google personale";
 
+  const isClosing = task?.appointment_type === "demo";
+  const showOutcomeFirst = isClosing && !beforeStart;
+  const outcomeControls = task && (task.appointment_type || task.confirmation_for) && task.appointment_status !== "cancelled" && (
+    <CalendarOutcome key={`${task.id}:${task.updated_at}:${selected.kind === "crm" ? selected.lead?.stage_id : ""}`}
+      task={task} busy={busy} onOutcome={onOutcome} canMarkLost={canMarkConfirmationLost}
+      canRecordClosingRevenue={canRecordClosingRevenue} />
+  );
+
   return <div className="calendar-modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
-    <section className="calendar-modal calendar-event-modal calendar-appointment-dialog" role="dialog" aria-modal="true" aria-label="Dettagli evento" onClick={event => event.stopPropagation()}>
+    <section className={`calendar-modal calendar-event-modal calendar-appointment-dialog${isClosing && !editing ? " calendar-closing-dialog" : ""}`} role="dialog" aria-modal="true" aria-label="Dettagli evento" onClick={event => event.stopPropagation()}>
       <header className="calendar-appointment-header">
         <div>
           <h2>{editing ? "Modifica appuntamento" : heading}</h2>
@@ -494,6 +502,8 @@ function EventDetailsModal({
           </>}
         </dl>
 
+        {showOutcomeFirst && outcomeControls}
+
         {task?.appointment_type === "discovery" && task.appointment_status !== "cancelled" &&
           (!task.lead_id || (selected.kind === "crm" && selected.lead)) &&
           <button className="btn primary" type="button" disabled={busy} onClick={onBookClosing}>Prenota closing</button>}
@@ -502,19 +512,18 @@ function EventDetailsModal({
           <button className="btn" type="button" disabled={busy} onClick={onBookNextClosing}>Prenota un’altra demo dopo 30 min</button>}
 
         {task?.appointment_type === "demo" && ["held", "scheduled", "rescheduled"].includes(task.appointment_status || "") &&
-          <button className="btn primary" type="button" disabled={busy} onClick={onBookConfirmation}>Prenota call di conferma</button>}
+          <button className={showOutcomeFirst ? "btn calendar-confirmation-action" : "btn primary"} type="button" disabled={busy} onClick={onBookConfirmation}>Prenota call di conferma</button>}
 
         {canReschedule && <div className="calendar-reschedule-action">
           <div><b>Il contatto ha chiesto un rinvio?</b><p>{reopenSetting ? "Spostando il setting, correggi anche l’esito precedente." : "Sposta lo stesso evento nel CRM e su Google Calendar."}</p></div>
           <button className="btn primary" type="button" disabled={busy} onClick={onEdit}>Riprogramma appuntamento</button>
         </div>}
-        {task && (task.appointment_type || task.confirmation_for) && task.appointment_status !== "cancelled" &&
-          (canReschedule && beforeStart
-            ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
-                <p>Usalo se il contatto ha annullato e non avete concordato un nuovo orario.</p>
-                <CalendarOutcome key={`${task.id}:${task.updated_at}:${selected.kind === "crm" ? selected.lead?.stage_id : ""}`} task={task} busy={busy} onOutcome={onOutcome} canMarkLost={canMarkConfirmationLost} canRecordClosingRevenue={canRecordClosingRevenue} />
-              </details>
-            : <CalendarOutcome key={`${task.id}:${task.updated_at}:${selected.kind === "crm" ? selected.lead?.stage_id : ""}`} task={task} busy={busy} onOutcome={onOutcome} canMarkLost={canMarkConfirmationLost} canRecordClosingRevenue={canRecordClosingRevenue} />)}
+        {!showOutcomeFirst && (canReschedule && beforeStart && outcomeControls
+          ? <details className="calendar-early-outcome"><summary>No-show preannunciato</summary>
+              <p>Usalo se il contatto ha annullato e non avete concordato un nuovo orario.</p>
+              {outcomeControls}
+            </details>
+          : outcomeControls)}
 
         {(task?.commercial_tracked || task?.confirmation_for) && onSync && (!task.google_event_id || isOwnerManagedDiscovery(task)) && !task.completed_at &&
           <button type="button" className="btn calendar-sync-action" disabled={busy} onClick={onSync}>Sincronizza con Google</button>}
@@ -559,7 +568,7 @@ function CalendarOutcome({ task, busy, onOutcome, canMarkLost, canRecordClosingR
     : value === "no_show" || value === "no_answer" ? value === "no_answer" && task.appointment_type === "setting" ? "Non risponde e riprenota setting" : "No-show e riprenota"
     : null;
   return <div className="appointment-outcomes">
-    {!beforeStart && <b>{isAppointmentClosed(task) ? "Correggi l’esito" : "Com’è andata?"}</b>}
+    {!beforeStart && <b>{type === "demo" || !isAppointmentClosed(task) ? "Com’è andata?" : "Correggi l’esito"}</b>}
     <AppointmentOutcomeChoices type={type} value={value} disabled={busy} beforeStart={beforeStart} onChange={setValue} />
     {type === "demo" && value === "held" && <label><input type="checkbox" checked={proposalMade ?? false} disabled={busy} onChange={event => setProposalMade(event.target.checked)} /> Proposta presentata</label>}
     {type === "confirmation" && canMarkLost && <label className="calendar-confirmation-disposition">
@@ -639,12 +648,24 @@ function CalendarClosingAmounts({ task, busy, onSave }: {
       </select>
     </label>}
     <div className="calendar-closing-amounts">
-      <label>Valore del contratto (€)<input type="text" inputMode="decimal" value={contract} disabled={busy || loading} onChange={event => setContract(event.target.value)} /></label>
-      <label>Incassato (€)<input type="text" inputMode="decimal" placeholder="0,00" value={cash} disabled={busy || loading} onChange={event => setCash(event.target.value)} /></label>
+      <label>Valore del contratto
+        <span className="calendar-amount-input">
+          <span aria-hidden="true">€</span>
+          <input type="text" inputMode="decimal" placeholder="0,00" value={contract}
+            disabled={busy || loading} onChange={event => setContract(event.target.value)} />
+        </span>
+      </label>
+      <label>Incassato
+        <span className="calendar-amount-input">
+          <span aria-hidden="true">€</span>
+          <input type="text" inputMode="decimal" placeholder="0,00" value={cash}
+            disabled={busy || loading} onChange={event => setCash(event.target.value)} />
+        </span>
+      </label>
     </div>
     {validation && <p className="notice err" role="alert">{validation}</p>}
     <div className="calendar-outcome-actions">
-      <button type="submit" className="btn primary" disabled={busy || loading}>{loading ? "Caricamento…" : busy ? "Salvataggio…" : "Salva esito"}</button>
+      <button type="submit" className="btn primary" disabled={busy || loading}>{loading ? "Caricamento…" : busy ? "Salvataggio…" : "Salva chiusura"}</button>
     </div>
   </form>;
 }
