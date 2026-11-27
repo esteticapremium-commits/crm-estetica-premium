@@ -28,13 +28,13 @@ function googleAppointmentEnd(start: Date, type: AppointmentType | null | undefi
 
 export type AppointmentAudience = "lead" | "client";
 export type DiscoveryOutcome = "qualified" | "not_qualified" | "no_answer" | "no_show";
-export type DemoOutcome = "held" | "lost" | "no_show";
+export type DemoOutcome = "held" | "won" | "lost" | "no_show";
 export type SettingOutcome = "answered" | "no_answer" | "not_interested" | "no_show";
 export type AppointmentOutcome = SettingOutcome | DiscoveryOutcome | DemoOutcome;
 
 const SETTING_OUTCOMES: SettingOutcome[] = ["answered", "no_answer", "not_interested", "no_show"];
 export const DISCOVERY_OUTCOMES: DiscoveryOutcome[] = ["qualified", "not_qualified", "no_answer", "no_show"];
-export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "lost", "no_show"];
+export const DEMO_OUTCOMES: DemoOutcome[] = ["held", "won", "lost", "no_show"];
 const CONFIRMATION_OUTCOMES: AppointmentOutcome[] = ["held", "no_show"];
 
 /** Gli unici esiti ammessi per fase. Una demo non può essere "in target" e una
@@ -64,6 +64,7 @@ export const APPOINTMENT_LABELS: Record<AppointmentType, string> = {
 export const APPOINTMENT_SHORT_LABELS: Record<AppointmentType, string> = {
   setting: "Setting", discovery: "Discovery", demo: "Closing",
 };
+export const CLOSING_WON_LABEL = "Vendita vinta";
 export const CONFIRMATION_LABEL = "Call di conferma";
 export const CONFIRMATION_MINUTES = 30;
 const titleLabels = [...Object.values(APPOINTMENT_LABELS), CONFIRMATION_LABEL, "Discovery telefonica", "Demo video", "Appuntamento"].join("|");

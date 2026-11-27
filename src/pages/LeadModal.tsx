@@ -13,7 +13,7 @@ import { romeDay, romeStamp } from "../dates";
 import { isPrivateDeed, normalizeSpecificApprovalSignature, openSignedContractPdf } from "../contractPdf";
 import { PRIVATE_DEED_TEMPLATE, TRIAL_5K_RENEWAL_CONTRACT_TEMPLATE, TRIAL_CONTRACT_TEMPLATE } from "../defaultContractTemplates";
 import { CHANNEL_LABELS, defaultAudience, defaultCallType, EVENT_LABELS, OUTCOME_LABELS, quickActivityKey, revenueKey, type CallType } from "../salesKpi";
-import { APPOINTMENT_DURATION, APPOINTMENT_SHORT_LABELS, allowedOutcomes, appointmentSubject, createAppointment, isAppointmentClosed, leadAppointments, outcomeKey, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
+import { APPOINTMENT_DURATION, APPOINTMENT_SHORT_LABELS, CLOSING_WON_LABEL, allowedOutcomes, appointmentSubject, createAppointment, isAppointmentClosed, leadAppointments, outcomeKey, recordAppointmentOutcome, updateAppointment, type AppointmentAudience, type AppointmentOutcome, type AppointmentType } from "../appointments";
 import type { Contract, ContractTemplate, Lead, LeadActivity, Pipeline, SalesRevenueEvent, SalesOutreachEvent, SalesTask, Stage } from "../types";
 
 const BUILT_IN_TRIAL_TEMPLATE_ID = "built-in-trial-contract";
@@ -31,7 +31,7 @@ const activityTaskId = (activity: LeadActivity) => String(activity.details?.task
 const appointmentOutcomeLabel: Record<AppointmentOutcome, string> = {
   answered: "Ha risposto", not_interested: "Non interessato",
   qualified: "In target", not_qualified: "Fuori target", no_answer: "No-show", held: "Svolta", no_show: "No-show",
-  lost: "Offerta rifiutata",
+  won: CLOSING_WON_LABEL, lost: "Offerta rifiutata",
 };
 type ContactType = CallType | "setting";
 type AppointmentDraft = { task: SalesTask; due: string; note: string } & (
